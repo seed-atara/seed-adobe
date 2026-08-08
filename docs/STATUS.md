@@ -4,7 +4,8 @@ Last updated: 2026-08-09
 
 ## Current milestone
 
-Milestones 0–3 complete, **Seedream verified against the live Ark API**.
+Milestones 0–3 complete, **Seedream verified against the live Ark API**, and
+the panel ships as a **CEP extension that docks inside After Effects**.
 Milestone 4 (Seedance) is deliberately not implemented — the model id is now
 known (`dreamina-seedance-2-5-260628`) but its request contract is not.
 
@@ -65,18 +66,27 @@ logger. Routes: health, AE context/capture/import, asset register/list/get/file
 (+thumbnail variant)/lineage/recipe, providers, generations, jobs (+cancel).
 Generation runs as a background job; the request never blocks on a provider.
 
-### Panel (`apps/panel`)
+### Panel (`apps/panel`) and extension (`apps/extension`)
 
-React + Vite. Generate / Library / Lineage views, asset detail with recipe,
-provenance, raw payload, and Import / Insert at playhead / Variation / Use as
-reference actions. Capability-driven controls. `npm run dev` in `apps/panel`.
+React + Vite, styled as Windows 95 (see ADR 0006). Generate / Library /
+Lineage views, asset detail with recipe, provenance, raw payload, and Import /
+Insert at playhead / Variation / Use as reference actions. Controls are driven
+by declared provider capabilities.
+
+Ships as a CEP extension that docks in After Effects:
+`pwsh -File scripts/install-extension.ps1`, then Window → Extensions → SEED / AE.
+In CEP the panel drives AE itself through `jsx/seed-host.jsx` (capture via
+`saveFrameToPng`, import into a SEED folder, insert at playhead inside an undo
+group) and registers results with the service. In a browser it falls back to
+the service's mock host, so everything stays testable without Adobe.
 
 ## Known gaps
 
-- **Thumbnails are PNG-only, so no Seedream result has one.** Ark returns
-  JPEG and there is no JPEG decoder here. The panel falls back to serving the
-  full image, so the grid still works — but it ships ~700KB per card instead
-  of ~30KB. Needs a JPEG decoder or a different resize path. The adapter is
+- **The panel has not been driven inside After Effects.** It was verified in
+  a browser against the live service — capture, generate, library, recipe,
+  lineage and detail all confirmed working — but no one has yet loaded the
+  extension in AE and pressed Capture on a real comp. The ExtendScript host is
+  written and reviewed, not executed. The adapter is
   implemented against the verified contract (synchronous, `seed` supported,
   per-model minimum output area enforced locally, up to 14 references), but no
   generation has been run: inference needs a Bearer API key from the Ark
@@ -90,24 +100,15 @@ reference actions. Capability-driven controls. `npm run dev` in `apps/panel`.
 - **No CEP extension yet.** The panel runs in a browser; `MockAeHostAdapter`
   stands in for After Effects. Route decided (CEP — see
   `docs/research/ADOBE_INTEGRATION_NOTES.md`); the extension itself is unbuilt.
-- **The panel UI has not been driven in a real browser.** Its render paths and
-  client are covered by server-rendering tests, and the full loop is verified
-  through the same client code, but nobody has clicked it. The Chrome extension
-  and the headless browser were both unavailable on this machine.
 - Video is fixture-replay only; no real video provider.
-- Thumbnails cover PNG only (JPEG/WebP decode not implemented) and degrade
-  gracefully to none.
-- Jobs do not resume after a service restart. `JobRepository.listUnfinished()`
-  exists for this but nothing calls it.
-- Seed is stored as text, so a numeric seed round-trips as `"42"`.
+- Thumbnails cover PNG and JPEG. WebP and video have no decoder and degrade
+  to no thumbnail (the panel then shows a placeholder).
+- Interrupted jobs are closed out as failed on startup rather than resumed.
+  True resume would need to re-poll the provider by `providerJobId`.
 
 ## Next engineering actions
 
-1. Thumbnail JPEG results, so the library grid stops serving full-size images.
+1. Load the extension in After Effects and run the loop on a real comp.
 2. Implement a `PublicUrlPublisher` (presigned S3/R2/GCS) to enable the
    `asset://` reference route, then switch `ARK_REFERENCE_POLICY` to `asset`.
-3. Build the CEP extension: manifest, ExtendScript host bridge (comp export,
-   import, timeline insert), and swap `MockAeHostAdapter` for it.
-4. Drive the panel in a browser and fix what that finds.
-5. Resume unfinished jobs on startup.
-6. Seedance 2.5 once official docs and access exist — adapter only.
+3. Seedance 2.5 once official docs and access exist — adapter only.

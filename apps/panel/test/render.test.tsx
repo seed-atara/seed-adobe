@@ -78,26 +78,6 @@ describe("views render before any data arrives", () => {
 });
 
 describe("SeedClient", () => {
-  it("requests the thumbnail variant when one exists", async () => {
-    const { SeedClient } = await import("../src/api/client.ts");
-    const client = new SeedClient("http://svc", "token");
-    const base = {
-      id: "ast_1",
-      kind: "image" as const,
-      status: "ready" as const,
-      filename: "a.png",
-      mimeType: "image/png",
-      storageUri: "assets/generated/a.png",
-      createdAt: "2026-08-09T10:00:00.000Z",
-      source: { type: "imported" as const },
-    };
-
-    expect(client.assetFileUrl(base)).toBe("http://svc/v1/assets/ast_1/file");
-    expect(
-      client.assetFileUrl({ ...base, thumbnailUri: "assets/thumbnails/ast_1.png" }),
-    ).toBe("http://svc/v1/assets/ast_1/file?variant=thumbnail");
-  });
-
   it("surfaces a service error code rather than a raw HTTP failure", async () => {
     const { SeedClient, ServiceError } = await import("../src/api/client.ts");
     const client = new SeedClient("http://svc", "token");
@@ -117,5 +97,69 @@ describe("SeedClient", () => {
     } finally {
       globalThis.fetch = original;
     }
+  });
+});
+
+describe("windows 95 chrome", () => {
+  it("renders a title bar and status cells, not a bare page", async () => {
+    store.set("seed-ae.session-token", "demo-token");
+    const html = await render();
+    expect(html).toContain('class="titlebar"');
+    expect(html).toContain('class="statusbar"');
+    expect(html).toContain('class="led');
+    // Tabs are the 95 tab control, and views sit inside group boxes.
+    expect(html).toContain('role="tablist"');
+    expect(html).toContain('class="section"');
+    expect(html).toContain('class="section-label"');
+  });
+
+  it("frames the connect prompt as a dialog with a title bar", async () => {
+    const html = await render();
+    expect(html).toContain('class="titlebar"');
+    expect(html).toContain("Connect to SEED service");
+    expect(html).toContain('class="notice"');
+    expect(html).toContain(">OK<");
+  });
+});
+
+describe("media loading", () => {
+  it("never puts the session token in an image URL", async () => {
+    const { SeedClient } = await import("../src/api/client.ts");
+    const client = new SeedClient("http://svc", "secret-token");
+
+    let requested: { url: string; init: RequestInit } | undefined;
+    const original = globalThis.fetch;
+    globalThis.fetch = (async (url: string, init: RequestInit) => {
+      requested = { url: String(url), init };
+      return new Response(new Blob([new Uint8Array([1, 2, 3])]), { status: 200 });
+    }) as unknown as typeof fetch;
+
+    try {
+      await client.assetBlob(
+        {
+          id: "ast_1",
+          kind: "image",
+          status: "ready",
+          filename: "a.png",
+          mimeType: "image/png",
+          storageUri: "assets/generated/a.png",
+          thumbnailUri: "assets/thumbnails/ast_1.png",
+          createdAt: "2026-08-09T10:00:00.000Z",
+          source: { type: "imported" },
+        },
+        "thumbnail",
+      );
+    } finally {
+      globalThis.fetch = original;
+    }
+
+    expect(requested?.url).toBe(
+      "http://svc/v1/assets/ast_1/file?variant=thumbnail",
+    );
+    expect(requested?.url).not.toContain("secret-token");
+    // The token travels in the header, where it belongs.
+    expect(
+      (requested?.init.headers as Record<string, string>).authorization,
+    ).toBe("Bearer secret-token");
   });
 });

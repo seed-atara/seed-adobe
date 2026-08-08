@@ -1,13 +1,18 @@
 import { readFile, stat } from "node:fs/promises";
 import path from "node:path";
 import {
+  AeContextSchema,
   CaptureFrameRequestSchema,
   ImportAssetRequestSchema,
   SeedError,
   assetKindFromMimeType,
+  type Asset,
   type AssetDraft,
+  type CapturedMedia,
 } from "@seed-ae/domain";
+import { readPngSize } from "@seed-ae/media";
 import { resolveStorageUri, toStorageUri } from "@seed-ae/storage";
+import { z } from "zod";
 import type { AppDeps } from "../app.js";
 import { parseWith, readJsonBody } from "../http/body.js";
 import { json } from "../http/respond.js";
@@ -21,9 +26,60 @@ export function aeContextRoute(deps: AppDeps) {
 }
 
 /**
+ * Registers a rendered frame as an immutable source asset carrying its AE
+ * provenance. Shared by the service-driven capture and the CEP panel, which
+ * renders the frame itself and then hands over the path.
+ */
+async function registerCapturedFrame(
+  deps: AppDeps,
+  captured: CapturedMedia,
+  format: "png" | "exr",
+  includesAlpha: boolean,
+): Promise<Asset> {
+  const stats = await stat(captured.path);
+  const bytes = await readFile(captured.path);
+  const probed = readPngSize(bytes);
+
+  const draft: AssetDraft = {
+    kind: assetKindFromMimeType(captured.mimeType),
+    filename: path.basename(captured.path),
+    mimeType: captured.mimeType,
+    storageUri: toStorageUri(deps.workspace, captured.path),
+    byteSize: stats.size,
+    ...(captured.width ?? probed?.width
+      ? { width: (captured.width ?? probed?.width) as number }
+      : {}),
+    ...(captured.height ?? probed?.height
+      ? { height: (captured.height ?? probed?.height) as number }
+      : {}),
+    source: {
+      type: "after-effects",
+      context: captured.sourceContext,
+      captureFormat: format,
+      includesAlpha,
+    },
+  };
+
+  const asset = deps.assets.create(draft);
+  const thumbnailUri = await deps.ingestor.writeThumbnail(bytes, asset.id);
+  const registered = thumbnailUri
+    ? deps.assets.setThumbnail(asset.id, thumbnailUri)
+    : asset;
+
+  deps.logger.info("ae.frame.captured", {
+    assetId: asset.id,
+    compName: captured.sourceContext.compName,
+    frameNumber: captured.sourceContext.frameNumber,
+    byteSize: stats.size,
+  });
+
+  return registered;
+}
+
+/**
  * The Milestone 0 vertical slice: ask the host for the visible frame, write it
- * into the workspace, and register it as an immutable source asset carrying
- * its AE provenance.
+ * into the workspace, and register it. Used when the service owns the host
+ * adapter (mock, or a future out-of-process bridge).
  */
 export function captureFrameRoute(deps: AppDeps) {
   return async ({ req }: RequestContext) => {
@@ -36,39 +92,65 @@ export function captureFrameRoute(deps: AppDeps) {
       outputDir: deps.workspace.originalsDir,
     });
 
-    const stats = await stat(captured.path);
-    const draft: AssetDraft = {
-      kind: assetKindFromMimeType(captured.mimeType),
-      filename: path.basename(captured.path),
-      mimeType: captured.mimeType,
-      storageUri: toStorageUri(deps.workspace, captured.path),
-      byteSize: stats.size,
-      ...(captured.width !== undefined ? { width: captured.width } : {}),
-      ...(captured.height !== undefined ? { height: captured.height } : {}),
-      source: {
-        type: "after-effects",
-        context: captured.sourceContext,
-        captureFormat: request.format,
-        includesAlpha: request.includeAlpha,
-      },
+    const asset = await registerCapturedFrame(
+      deps,
+      captured,
+      request.format,
+      request.includeAlpha,
+    );
+    return json({ asset }, 201);
+  };
+}
+
+const RegisterCaptureSchema = z.object({
+  /** Absolute path the host wrote to; must be inside the workspace. */
+  path: z.string().min(1),
+  context: AeContextSchema,
+  mimeType: z.string().default("image/png"),
+  format: z.enum(["png", "exr"]).default("png"),
+  includeAlpha: z.boolean().default(false),
+  width: z.number().int().positive().optional(),
+  height: z.number().int().positive().optional(),
+});
+
+/**
+ * Used by the CEP panel: After Effects scripting lives in the panel, so the
+ * panel renders the frame and posts the path here for registration. The path
+ * is validated against the workspace before anything reads it.
+ */
+export function registerCaptureRoute(deps: AppDeps) {
+  return async ({ req }: RequestContext) => {
+    const body = await readJsonBody(req);
+    const request = parseWith(RegisterCaptureSchema, body);
+
+    // Round-tripping through the storage URI is the path validation: anything
+    // outside the workspace cannot be expressed as one.
+    const storageUri = toStorageUri(deps.workspace, request.path);
+    const absolutePath = resolveStorageUri(deps.workspace, storageUri);
+
+    const exists = await stat(absolutePath).then(
+      (stats) => stats.isFile(),
+      () => false,
+    );
+    if (!exists) {
+      throw new SeedError("not_found", `no file at ${request.path}`);
+    }
+
+    const captured: CapturedMedia = {
+      path: absolutePath,
+      mimeType: request.mimeType,
+      ...(request.width !== undefined ? { width: request.width } : {}),
+      ...(request.height !== undefined ? { height: request.height } : {}),
+      sourceContext: request.context,
     };
 
-    const asset = deps.assets.create(draft);
-    const bytes = await readFile(captured.path);
-    const thumbnailUri = await deps.ingestor.writeThumbnail(bytes, asset.id);
-    const registered = thumbnailUri
-      ? deps.assets.setThumbnail(asset.id, thumbnailUri)
-      : asset;
-
-    deps.logger.info("ae.frame.captured", {
-      assetId: asset.id,
-      host: deps.aeHost.id,
-      compName: captured.sourceContext.compName,
-      frameNumber: captured.sourceContext.frameNumber,
-      byteSize: stats.size,
-    });
-
-    return json({ asset: registered }, 201);
+    const asset = await registerCapturedFrame(
+      deps,
+      captured,
+      request.format,
+      request.includeAlpha,
+    );
+    return json({ asset }, 201);
   };
 }
 

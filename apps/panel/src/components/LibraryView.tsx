@@ -1,6 +1,6 @@
 import type { Asset } from "@seed-ae/domain";
 import type { SeedClient } from "../api/client.ts";
-import { OriginBadge, SectionLabel, formatStamp } from "./primitives.tsx";
+import { AssetImage, OriginBadge, SectionLabel, formatStamp } from "./primitives.tsx";
 
 interface Props {
   client: SeedClient;
@@ -12,18 +12,18 @@ interface Props {
 export function LibraryView({ client, assets, selectedId, onSelect }: Props) {
   if (assets.length === 0) {
     return (
-      <>
+      <div className="section">
         <SectionLabel>asset library</SectionLabel>
         <div className="empty">
           Nothing captured yet. Capture the current frame to start.
         </div>
-      </>
+      </div>
     );
   }
 
   return (
-    <>
-      <SectionLabel>asset library — {assets.length}</SectionLabel>
+    <div className="section">
+      <SectionLabel>asset library - {assets.length}</SectionLabel>
       <div className="grid">
         {assets.map((asset) => (
           <button
@@ -36,11 +36,7 @@ export function LibraryView({ client, assets, selectedId, onSelect }: Props) {
               {asset.status === "missing" ? (
                 <span className="placeholder">media missing</span>
               ) : asset.kind === "image" ? (
-                <img
-                  src={client.assetFileUrl(asset)}
-                  alt={asset.filename}
-                  loading="lazy"
-                />
+                <AssetImage client={client} asset={asset} variant="thumbnail" />
               ) : (
                 <span className="placeholder">{asset.kind}</span>
               )}
@@ -58,6 +54,6 @@ export function LibraryView({ client, assets, selectedId, onSelect }: Props) {
           </button>
         ))}
       </div>
-    </>
+    </div>
   );
 }

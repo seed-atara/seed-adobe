@@ -207,6 +207,17 @@ export class GenerationRepository {
   }
 }
 
+/**
+ * Seeds are stored as TEXT because providers accept either form, but a seed
+ * that went in as a number must come back as one — otherwise reopening a
+ * recipe silently changes its type and the round-trip is not reproducible.
+ */
+function parseSeed(value: string): number | string {
+  return /^-?\d+$/.test(value) && Number.isSafeInteger(Number(value))
+    ? Number(value)
+    : value;
+}
+
 function rowToGeneration(row: GenerationRow): Generation {
   return GenerationSchema.parse({
     id: row.id,
@@ -214,7 +225,7 @@ function rowToGeneration(row: GenerationRow): Generation {
     model: row.model,
     operation: row.operation,
     prompt: row.prompt,
-    ...(row.seed !== null ? { seed: row.seed } : {}),
+    ...(row.seed !== null ? { seed: parseSeed(row.seed) } : {}),
     parameters: JSON.parse(row.parameters_json),
     inputAssetIds: JSON.parse(row.input_asset_ids_json),
     outputAssetIds: JSON.parse(row.output_asset_ids_json),

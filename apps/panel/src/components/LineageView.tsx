@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import type { LineageResponse } from "@seed-ae/domain";
 import type { SeedClient } from "../api/client.ts";
-import { SectionLabel, formatStamp } from "./primitives.tsx";
+import { AssetImage, SectionLabel, formatStamp } from "./primitives.tsx";
 
 interface Props {
   client: SeedClient;
@@ -39,10 +39,10 @@ export function LineageView({ client, assetId, onSelect }: Props) {
 
   if (!assetId) {
     return (
-      <>
+      <div className="section">
         <SectionLabel>lineage</SectionLabel>
         <div className="empty">Select an asset to trace its provenance.</div>
-      </>
+      </div>
     );
   }
 
@@ -52,9 +52,9 @@ export function LineageView({ client, assetId, onSelect }: Props) {
   const ordered = orderLineage(graph);
 
   return (
-    <>
+    <div className="section">
       <SectionLabel>
-        lineage — {graph.assets.length} asset
+        lineage - {graph.assets.length} asset
         {graph.assets.length === 1 ? "" : "s"}
       </SectionLabel>
 
@@ -80,12 +80,14 @@ export function LineageView({ client, assetId, onSelect }: Props) {
               aria-current={asset.id === graph.rootAssetId}
             >
               <div className="lineage-rail">
-                <img
-                  className="lineage-thumb"
-                  src={client.assetFileUrl(asset)}
-                  alt={asset.filename}
-                  onClick={() => onSelect(asset.id)}
-                />
+                <span onClick={() => onSelect(asset.id)}>
+                  <AssetImage
+                    client={client}
+                    asset={asset}
+                    variant="thumbnail"
+                    className="lineage-thumb"
+                  />
+                </span>
                 {index < ordered.length - 1 ? (
                   <span className="lineage-connector" />
                 ) : null}
@@ -115,7 +117,7 @@ export function LineageView({ client, assetId, onSelect }: Props) {
           );
         })}
       </div>
-    </>
+    </div>
   );
 }
 

@@ -7,6 +7,7 @@ import {
   type JobView,
   type ProviderCapabilitiesDto,
 } from "./api/client.ts";
+import { CepAeBridge, isCepHost } from "./api/cep.ts";
 import { GenerateView, type GenerateForm } from "./components/GenerateView.tsx";
 import { LibraryView } from "./components/LibraryView.tsx";
 import { AssetDetail } from "./components/AssetDetail.tsx";
@@ -43,10 +44,21 @@ export function App() {
     [token],
   );
 
+  /**
+   * Inside After Effects the panel owns the AE scripting connection, so it
+   * captures and imports directly. In a browser it falls back to the service's
+   * host adapter, which keeps the whole product testable without Adobe.
+   */
+  const bridge = useMemo(
+    () => (isCepHost() ? new CepAeBridge(client) : undefined),
+    [client],
+  );
+
   const [tab, setTab] = useState<Tab>("generate");
   const [assets, setAssets] = useState<Asset[]>([]);
   const [providers, setProviders] = useState<ProviderCapabilitiesDto[]>([]);
   const [aeContext, setAeContext] = useState<Record<string, unknown>>({});
+  const [hostId, setHostId] = useState("mock");
   const [selectedId, setSelectedId] = useState<string | undefined>();
   const [form, setForm] = useState<GenerateForm>(EMPTY_FORM);
   const [job, setJob] = useState<JobView | undefined>();
@@ -91,7 +103,8 @@ export function App() {
         if (cancelled) return;
 
         setProviders(caps);
-        setAeContext(context.context);
+        setAeContext(bridge ? await bridge.getContext() : context.context);
+        setHostId(bridge ? "after-effects" : context.host);
         setConnection("live");
         setConnectionMessage("");
         setForm((current) =>
@@ -124,19 +137,19 @@ export function App() {
     return () => {
       cancelled = true;
     };
-  }, [client, token, refreshAssets]);
+  }, [client, token, refreshAssets, bridge]);
 
   // Keep the comp context readout honest while the artist moves the playhead.
   useEffect(() => {
     if (connection !== "live") return;
     const timer = setInterval(() => {
-      client
-        .aeContext()
-        .then(({ context }) => setAeContext(context))
-        .catch(() => undefined);
+      const read = bridge
+        ? bridge.getContext()
+        : client.aeContext().then(({ context }) => context);
+      read.then(setAeContext).catch(() => undefined);
     }, 4000);
     return () => clearInterval(timer);
-  }, [client, connection]);
+  }, [client, connection, bridge]);
 
   // Poll the active job until it settles, then pull in its outputs.
   const pollRef = useRef<number | undefined>(undefined);
@@ -164,7 +177,9 @@ export function App() {
     setBusy(true);
     setError(undefined);
     try {
-      const { asset } = await client.captureFrame();
+      const asset = bridge
+        ? await bridge.captureFrame()
+        : (await client.captureFrame()).asset;
       await refreshAssets();
       setSelectedId(asset.id);
       // A fresh capture is almost always the next reference.
@@ -178,7 +193,7 @@ export function App() {
     } finally {
       setBusy(false);
     }
-  }, [client, refreshAssets, report]);
+  }, [client, bridge, refreshAssets, report]);
 
   const startGeneration = useCallback(async () => {
     setBusy(true);
@@ -263,13 +278,26 @@ export function App() {
 
   return (
     <div className="shell">
-      <header className="topbar">
-        <span className={`dot ${connection === "live" ? "live" : ""}`} />
-        <span className="wordmark">
-          <b>SEED</b> / AE
+      <div className="titlebar">
+        <span className="icon">S</span>
+        <span className="label">SEED / AE</span>
+        <span className="controls">
+          <button className="ctl" tabIndex={-1} aria-hidden="true">
+            _
+          </button>
+          <button className="ctl" tabIndex={-1} aria-hidden="true">
+            &#9633;
+          </button>
+          <button className="ctl" tabIndex={-1} aria-hidden="true">
+            &times;
+          </button>
         </span>
-        <ContextStrip context={aeContext} />
-      </header>
+      </div>
+
+      <div className="statusbar">
+        <span className={`led ${connection === "live" ? "live" : ""}`} />
+        <ContextStrip context={aeContext} host={hostId} />
+      </div>
 
       <nav className="tabs" role="tablist">
         {(["generate", "library", "lineage"] as Tab[]).map((name) => (
@@ -330,6 +358,7 @@ export function App() {
           <aside className="column detail">
             <AssetDetail
               client={client}
+              bridge={bridge}
               asset={selected}
               onVariation={openRecipe}
               onUseAsReference={addReference}
@@ -343,29 +372,46 @@ export function App() {
   );
 }
 
-function ContextStrip({ context }: { context: Record<string, unknown> }) {
+function ContextStrip({
+  context,
+  host,
+}: {
+  context: Record<string, unknown>;
+  host: string;
+}) {
   const comp = typeof context.compName === "string" ? context.compName : undefined;
+  const hostLabel = host === "cep" || host === "after-effects" ? "AE" : "MOCK";
+
   if (!comp) {
-    return <div className="context-strip">no active composition</div>;
+    return (
+      <>
+        <span className="status-cell grow">
+          {host === "mock" ? "Mock host - no After Effects" : "No active composition"}
+        </span>
+        <span className="status-cell">{hostLabel}</span>
+      </>
+    );
   }
+
   const { width, height, fps, frameNumber } = context as {
     width?: number;
     height?: number;
     fps?: number;
     frameNumber?: number;
   };
+
   return (
-    <div className="context-strip">
-      <span className="value">{comp}</span>
-      <span className="sep">/</span>
-      <span>
-        {width}×{height}
+    <>
+      <span className="status-cell grow" title={comp}>
+        {comp}
       </span>
-      <span className="sep">/</span>
-      <span>{fps} fps</span>
-      <span className="sep">/</span>
-      <span>frame {frameNumber}</span>
-    </div>
+      <span className="status-cell">
+        {width}x{height}
+      </span>
+      <span className="status-cell">{fps ? `${fps}fps` : "-"}</span>
+      <span className="status-cell">f{frameNumber ?? "-"}</span>
+      <span className="status-cell">{hostLabel}</span>
+    </>
   );
 }
 
@@ -388,22 +434,30 @@ function ConnectScreen({
           if (value.trim()) onConnect(value.trim());
         }}
       >
-        <h1>SEED / AE</h1>
-        <p>
-          {message ||
-            "Paste the session token the local service printed at startup."}
-        </p>
-        <input
-          type="password"
-          value={value}
-          autoFocus
-          placeholder="session token"
-          onChange={(event) => setValue(event.target.value)}
-        />
-        <div style={{ height: 10 }} />
-        <button className="btn primary wide" type="submit">
-          Connect
-        </button>
+        <div className="titlebar">
+          <span className="icon">S</span>
+          <span className="label">Connect to SEED service</span>
+        </div>
+        <div className="connect-body">
+          <div className="notice">
+            {message ||
+              "Paste the session token the local service printed at startup."}
+          </div>
+          <label className="field">
+            <span>Session token:</span>
+            <input
+              type="password"
+              value={value}
+              autoFocus
+              onChange={(event) => setValue(event.target.value)}
+            />
+          </label>
+          <div className="connect-actions">
+            <button className="btn primary" type="submit">
+              OK
+            </button>
+          </div>
+        </div>
       </form>
     </div>
   );

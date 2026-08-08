@@ -87,7 +87,7 @@ describe("generation lifecycle", () => {
 
     // The recipe is reproducible: prompt, seed and parameters all survived.
     expect(final.generation?.prompt).toBe("a lighthouse at dusk");
-    expect(final.generation?.seed).toBe("42");
+    expect(final.generation?.seed).toBe(42);
     expect(final.generation?.parameters).toMatchObject({ size: "320x180" });
     expect(final.generation?.rawResponse).toBeDefined();
 
@@ -147,7 +147,7 @@ describe("generation lifecycle", () => {
       await service.call(`/v1/assets/${original.id}/recipe`),
     );
     expect(recipe.prompt).toBe("original prompt");
-    expect(recipe.seed).toBe("7");
+    expect(recipe.seed).toBe(7);
     expect(recipe.parentAssetId).toBe(original.id);
     expect(recipe.parentGenerationId).toBe(final.generation?.id);
 

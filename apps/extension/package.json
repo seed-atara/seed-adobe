@@ -1,0 +1,9 @@
+{
+  "name": "@seed-ae/extension",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "npm run build --workspace @seed-ae/panel -- --outDir ../extension/panel --emptyOutDir"
+  }
+}

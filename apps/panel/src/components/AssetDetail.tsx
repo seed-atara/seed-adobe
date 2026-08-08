@@ -1,7 +1,9 @@
 import { useEffect, useState } from "react";
 import type { Asset, Generation } from "@seed-ae/domain";
 import type { SeedClient } from "../api/client.ts";
+import type { CepAeBridge } from "../api/cep.ts";
 import {
+  AssetImage,
   OriginBadge,
   SectionLabel,
   formatBytes,
@@ -10,6 +12,8 @@ import {
 
 interface Props {
   client: SeedClient;
+  /** Present only inside After Effects. */
+  bridge?: CepAeBridge | undefined;
   asset: Asset;
   onVariation: (asset: Asset) => void;
   onUseAsReference: (asset: Asset) => void;
@@ -19,6 +23,7 @@ interface Props {
 
 export function AssetDetail({
   client,
+  bridge,
   asset,
   onVariation,
   onUseAsReference,
@@ -49,7 +54,9 @@ export function AssetDetail({
 
   const importToProject = async (insertAtPlayhead: boolean) => {
     try {
-      const result = await client.importAsset(asset.id, insertAtPlayhead);
+      const result = bridge
+        ? await bridge.importAsset(asset.id, insertAtPlayhead)
+        : await client.importAsset(asset.id, insertAtPlayhead);
       setNote(
         insertAtPlayhead
           ? `Inserted ${result.name} at the playhead.`
@@ -64,12 +71,12 @@ export function AssetDetail({
     asset.source.type === "after-effects" ? asset.source.context : undefined;
 
   return (
-    <>
+    <div className="section">
       <SectionLabel>asset</SectionLabel>
 
       <div className="preview">
         {asset.kind === "image" && asset.status !== "missing" ? (
-          <img src={client.assetFileUrl(asset)} alt={asset.filename} />
+          <AssetImage client={client} asset={asset} variant="thumbnail" />
         ) : (
           <div className="empty" style={{ border: "none" }}>
             {asset.status === "missing" ? "media missing" : asset.kind}
@@ -186,6 +193,6 @@ export function AssetDetail({
           </dl>
         </div>
       ) : null}
-    </>
+    </div>
   );
 }

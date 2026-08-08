@@ -54,7 +54,8 @@ describe("GenerationRepository", () => {
 
     const loaded = generations.requireById(created.id);
     expect(loaded.prompt).toBe("night version");
-    expect(loaded.seed).toBe("42");
+    // A numeric seed must survive the round-trip as a number.
+    expect(loaded.seed).toBe(42);
     expect(loaded.parameters).toEqual({ size: "64x64" });
     expect(loaded.inputAssetIds).toEqual([input.id]);
     expect(loaded.rawRequest).toEqual({ body: { prompt: "night version" } });

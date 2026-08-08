@@ -45,6 +45,38 @@ export function getAssetRoute(deps: AppDeps) {
   };
 }
 
+/**
+ * Absolute on-disk paths for the workspace.
+ *
+ * A CEP panel runs inside After Effects and drives it through ExtendScript, so
+ * it needs real paths to render frames into and import from. Only ever served
+ * over the authenticated loopback API.
+ */
+export function workspaceRoute(deps: AppDeps) {
+  return () =>
+    json({
+      workspace: {
+        projectRoot: deps.workspace.projectRoot,
+        root: deps.workspace.root,
+        originalsDir: deps.workspace.originalsDir,
+        generatedDir: deps.workspace.generatedDir,
+      },
+      aeHost: deps.aeHost.id,
+    });
+}
+
+/** Absolute path of one asset, for handing to the AE import call. */
+export function getAssetPathRoute(deps: AppDeps) {
+  return ({ params }: RequestContext) => {
+    const asset = deps.assets.requireById(params.id as string);
+    return json({
+      assetId: asset.id,
+      path: resolveStorageUri(deps.workspace, asset.storageUri),
+      filename: asset.filename,
+    });
+  };
+}
+
 /** Serves asset bytes to the panel; the panel never touches the filesystem. */
 export function getAssetFileRoute(deps: AppDeps) {
   return async ({ params, url, res, correlationId }: RequestContext) => {

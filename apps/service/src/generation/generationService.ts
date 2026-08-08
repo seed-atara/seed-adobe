@@ -175,6 +175,38 @@ export class GenerationService {
     this.disposed = true;
   }
 
+  /**
+   * Closes out jobs that were mid-flight when the process died.
+   *
+   * Their background tasks live in memory only, so after a restart nothing is
+   * driving them — they would sit "running" forever and the panel would spin.
+   * Marking them failed is honest; the recipe and lineage survive, so the user
+   * can re-run from the recorded generation.
+   */
+  reconcileInterruptedJobs(): number {
+    const stale = this.options.jobs.listUnfinished();
+    for (const job of stale) {
+      this.options.jobs.update(job.id, {
+        status: "failed",
+        errorClass: "interrupted",
+        errorMessage: "the service restarted while this job was running",
+      });
+      if (job.generationId) {
+        this.options.generations.complete(job.generationId, {
+          status: "failed",
+          errorClass: "interrupted",
+          errorMessage: "the service restarted while this job was running",
+        });
+      }
+    }
+    if (stale.length > 0) {
+      this.options.logger.warn("generation.interrupted_jobs_closed", {
+        count: stale.length,
+      });
+    }
+    return stale.length;
+  }
+
   private async run(
     job: Job,
     generation: Generation,

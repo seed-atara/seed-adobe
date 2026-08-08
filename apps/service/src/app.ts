@@ -21,12 +21,19 @@ import type { MediaIngestor } from "./generation/mediaIngestor.js";
 import { isJsonResult, sendError, sendJson } from "./http/respond.js";
 import { Router, type RequestContext } from "./http/router.js";
 import { createLogger, type Logger } from "./logger.js";
-import { aeContextRoute, captureFrameRoute, importAssetRoute } from "./routes/ae.js";
+import {
+  aeContextRoute,
+  captureFrameRoute,
+  importAssetRoute,
+  registerCaptureRoute,
+} from "./routes/ae.js";
 import {
   getAssetFileRoute,
+  getAssetPathRoute,
   getAssetRoute,
   listAssetsRoute,
   registerAssetRoute,
+  workspaceRoute,
 } from "./routes/assets.js";
 import {
   cancelJobRoute,
@@ -66,13 +73,16 @@ export function buildRouter(deps: AppDeps): Router {
     .get("/health", healthRoute(deps), { isPublic: true })
     .get("/v1/ae/context", aeContextRoute(deps))
     .post("/v1/ae/capture-frame", captureFrameRoute(deps))
+    .post("/v1/ae/register-capture", registerCaptureRoute(deps))
     .post("/v1/ae/import", importAssetRoute(deps))
     .post("/v1/assets", registerAssetRoute(deps))
     .get("/v1/assets", listAssetsRoute(deps))
     .get("/v1/assets/:id", getAssetRoute(deps))
     .get("/v1/assets/:id/file", getAssetFileRoute(deps))
+    .get("/v1/assets/:id/path", getAssetPathRoute(deps))
     .get("/v1/assets/:id/lineage", lineageRoute(deps))
     .get("/v1/assets/:id/recipe", recipeRoute(deps))
+    .get("/v1/workspace", workspaceRoute(deps))
     .get("/v1/providers", listProvidersRoute(deps))
     .post("/v1/generations", startGenerationRoute(deps))
     .get("/v1/generations", listGenerationsRoute(deps))

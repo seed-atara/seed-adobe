@@ -22,9 +22,9 @@ AE frame -> Capture -> Asset Library -> generate -> result registered
 ```
 
 **Seedream is verified working against the live BytePlus Ark API** — the loop
-above has been run end to end on real generations. Seedance stays inert until
-its request contract is verified. There is no CEP extension yet, so
-`MockAeHostAdapter` stands in for After Effects. See `docs/STATUS.md`.
+above has been run end to end on real generations. The panel ships as a CEP
+extension that docks inside After Effects. Seedance stays inert until its
+request contract is verified. See `docs/STATUS.md`.
 
 ## Quick start
 
@@ -32,12 +32,19 @@ Requires Node >= 22.13 (the service uses the built-in `node:sqlite`).
 
 ```bash
 npm install
-npm test          # 121 tests, no Adobe application needed
+npm test          # 126 tests, no Adobe application needed
 npm run typecheck
 npm run dev       # local service; prints a session token
 ```
 
-Then, in a second terminal:
+Then either dock it in After Effects:
+
+```powershell
+pwsh -ExecutionPolicy Bypass -File scripts/install-extension.ps1
+# restart AE, then Window > Extensions > SEED / AE
+```
+
+or run it in a browser against the mock AE host:
 
 ```bash
 cd apps/panel && npm run dev    # http://localhost:47830
@@ -60,7 +67,8 @@ API reference: `apps/service/README.md`.
 | Path | Contents |
 | --- | --- |
 | `apps/service` | Local HTTP service — assets, jobs, providers, credentials |
-| `apps/panel` | Panel UI — Generate / Library / Lineage (React + Vite) |
+| `apps/panel` | Panel UI — Generate / Library / Lineage (React + Vite, Win95) |
+| `apps/extension` | CEP extension: manifest + ExtendScript host for AE |
 | `packages/domain` | Shared schemas, wire contracts, error codes |
 | `packages/storage` | SQLite, migrations, repositories, workspace layout |
 | `packages/ae-host` | `AeHostAdapter` contract + mock implementation |

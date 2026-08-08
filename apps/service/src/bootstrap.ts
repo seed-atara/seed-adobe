@@ -61,6 +61,9 @@ export async function bootstrap({
     pollIntervalMs: config.pollIntervalMs,
   });
 
+  // Anything left running belongs to a process that no longer exists.
+  generation.reconcileInterruptedJobs();
+
   return {
     config,
     db,

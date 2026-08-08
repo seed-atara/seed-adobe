@@ -7,6 +7,7 @@ import {
   type AssetDraft,
 } from "@seed-ae/domain";
 import {
+  decodeJpegPreview,
   decodePng,
   encodePng,
   fitWithin,
@@ -107,11 +108,12 @@ export class MediaIngestor {
   }
 
   /**
-   * Generates a thumbnail when the bytes are a PNG we can decode. Failure is
-   * not fatal — a missing thumbnail costs a nicer grid, not the asset.
+   * Generates a thumbnail from whatever we can decode. Failure is not fatal —
+   * a missing thumbnail costs a nicer grid, not the asset.
    */
   async writeThumbnail(bytes: Buffer, assetId: string): Promise<string | undefined> {
-    const decoded = decodePng(bytes);
+    // JPEG comes back at 1/8 scale already, which is thumbnail-sized.
+    const decoded = decodePng(bytes) ?? decodeJpegPreview(bytes);
     if (!decoded) return undefined;
 
     try {

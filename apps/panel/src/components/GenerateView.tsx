@@ -4,7 +4,7 @@ import type {
   ProviderCapabilitiesDto,
   SeedClient,
 } from "../api/client.ts";
-import { Field, SectionLabel, StatusBadge } from "./primitives.tsx";
+import { AssetImage, Field, SectionLabel, StatusBadge } from "./primitives.tsx";
 
 export interface GenerateForm {
   providerId: string;
@@ -91,7 +91,7 @@ export function GenerateView({
         <div className="ref-row">
           {references.map((asset) => (
             <div className="ref" key={asset.id}>
-              <img src={client.assetFileUrl(asset)} alt={asset.filename} />
+              <AssetImage client={client} asset={asset} variant="thumbnail" />
               <button
                 title="Remove reference"
                 onClick={() =>

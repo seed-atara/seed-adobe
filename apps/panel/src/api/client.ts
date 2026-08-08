@@ -59,10 +59,27 @@ export class SeedClient {
     return new SeedClient(this.baseUrl, token);
   }
 
-  /** URL for <img> tags — the browser cannot send a bearer header there. */
-  assetFileUrl(asset: Asset): string {
-    const uri = asset.thumbnailUri ? `${asset.id}/file?variant=thumbnail` : `${asset.id}/file`;
-    return `${this.baseUrl}/v1/assets/${uri}`;
+  /**
+   * Fetches asset bytes for display.
+   *
+   * An <img src> cannot carry an Authorization header, and putting the session
+   * token in the URL would leak it into logs and history — so images are
+   * fetched here and handed to the DOM as object URLs.
+   */
+  async assetBlob(asset: Asset, variant?: "thumbnail"): Promise<Blob> {
+    const useThumbnail = variant === "thumbnail" && asset.thumbnailUri;
+    const path = `/v1/assets/${asset.id}/file${useThumbnail ? "?variant=thumbnail" : ""}`;
+    const response = await fetch(`${this.baseUrl}${path}`, {
+      headers: { authorization: `Bearer ${this.token}` },
+    });
+    if (!response.ok) {
+      throw new ServiceError(
+        "not_found",
+        `could not load media for ${asset.id}`,
+        response.status,
+      );
+    }
+    return response.blob();
   }
 
   health(): Promise<HealthResponse> {
@@ -79,6 +96,36 @@ export class SeedClient {
 
   captureFrame(): Promise<{ asset: Asset }> {
     return this.request("/v1/ae/capture-frame", { method: "POST", body: {} });
+  }
+
+  /** Absolute workspace paths, needed when the panel drives AE itself. */
+  workspace(): Promise<{
+    workspace: {
+      projectRoot: string;
+      root: string;
+      originalsDir: string;
+      generatedDir: string;
+    };
+    aeHost: string;
+  }> {
+    return this.request("/v1/workspace");
+  }
+
+  assetPath(id: string): Promise<{ path: string; filename: string }> {
+    return this.request(`/v1/assets/${id}/path`);
+  }
+
+  /** Registers a frame the CEP panel rendered out of After Effects itself. */
+  registerCapture(input: {
+    path: string;
+    context: Record<string, unknown>;
+    width?: number;
+    height?: number;
+  }): Promise<{ asset: Asset }> {
+    return this.request("/v1/ae/register-capture", {
+      method: "POST",
+      body: input,
+    });
   }
 
   listAssets(params: { limit?: number; kind?: string } = {}): Promise<{

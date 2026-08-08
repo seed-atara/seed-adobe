@@ -1,0 +1,82 @@
+# After Effects extension (CEP)
+
+The dockable SEED / AE panel inside After Effects.
+
+## Install
+
+```powershell
+pwsh -ExecutionPolicy Bypass -File scripts/install-extension.ps1
+```
+
+That builds the panel, enables `PlayerDebugMode` (this bundle is unsigned), and
+copies the extension to `%APPDATA%\Adobe\CEP\extensions\ai.seedstudios.seedae`.
+
+Then:
+
+1. `npm run dev` — starts the local service and prints a session token.
+2. Restart After Effects.
+3. **Window → Extensions → SEED / AE**
+4. Paste the session token.
+
+`scripts/install-extension.ps1 -Uninstall` removes it.
+
+## Why CEP
+
+UXP is not available for After Effects, and CEP 12 shipped with AE 25.0 as the
+last major CEP version. See `docs/research/ADOBE_INTEGRATION_NOTES.md`. CEP is
+maintenance-only, which is exactly why AE access is isolated behind one file.
+
+## How it fits together
+
+```
+After Effects
+  └── CEP panel  (apps/panel, built into ./panel)
+        │  evalScript
+        ├── jsx/seed-host.jsx        <- the ONLY code touching AE objects
+        │  authenticated loopback HTTP
+        └── SEED service (apps/service) -> providers, assets, lineage
+```
+
+In CEP the **panel** is the process with AE scripting access, not the service.
+So the panel renders frames and imports media itself, then tells the service
+about the result:
+
+| Panel action | ExtendScript | Service |
+| --- | --- | --- |
+| Capture frame | `seedCaptureFrame(dir, name)` | `GET /v1/workspace`, then `POST /v1/ae/register-capture` |
+| Import | `seedImport(path)` | `GET /v1/assets/:id/path` |
+| Insert at playhead | `seedInsertAtPlayhead(itemId)` | — |
+| Context readout | `seedGetContext()` | — |
+
+The service stays host-agnostic and keeps `MockAeHostAdapter`, so every feature
+remains testable with no Adobe application installed. The panel picks its route
+at startup: `window.__adobe_cep__` present means drive AE directly, absent means
+use the service's mock host.
+
+## Host script notes
+
+`jsx/seed-host.jsx` is ExtendScript (ES3) — no `JSON`, no `const`, no arrow
+functions. Every function returns a JSON string via a hand-rolled serialiser,
+in an `{ok, result}` / `{ok, error}` envelope, so the panel never parses
+ExtendScript values.
+
+Behaviour worth knowing:
+
+- Capture uses `CompItem.saveFrameToPng`, which does not touch the render
+  queue, so it neither disturbs the user's queue nor needs an output template.
+- Captures never overwrite: the filename counter probes for a free name.
+- Imported media lands in a `SEED` project folder.
+- Insertion is wrapped in an undo group, so one Ctrl+Z removes the layer.
+
+## Development
+
+Iterating on the UI is faster in a browser — `cd apps/panel && npm run dev`
+gives hot reload against the same service, with the mock AE host standing in.
+Rebuild into the extension with:
+
+```bash
+npm run build --workspace @seed-ae/extension
+```
+
+CEP caches aggressively; if a change does not appear, close and reopen the
+panel, or restart After Effects.
