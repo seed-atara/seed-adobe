@@ -3,11 +3,11 @@
  * own client, so the path the UI takes is the path that gets verified.
  *
  * Not part of `npm test` (it needs a live service). Run with:
- *   npx tsx apps/panel/test/loop.e2e.ts <baseUrl> <token>
+ *   npx tsx apps/panel/test/loop.e2e.ts <baseUrl> <token> [providerId]
  */
 import { SeedClient } from "../src/api/client.ts";
 
-const [, , baseUrl = "http://127.0.0.1:47831", token = "demo-token"] =
+const [, , baseUrl = "http://127.0.0.1:47831", token = "demo-token", wantedProvider] =
   process.argv;
 const client = new SeedClient(baseUrl, token);
 
@@ -26,8 +26,17 @@ step("ae context", `${context.compName} · frame ${context.frameNumber}`);
 const { asset: frame } = await client.captureFrame();
 step("capture", `${frame.id} · ${frame.width}x${frame.height} · thumb=${Boolean(frame.thumbnailUri)}`);
 
-const provider = providers[0];
-if (!provider) throw new Error("no providers registered");
+const provider = wantedProvider
+  ? providers.find((p) => p.id === wantedProvider)
+  : providers[0];
+if (!provider) {
+  throw new Error(
+    `provider ${wantedProvider ?? "(default)"} not registered; available: ${providers
+      .map((p) => p.id)
+      .join(", ")}`,
+  );
+}
+step("using provider", `${provider.id} · ${provider.models.join(", ")}`);
 
 const started = await client.startGeneration({
   providerId: provider.id,

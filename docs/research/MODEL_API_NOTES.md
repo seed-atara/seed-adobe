@@ -100,6 +100,25 @@ zero rows.
 **In prompts, refer to inputs by position — "Image 1", "the second reference".
 The model does not resolve asset ids in prose.**
 
+### Discovering model ids and keys (verified 2026-08-09)
+
+`ListFoundationModels` (AK/SK signed, `PageSize` max 100 — 200 is rejected)
+returns each model's `Name` and `PrimaryVersion`. The id the API expects is
+`<Name>-<PrimaryVersion>`; the console shows only the friendly `DisplayName`.
+`scripts/ark-models.ts` does this lookup.
+
+Confirmed available on this account: `seedream-4-0-250828`,
+`seedream-4-5-251128`, `seedream-5-0-260128`, `dola-seedream-5-0-pro-260628`,
+`seedream-3-0-t2i-250415`, plus `seededit-3-0-i2i-250628` (withdrawn) — and
+**`dreamina-seedance-2-5-260628`**, the real Seedance 2.5 model id. Its
+*request contract* is still unverified, so the adapter stays inert.
+
+**`ListApiKeys` returns key values MASKED** (asterisks in the middle), so an
+existing inference key cannot be recovered through the API — Ark reveals a key
+once, at creation. `GetApiKey` takes `DurationSeconds`, `ResourceType` and
+`ResourceIds`, which suggests it mints a short-lived key; untested. Getting an
+`ARK_API_KEY` therefore means the console, or deliberately minting one.
+
 ## Seedream models and their real constraints
 
 Minimum output area is a hard constraint, not guidance — `1024x1024` is rejected

@@ -60,7 +60,11 @@ reference actions. Capability-driven controls. `npm run dev` in `apps/panel`.
 
 ## Known gaps
 
-- **Seedream inference is blocked on an `ARK_API_KEY`.** The adapter is
+- **Seedream inference is blocked on an `ARK_API_KEY`.** Everything else is
+  confirmed live: the account, the AK/SK signing, the model list, and
+  `SEEDREAM_MODEL_ID=seedream-4-0-250828`. A real generation returned
+  `401 The API key format is incorrect` because `ListApiKeys` only returns
+  masked key values — Ark reveals a key once, at creation. The adapter is
   implemented against the verified contract (synchronous, `seed` supported,
   per-model minimum output area enforced locally, up to 14 references), but no
   generation has been run: inference needs a Bearer API key from the Ark
