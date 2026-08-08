@@ -14,10 +14,17 @@ Seedance 2.5 is the intended hero video model for the ByteDance demonstration, b
 
 ## Status
 
-The local service half of Milestone 0 works: capture the current AE frame,
-register it as an immutable asset with its provenance, list and serve it back.
-There is no panel yet, and the AE host is still `MockAeHostAdapter`. See
-`docs/STATUS.md`.
+The V1 loop works end to end against mock providers:
+
+```
+AE frame -> Capture -> Asset Library -> generate -> result registered
+         -> lineage -> reopen recipe -> variation -> import / insert at playhead
+```
+
+Seedream is implemented but unverified against the live API (needs an Ark API
+key). Seedance is deliberately inert until its official contract exists. There
+is no CEP extension yet, so `MockAeHostAdapter` stands in for After Effects.
+See `docs/STATUS.md`.
 
 ## Quick start
 
@@ -25,9 +32,24 @@ Requires Node >= 22.13 (the service uses the built-in `node:sqlite`).
 
 ```bash
 npm install
-npm test          # 48 tests, no Adobe application needed
+npm test          # 92 tests, no Adobe application needed
 npm run typecheck
-npm run dev       # starts the local service and prints a session token
+npm run dev       # local service; prints a session token
+```
+
+Then, in a second terminal:
+
+```bash
+cd apps/panel && npm run dev    # http://localhost:47830
+```
+
+Paste the printed session token into the panel, press **Capture current frame**,
+write a prompt, and press **Generate**.
+
+To verify the whole loop headlessly against a running service:
+
+```bash
+npx tsx apps/panel/test/loop.e2e.ts http://127.0.0.1:47831 <token>
 ```
 
 The service creates `<workspace>/.seed-ae/` for its SQLite database and media.
@@ -38,12 +60,12 @@ API reference: `apps/service/README.md`.
 | Path | Contents |
 | --- | --- |
 | `apps/service` | Local HTTP service — assets, jobs, providers, credentials |
-| `apps/panel` | After Effects panel UI (not started) |
+| `apps/panel` | Panel UI — Generate / Library / Lineage (React + Vite) |
 | `packages/domain` | Shared schemas, wire contracts, error codes |
 | `packages/storage` | SQLite, migrations, repositories, workspace layout |
 | `packages/ae-host` | `AeHostAdapter` contract + mock implementation |
-| `packages/providers` | Seedream / Seedance adapters (not started) |
-| `packages/ui` | Shared panel components (not started) |
+| `packages/providers` | Provider contract, mocks, Seedream, Seedance (inert) |
+| `packages/media` | Dependency-free PNG codec and resize |
 
 ## Start here
 

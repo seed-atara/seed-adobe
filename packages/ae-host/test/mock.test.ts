@@ -2,24 +2,13 @@ import { mkdtemp, readFile, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
-import { MockAeHostAdapter, encodePng, readPngSize } from "../src/index.js";
+import { readPngSize } from "@seed-ae/media";
+import { MockAeHostAdapter } from "../src/index.js";
 
 const tempRoot = await mkdtemp(path.join(tmpdir(), "seed ae host "));
 
 afterAll(async () => {
   await rm(tempRoot, { recursive: true, force: true });
-});
-
-describe("png encoder", () => {
-  it("writes a decodable header with the requested dimensions", () => {
-    const png = encodePng(4, 3, new Uint8Array(4 * 3 * 4).fill(128));
-    expect(readPngSize(png)).toEqual({ width: 4, height: 3 });
-    expect(png.subarray(1, 4).toString("ascii")).toBe("PNG");
-  });
-
-  it("rejects a mismatched pixel buffer", () => {
-    expect(() => encodePng(4, 3, new Uint8Array(10))).toThrow(/RGBA bytes/);
-  });
 });
 
 describe("MockAeHostAdapter", () => {

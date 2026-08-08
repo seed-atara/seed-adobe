@@ -45,6 +45,28 @@ As of this research snapshot, this starter pack does **not** contain a verified 
 - build a provider skeleton and mock fixture
 - update this file with official docs/access once obtained
 
+## Ark credential types: API key vs AK/SK (checked 2026-08-09)
+
+Two different Volcengine credential types exist and they are not
+interchangeable:
+
+- **Ark API key** — used as `Authorization: Bearer $ARK_API_KEY`. This is the
+  scheme the images/generations examples above use, and the one
+  `SeedreamProvider` implements.
+- **AK/SK access key pair** — Volcengine's cloud-wide credential, used with
+  Signature V4 request signing (canonical request → string to sign → HMAC-SHA256
+  with the SK). Some Volcengine SDKs accept either.
+
+Whether the images/generations endpoint accepts AK/SK signing was **not
+confirmed** from official documentation. `SeedreamProvider` therefore requires
+an Ark API key and fails construction with an explanatory error if given only an
+AK/SK pair, rather than implementing a signing scheme derived from third-party
+descriptions.
+
+To finish this: either obtain an Ark API key from the Ark console, or verify the
+signing requirements from official Volcengine docs and add a signing strategy
+behind the existing provider config.
+
 ## Input materialization concern
 
 Seedream examples use externally addressable image URLs. A frame rendered locally from AE therefore may require:

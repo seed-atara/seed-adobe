@@ -1,0 +1,174 @@
+import type {
+  Asset,
+  Generation,
+  HealthResponse,
+  JobDto,
+  LineageResponse,
+  StartGenerationRequest,
+} from "@seed-ae/domain";
+
+export interface ProviderCapabilitiesDto {
+  id: string;
+  displayName: string;
+  models: string[];
+  operations: string[];
+  textToImage: boolean;
+  imageToImage: boolean;
+  maxImageReferences: number;
+  textToVideo: boolean;
+  imageToVideo: boolean;
+  seed: boolean;
+  sizes: string[];
+  aspectRatios: string[];
+  async: boolean;
+}
+
+export interface JobView {
+  job: JobDto;
+  generation?: Generation;
+  outputs: Asset[];
+}
+
+export interface RecipeView {
+  recipe: StartGenerationRequest & { model: string };
+  generation: Generation;
+}
+
+export class ServiceError extends Error {
+  constructor(
+    readonly code: string,
+    message: string,
+    readonly status: number,
+  ) {
+    super(message);
+    this.name = "ServiceError";
+  }
+}
+
+/**
+ * Typed client for the local SEED service. Every panel network call goes
+ * through here so the token, error shape and base URL live in one place.
+ */
+export class SeedClient {
+  constructor(
+    private baseUrl: string,
+    private token: string,
+  ) {}
+
+  withToken(token: string): SeedClient {
+    return new SeedClient(this.baseUrl, token);
+  }
+
+  /** URL for <img> tags — the browser cannot send a bearer header there. */
+  assetFileUrl(asset: Asset): string {
+    const uri = asset.thumbnailUri ? `${asset.id}/file?variant=thumbnail` : `${asset.id}/file`;
+    return `${this.baseUrl}/v1/assets/${uri}`;
+  }
+
+  health(): Promise<HealthResponse> {
+    return this.request("/health");
+  }
+
+  providers(): Promise<{ providers: ProviderCapabilitiesDto[] }> {
+    return this.request("/v1/providers");
+  }
+
+  aeContext(): Promise<{ context: Record<string, unknown>; host: string }> {
+    return this.request("/v1/ae/context");
+  }
+
+  captureFrame(): Promise<{ asset: Asset }> {
+    return this.request("/v1/ae/capture-frame", { method: "POST", body: {} });
+  }
+
+  listAssets(params: { limit?: number; kind?: string } = {}): Promise<{
+    assets: Asset[];
+    total: number;
+  }> {
+    const query = new URLSearchParams();
+    query.set("limit", String(params.limit ?? 60));
+    if (params.kind) query.set("kind", params.kind);
+    return this.request(`/v1/assets?${query.toString()}`);
+  }
+
+  getAsset(id: string): Promise<{ asset: Asset }> {
+    return this.request(`/v1/assets/${id}`);
+  }
+
+  lineage(id: string): Promise<LineageResponse> {
+    return this.request(`/v1/assets/${id}/lineage`);
+  }
+
+  recipe(id: string): Promise<RecipeView> {
+    return this.request(`/v1/assets/${id}/recipe`);
+  }
+
+  startGeneration(request: Record<string, unknown>): Promise<JobView> {
+    return this.request("/v1/generations", { method: "POST", body: request });
+  }
+
+  job(id: string): Promise<JobView> {
+    return this.request(`/v1/jobs/${id}`);
+  }
+
+  cancelJob(id: string): Promise<JobView> {
+    return this.request(`/v1/jobs/${id}/cancel`, { method: "POST", body: {} });
+  }
+
+  importAsset(
+    assetId: string,
+    insertAtPlayhead: boolean,
+  ): Promise<{ name: string; insertedAtPlayhead: boolean }> {
+    return this.request("/v1/ae/import", {
+      method: "POST",
+      body: { assetId, insertAtPlayhead },
+    });
+  }
+
+  private async request<T>(
+    path: string,
+    options: { method?: string; body?: unknown } = {},
+  ): Promise<T> {
+    let response: Response;
+    try {
+      response = await fetch(`${this.baseUrl}${path}`, {
+        method: options.method ?? "GET",
+        headers: {
+          authorization: `Bearer ${this.token}`,
+          ...(options.body !== undefined
+            ? { "content-type": "application/json" }
+            : {}),
+        },
+        ...(options.body !== undefined
+          ? { body: JSON.stringify(options.body) }
+          : {}),
+      });
+    } catch (cause) {
+      throw new ServiceError(
+        "unreachable",
+        "Cannot reach the SEED service. Is it running?",
+        0,
+      );
+    }
+
+    if (response.status === 204) return undefined as T;
+
+    const payload = await response.json().catch(() => undefined);
+    if (!response.ok) {
+      const error = (payload as { error?: { code?: string; message?: string } })
+        ?.error;
+      throw new ServiceError(
+        error?.code ?? "internal_error",
+        error?.message ?? `Request failed with HTTP ${response.status}`,
+        response.status,
+      );
+    }
+    return payload as T;
+  }
+}
+
+/** Same-origin by default so the Vite proxy and a CEP build both work. */
+export const DEFAULT_BASE_URL =
+  typeof window !== "undefined" && window.location.protocol.startsWith("http")
+    ? ""
+    : "http://127.0.0.1:47831";

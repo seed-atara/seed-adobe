@@ -1,25 +1,55 @@
-import { createServer as createHttpServer, type Server } from "node:http";
+import {
+  createServer as createHttpServer,
+  type IncomingMessage,
+  type Server,
+  type ServerResponse,
+} from "node:http";
 import { randomUUID, timingSafeEqual } from "node:crypto";
 import { SeedError, toSeedError } from "@seed-ae/domain";
 import type { AeHostAdapter } from "@seed-ae/ae-host";
-import type { AssetRepository, Database, WorkspaceLayout } from "@seed-ae/storage";
+import type { ProviderRegistry } from "@seed-ae/providers";
+import type {
+  AssetRepository,
+  Database,
+  GenerationRepository,
+  JobRepository,
+  WorkspaceLayout,
+} from "@seed-ae/storage";
 import type { ServiceConfig } from "./config.js";
+import type { GenerationService } from "./generation/generationService.js";
+import type { MediaIngestor } from "./generation/mediaIngestor.js";
 import { isJsonResult, sendError, sendJson } from "./http/respond.js";
 import { Router, type RequestContext } from "./http/router.js";
 import { createLogger, type Logger } from "./logger.js";
-import { aeContextRoute, captureFrameRoute } from "./routes/ae.js";
+import { aeContextRoute, captureFrameRoute, importAssetRoute } from "./routes/ae.js";
 import {
   getAssetFileRoute,
   getAssetRoute,
   listAssetsRoute,
   registerAssetRoute,
 } from "./routes/assets.js";
+import {
+  cancelJobRoute,
+  getGenerationRoute,
+  getJobRoute,
+  lineageRoute,
+  listGenerationsRoute,
+  listJobsRoute,
+  listProvidersRoute,
+  recipeRoute,
+  startGenerationRoute,
+} from "./routes/generations.js";
 import { healthRoute } from "./routes/health.js";
 
 export interface AppDeps {
   config: ServiceConfig;
   db: Database;
   assets: AssetRepository;
+  generations: GenerationRepository;
+  jobs: JobRepository;
+  registry: ProviderRegistry;
+  generation: GenerationService;
+  ingestor: MediaIngestor;
   workspace: WorkspaceLayout;
   aeHost: AeHostAdapter;
   logger: Logger;
@@ -36,10 +66,20 @@ export function buildRouter(deps: AppDeps): Router {
     .get("/health", healthRoute(deps), { isPublic: true })
     .get("/v1/ae/context", aeContextRoute(deps))
     .post("/v1/ae/capture-frame", captureFrameRoute(deps))
+    .post("/v1/ae/import", importAssetRoute(deps))
     .post("/v1/assets", registerAssetRoute(deps))
     .get("/v1/assets", listAssetsRoute(deps))
     .get("/v1/assets/:id", getAssetRoute(deps))
-    .get("/v1/assets/:id/file", getAssetFileRoute(deps));
+    .get("/v1/assets/:id/file", getAssetFileRoute(deps))
+    .get("/v1/assets/:id/lineage", lineageRoute(deps))
+    .get("/v1/assets/:id/recipe", recipeRoute(deps))
+    .get("/v1/providers", listProvidersRoute(deps))
+    .post("/v1/generations", startGenerationRoute(deps))
+    .get("/v1/generations", listGenerationsRoute(deps))
+    .get("/v1/generations/:id", getGenerationRoute(deps))
+    .get("/v1/jobs", listJobsRoute(deps))
+    .get("/v1/jobs/:id", getJobRoute(deps))
+    .post("/v1/jobs/:id/cancel", cancelJobRoute(deps));
 }
 
 export interface App {
@@ -59,6 +99,12 @@ export function createApp(input: AppDepsInput): App {
     const correlationId = randomUUID();
     const startedAt = Date.now();
     const url = new URL(req.url ?? "/", `http://${req.headers.host ?? "localhost"}`);
+
+    applyCors(req, res);
+    if (req.method === "OPTIONS") {
+      res.writeHead(204).end();
+      return;
+    }
 
     void (async () => {
       try {
@@ -106,6 +152,26 @@ export function createApp(input: AppDepsInput): App {
   });
 
   return { deps, server };
+}
+
+const LOCAL_ORIGIN = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/;
+
+/**
+ * CORS for local panel hosts only: a Vite dev server today, a CEP panel (which
+ * sends `Origin: null` from a file:// document) later. The session token — not
+ * the origin — is the actual security boundary, but there is no reason to hand
+ * arbitrary websites a preflight pass.
+ */
+function applyCors(req: IncomingMessage, res: ServerResponse): void {
+  const origin = req.headers.origin;
+  if (!origin) return;
+  if (origin !== "null" && !LOCAL_ORIGIN.test(origin)) return;
+
+  res.setHeader("access-control-allow-origin", origin);
+  res.setHeader("access-control-allow-headers", "authorization, content-type");
+  res.setHeader("access-control-allow-methods", "GET, POST, OPTIONS");
+  res.setHeader("access-control-max-age", "600");
+  res.setHeader("vary", "origin");
 }
 
 /**

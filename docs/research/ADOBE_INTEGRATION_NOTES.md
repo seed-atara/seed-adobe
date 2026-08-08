@@ -1,22 +1,63 @@
-# Adobe After Effects Integration Research
+# Adobe Integration Notes
 
-Research snapshot: 2026-08-08.
+Last checked: 2026-08-09
 
-The starter architecture intentionally does not assume a specific Adobe extension technology.
+## Question
 
-Before implementation, verify from current official Adobe After Effects developer documentation which mechanism best supports:
-- dockable panel UI
-- active comp/playhead inspection
-- rendering/exporting the current frame
-- importing generated media
-- inserting items/layers in a comp
-- Windows/macOS deployment
+Which extension technology should the SEED panel ship on for After Effects:
+CEP, UXP, or the C++ SDK?
 
-Candidates may include scripting/CEP, newer extension frameworks where supported, or native SDK components. Choose only after current AE support is verified.
+## Finding: CEP, for now
 
-Architectural requirement: whichever host technology is chosen must remain behind `AeHostAdapter`.
+**UXP is not available for After Effects.** Adobe's extensibility update lists
+UXP as shipping for Photoshop, InDesign and XD, with Premiere Pro and Media
+Encoder entering the ecosystem afterwards. UXP subsequently graduated from beta
+in Premiere 25.6. After Effects is not among the applications with UXP support.
 
-Useful official starting point:
-- https://developer.adobe.com/after-effects/
+**CEP still ships with After Effects, but is frozen.** Per the same Adobe post:
+CEP 12 shipped with After Effects 25.0 and "will be the last major update to
+CEP, although critical security issues will continue to be addressed."
 
-Record exact links and verified capability statements here before locking the host implementation.
+So for an After Effects panel today, CEP is the only route that provides a
+dockable UI plus scripting access to the project, comp, render/export, import
+and timeline operations. The C++ SDK is heavier than V0 needs and does not give
+us a dockable HTML panel.
+
+### Consequences accepted
+
+- CEP is a maintenance-only platform. Expect a UXP migration for After Effects
+  eventually, on Adobe's timeline, not ours.
+- This is exactly why `AeHostAdapter` exists. The panel UI and the entire
+  service are host-agnostic; a UXP port should replace one adapter plus the
+  manifest, not the product.
+- The panel is built as a plain web app. It runs in a browser during
+  development and is loaded from `file://` by a CEP host, which is why the
+  service sends CORS headers for local origins and the Vite build uses a
+  relative base.
+
+### Caveats on this finding
+
+- Sourced from Adobe's developer blog post on Creative Cloud desktop
+  extensibility and corroborating Adobe community threads, not from a
+  version-stamped support matrix. Community discussion speculates about a 2026
+  date for UXP-only, which is **not** confirmed Adobe guidance — do not plan
+  against it.
+- Re-check before building the actual CEP extension: confirm the CEP version
+  bundled with the target After Effects release, and whether an AE UXP beta has
+  since opened.
+
+## Not yet done
+
+Building the CEP extension itself: `CSXS/manifest.xml`, the ExtendScript host
+bridge (`app.project`, `comp.saveFrameToPng` / Render Queue export, `importFile`,
+timeline insertion), signing, and installation. The `MockAeHostAdapter` stands
+in until then, and every product feature is already testable against it.
+
+## Sources
+
+- Adobe Tech Blog — Updates for Creative Cloud Desktop Extensibility:
+  https://blog.developer.adobe.com/updates-for-creative-cloud-desktop-extensibility-0dd5c663563e
+- Adobe Developer Blog — UXP Arrives in Premiere:
+  https://blog.developer.adobe.com/en/publish/2025/12/uxp-arrives-in-premiere-a-new-era-for-plugin-development
+- Adobe Community — CEP / UXP roadmap discussions:
+  https://community.adobe.com/t5/after-effects-discussions/uxp-for-after-effects/td-p/13360660

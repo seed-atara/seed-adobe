@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { AssetDraftSchema, AssetSchema } from "./asset.js";
 import { AeContextSchema } from "./ae.js";
+import { GenerationOperationSchema, GenerationSchema, JobStatusSchema } from "./generation.js";
 
 /**
  * Wire contracts shared by the panel and the local service. Both sides parse
@@ -53,6 +54,80 @@ export const CaptureFrameRequestSchema = z.object({
   includeAlpha: z.boolean().default(false),
 });
 export type CaptureFrameRequest = z.infer<typeof CaptureFrameRequestSchema>;
+
+export const StartGenerationRequestSchema = z.object({
+  providerId: z.string().min(1),
+  model: z.string().min(1).optional(),
+  operation: GenerationOperationSchema,
+  prompt: z.string().min(1).max(8000),
+  seed: z.union([z.number().int(), z.string()]).optional(),
+  size: z.string().optional(),
+  durationSeconds: z.number().positive().optional(),
+  aspectRatio: z.string().optional(),
+  /** Reference assets, in order. The first is the edit subject for image.edit. */
+  inputAssetIds: z.array(z.string()).max(8).default([]),
+  /** Set when this generation descends from an existing asset/recipe. */
+  parentAssetId: z.string().optional(),
+  parentGenerationId: z.string().optional(),
+  parameters: z.record(z.string(), z.unknown()).default({}),
+});
+export type StartGenerationRequest = z.infer<typeof StartGenerationRequestSchema>;
+
+export const JobSchema = z.object({
+  id: z.string(),
+  kind: z.literal("generation"),
+  provider: z.string(),
+  model: z.string(),
+  operation: GenerationOperationSchema,
+  providerJobId: z.string().optional(),
+  status: JobStatusSchema,
+  progress: z.number().optional(),
+  generationId: z.string().optional(),
+  correlationId: z.string(),
+  attempts: z.number().int(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+  completedAt: z.string().optional(),
+  errorClass: z.string().optional(),
+  errorMessage: z.string().optional(),
+});
+export type JobDto = z.infer<typeof JobSchema>;
+
+export const JobResponseSchema = z.object({
+  job: JobSchema,
+  generation: GenerationSchema.optional(),
+  outputs: z.array(AssetSchema).default([]),
+});
+export type JobResponse = z.infer<typeof JobResponseSchema>;
+
+export const LineageResponseSchema = z.object({
+  rootAssetId: z.string(),
+  assets: z.array(AssetSchema),
+  generations: z.array(GenerationSchema),
+  edges: z.array(
+    z.object({
+      fromAssetId: z.string(),
+      toAssetId: z.string(),
+      generationId: z.string(),
+    }),
+  ),
+});
+export type LineageResponse = z.infer<typeof LineageResponseSchema>;
+
+export const ImportAssetRequestSchema = z.object({
+  assetId: z.string().min(1),
+  /** Also place it on the timeline at the current playhead. */
+  insertAtPlayhead: z.boolean().default(false),
+  folder: z.string().optional(),
+});
+export type ImportAssetRequest = z.infer<typeof ImportAssetRequestSchema>;
+
+export const ImportAssetResponseSchema = z.object({
+  projectItemId: z.string().optional(),
+  name: z.string(),
+  insertedAtPlayhead: z.boolean(),
+});
+export type ImportAssetResponse = z.infer<typeof ImportAssetResponseSchema>;
 
 export const ErrorResponseSchema = z.object({
   error: z.object({

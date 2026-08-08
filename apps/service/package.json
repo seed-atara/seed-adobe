@@ -12,6 +12,8 @@
     "@seed-ae/ae-host": "*",
     "@seed-ae/domain": "*",
     "@seed-ae/storage": "*",
-    "zod": "^4.0.0"
+    "zod": "^4.0.0",
+    "@seed-ae/providers": "*",
+    "@seed-ae/media": "*"
   }
 }

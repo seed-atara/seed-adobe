@@ -47,18 +47,32 @@ export function getAssetRoute(deps: AppDeps) {
 
 /** Serves asset bytes to the panel; the panel never touches the filesystem. */
 export function getAssetFileRoute(deps: AppDeps) {
-  return async ({ params, res, correlationId }: RequestContext) => {
+  return async ({ params, url, res, correlationId }: RequestContext) => {
     const asset = deps.assets.requireById(params.id as string);
-    const absolutePath = resolveStorageUri(deps.workspace, asset.storageUri);
+
+    // A grid of full-resolution renders is the difference between a snappy
+    // panel and a stalled one, so the thumbnail is served when asked for.
+    const wantsThumbnail =
+      url.searchParams.get("variant") === "thumbnail" && asset.thumbnailUri;
+    const storageUri = wantsThumbnail
+      ? (asset.thumbnailUri as string)
+      : asset.storageUri;
+    const contentType = wantsThumbnail ? "image/png" : asset.mimeType;
+    const absolutePath = resolveStorageUri(deps.workspace, storageUri);
 
     const stats = await stat(absolutePath).catch(() => undefined);
     if (!stats?.isFile()) {
-      deps.assets.updateStatus(asset.id, "missing");
-      throw new SeedError("not_found", `media for asset ${asset.id} is missing`);
+      // Only the original going missing invalidates the asset; a lost
+      // thumbnail is a cache problem, not a provenance problem.
+      if (!wantsThumbnail) deps.assets.updateStatus(asset.id, "missing");
+      throw new SeedError(
+        "not_found",
+        `media for asset ${asset.id} is missing`,
+      );
     }
 
     res.writeHead(200, {
-      "content-type": asset.mimeType,
+      "content-type": contentType,
       "content-length": stats.size,
       "x-seed-correlation-id": correlationId,
       "cache-control": "no-store",

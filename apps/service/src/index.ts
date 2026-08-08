@@ -28,6 +28,7 @@ server.listen(config.port, config.host, () => {
 for (const signal of ["SIGINT", "SIGTERM"] as const) {
   process.on(signal, () => {
     logger.info("service.stopping", { signal });
+    deps.generation.dispose();
     server.close(() => {
       deps.db.close();
       process.exit(0);

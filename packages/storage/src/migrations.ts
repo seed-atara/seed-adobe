@@ -90,6 +90,49 @@ export const MIGRATIONS: Migration[] = [
   },
 ];
 
+MIGRATIONS.push({
+  version: 2,
+  name: "jobs-and-generation-inputs",
+  sql: `
+    -- Jobs are mutable by nature (they transition), unlike assets and the
+    -- generation recipe itself.
+    CREATE TABLE jobs (
+      id               TEXT PRIMARY KEY,
+      kind             TEXT NOT NULL,
+      provider         TEXT NOT NULL,
+      model            TEXT NOT NULL,
+      operation        TEXT NOT NULL,
+      provider_job_id  TEXT,
+      status           TEXT NOT NULL,
+      progress         REAL,
+      generation_id    TEXT REFERENCES generations(id),
+      correlation_id   TEXT NOT NULL,
+      attempts         INTEGER NOT NULL DEFAULT 0,
+      created_at       TEXT NOT NULL,
+      updated_at       TEXT NOT NULL,
+      completed_at     TEXT,
+      error_class      TEXT,
+      error_message    TEXT
+    );
+
+    CREATE INDEX jobs_status_idx     ON jobs (status);
+    CREATE INDEX jobs_created_idx    ON jobs (created_at DESC);
+    CREATE INDEX jobs_generation_idx ON jobs (generation_id);
+
+    -- Explicit join table rather than JSON containment queries: lineage walks
+    -- are the core of the product and need to be indexed, not scanned.
+    CREATE TABLE generation_inputs (
+      generation_id TEXT NOT NULL REFERENCES generations(id),
+      asset_id      TEXT NOT NULL REFERENCES assets(id),
+      role          TEXT NOT NULL DEFAULT 'reference',
+      position      INTEGER NOT NULL DEFAULT 0,
+      PRIMARY KEY (generation_id, asset_id, position)
+    );
+
+    CREATE INDEX generation_inputs_asset_idx ON generation_inputs (asset_id);
+  `,
+});
+
 export const LATEST_SCHEMA_VERSION = MIGRATIONS.reduce(
   (max, migration) => Math.max(max, migration.version),
   0,

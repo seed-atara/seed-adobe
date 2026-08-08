@@ -2,6 +2,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { MockImageProvider, ProviderRegistry } from "@seed-ae/providers";
 import { createApp, type AppDeps } from "../src/app.js";
 import { bootstrap } from "../src/bootstrap.js";
 import { loadConfig } from "../src/config.js";
@@ -25,15 +26,36 @@ export interface TestService {
   close(): Promise<void>;
 }
 
-export async function startTestService(): Promise<TestService> {
+/**
+ * Small declared sizes keep test renders fast while still exercising the
+ * capability check that rejects undeclared sizes.
+ */
+export function testRegistry(): ProviderRegistry {
+  return new ProviderRegistry().register(
+    new MockImageProvider({
+      latencyMs: 0,
+      sizes: ["64x64", "320x180", "1024x1024"],
+    }),
+  );
+}
+
+export async function startTestService(
+  options: { registry?: ProviderRegistry } = {},
+): Promise<TestService> {
   // Temp root with a space, mirroring a real "Client Work" project folder.
   const workspaceRoot = await mkdtemp(path.join(tmpdir(), "seed ae svc "));
   const config = loadConfig({
     SEED_AE_WORKSPACE: workspaceRoot,
     SEED_AE_SESSION_TOKEN: "test-token-abc",
+    SEED_AE_POLL_INTERVAL_MS: "0",
+    SEED_AE_MOCK_LATENCY_MS: "0",
   } as NodeJS.ProcessEnv);
 
-  const deps = await bootstrap({ config, logger: silentLogger });
+  const deps = await bootstrap({
+    config,
+    logger: silentLogger,
+    registry: options.registry ?? testRegistry(),
+  });
   const { server, deps: appDeps } = createApp(deps);
 
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
@@ -54,6 +76,7 @@ export async function startTestService(): Promise<TestService> {
         },
       }),
     close: async () => {
+      appDeps.generation.dispose();
       await new Promise<void>((resolve) => server.close(() => resolve()));
       appDeps.db.close();
       await rm(workspaceRoot, { recursive: true, force: true });

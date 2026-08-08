@@ -14,6 +14,21 @@ export interface ServiceConfig {
   workspaceRoot: string;
   /** True when the token was generated for this process rather than configured. */
   ephemeralToken: boolean;
+  providers: ProviderConfig;
+  pollIntervalMs: number;
+}
+
+export interface ProviderConfig {
+  /** Seedream is registered only when both a key and a model id are present. */
+  arkApiKey?: string;
+  arkBaseUrl: string;
+  seedreamModelId?: string;
+  /** Seedance stays unregistered as a working provider until its API is verified. */
+  seedanceModelId?: string;
+  /** Path to a real video file the mock video provider replays. */
+  mockVideoFixture?: string;
+  /** Simulated latency for the mock image provider, so demos show job states. */
+  mockLatencyMs: number;
 }
 
 export function loadDotEnv(cwd: string = process.cwd()): void {
@@ -39,7 +54,32 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServiceConfig 
     workspaceRoot: path.resolve(
       env.SEED_AE_WORKSPACE?.trim() || process.cwd(),
     ),
+    pollIntervalMs: parsePositiveInt(env.SEED_AE_POLL_INTERVAL_MS) ?? 1000,
+    providers: {
+      ...(env.ARK_API_KEY?.trim() ? { arkApiKey: env.ARK_API_KEY.trim() } : {}),
+      arkBaseUrl:
+        env.ARK_BASE_URL?.trim() || "https://ark.cn-beijing.volces.com",
+      ...(env.SEEDREAM_MODEL_ID?.trim()
+        ? { seedreamModelId: env.SEEDREAM_MODEL_ID.trim() }
+        : {}),
+      ...(env.SEEDANCE_MODEL_ID?.trim()
+        ? { seedanceModelId: env.SEEDANCE_MODEL_ID.trim() }
+        : {}),
+      ...(env.SEED_AE_MOCK_VIDEO_FIXTURE?.trim()
+        ? { mockVideoFixture: path.resolve(env.SEED_AE_MOCK_VIDEO_FIXTURE.trim()) }
+        : {}),
+      mockLatencyMs: parsePositiveInt(env.SEED_AE_MOCK_LATENCY_MS) ?? 1500,
+    },
   };
+}
+
+function parsePositiveInt(value: string | undefined): number | undefined {
+  if (!value) return undefined;
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isInteger(parsed) || parsed < 0) {
+    throw new Error(`expected a non-negative integer, received: ${value}`);
+  }
+  return parsed;
 }
 
 function parsePort(value: string | undefined): number | undefined {

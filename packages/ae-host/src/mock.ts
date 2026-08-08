@@ -1,7 +1,7 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { SeedError, type AeContext, type CapturedMedia } from "@seed-ae/domain";
-import { encodePng } from "./png.js";
+import { encodePng } from "@seed-ae/media";
 import type {
   AeHostAdapter,
   AeImportResult,

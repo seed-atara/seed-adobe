@@ -9,6 +9,7 @@
     ".": "./src/index.ts"
   },
   "dependencies": {
-    "@seed-ae/domain": "*"
+    "@seed-ae/domain": "*",
+    "@seed-ae/media": "*"
   }
 }
