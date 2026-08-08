@@ -119,10 +119,21 @@ export function GenerateView({
 
       <section className="section">
         <SectionLabel>direction</SectionLabel>
-        <Field label="Prompt">
+        <Field
+          label="Prompt"
+          hint={
+            references.length > 0
+              ? `Refer to references by position — “Image 1”, “the second reference”. Models do not resolve asset ids in prose.`
+              : undefined
+          }
+        >
           <textarea
             value={form.prompt}
-            placeholder="Describe the change you want…"
+            placeholder={
+              references.length > 0
+                ? "Image 1 is the reference. Keep the subject; relight as…"
+                : "Describe the image you want…"
+            }
             onChange={(event) => patch({ prompt: event.target.value })}
           />
         </Field>

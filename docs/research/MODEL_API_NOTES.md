@@ -45,27 +45,97 @@ As of this research snapshot, this starter pack does **not** contain a verified 
 - build a provider skeleton and mock fixture
 - update this file with official docs/access once obtained
 
-## Ark credential types: API key vs AK/SK (checked 2026-08-09)
+## Ark credential types: API key vs AK/SK — RESOLVED (2026-08-09)
 
-Two different Volcengine credential types exist and they are not
-interchangeable:
+There are **two separate auth systems and both are needed**. They are not
+alternatives to each other.
 
-- **Ark API key** — used as `Authorization: Bearer $ARK_API_KEY`. This is the
-  scheme the images/generations examples above use, and the one
-  `SeedreamProvider` implements.
-- **AK/SK access key pair** — Volcengine's cloud-wide credential, used with
-  Signature V4 request signing (canonical request → string to sign → HMAC-SHA256
-  with the SK). Some Volcengine SDKs accept either.
+| | Inference (generate the image) | Asset library (register a reference) |
+| --- | --- | --- |
+| Endpoint | `{ARK_BASE_URL}/images/generations` | `https://open.byteplusapi.com/?Action=…&Version=2024-01-01` |
+| Auth | `Authorization: Bearer <ARK_API_KEY>` | HMAC-SHA256 signing with account AK/SK |
+| Credential | one API key string | access key + secret key pair |
+| Console page | Ark → API Keys | Account → Access Keys |
 
-Whether the images/generations endpoint accepts AK/SK signing was **not
-confirmed** from official documentation. `SeedreamProvider` therefore requires
-an Ark API key and fails construction with an explanatory error if given only an
-AK/SK pair, rather than implementing a signing scheme derived from third-party
-descriptions.
+An AK/SK pair therefore **cannot** authenticate image generation, and an API key
+cannot sign asset-library calls.
 
-To finish this: either obtain an Ark API key from the Ark console, or verify the
-signing requirements from official Volcengine docs and add a signing strategy
-behind the existing provider config.
+### Signing (verified working against the live API)
+
+A SigV4 variant, with three differences that break naive ports:
+
+- timestamp header is `X-Date` (not `X-Amz-Date`)
+- body hash header is `X-Content-Sha256`
+- the credential scope terminator is the literal `request` (not `aws4_request`)
+
+Signing key derivation: `kDate → kRegion → kService → kSigning("request")`.
+Region `ap-southeast-1`, service `ark`, version `2024-01-01`.
+
+Verified 2026-08-09 with `ListAssetGroups` against `open.byteplusapi.com`:
+authenticated successfully with the **secret used exactly as issued** — no
+base64 decoding, despite the key looking base64-shaped. If a 404 with no error
+body comes back, the host is wrong; try `open.ap-southeast-1.byteplusapi.com`.
+
+### Why use the asset library at all
+
+- Inline `data:` URL references work for generic imagery, but requests carrying
+  **recognisable real people are intercepted on the inline path**. The asset
+  library is the sanctioned route, covered by the authorization letter signed in
+  the console.
+- Assets are reusable: register once, reference forever as `asset://<Asset_Id>`.
+- Registration is free; generation is paid. Pre-registering turns use-time into
+  a cache hit.
+
+`CreateAsset` **fetches the bytes from a URL you provide** and rejects `data:`
+URLs, so a local AE render must be reachable over https at request time — a
+short-lived presigned link is the intended shape. Status goes
+`Processing → Active | Failed`; poll roughly every 4s.
+
+Dedupe by naming each asset `<name>_<sha16>` (first 16 hex of the file's
+SHA-256); `ListAssets` supports fuzzy `Name` search, so any machine can find an
+existing registration without a shared database. Verified live: a lookup by a
+known hash returned the matching Active asset, and an unknown hash returned
+zero rows.
+
+**In prompts, refer to inputs by position — "Image 1", "the second reference".
+The model does not resolve asset ids in prose.**
+
+## Seedream models and their real constraints
+
+Minimum output area is a hard constraint, not guidance — `1024x1024` is rejected
+outright by the 3.7MP models.
+
+| Model id | Minimum area |
+| --- | --- |
+| `dola-seedream-5-0-pro-260628` | 921,600 px |
+| `seedream-5-0-260128` | 3,686,400 px |
+| `seedream-4-5-251128` | 3,686,400 px |
+| `seedream-4-0-250828` | 921,600 px |
+| `seededit-3-0-i2i-250628` | **withdrawn by the vendor — 404s.** Use a Seedream model with an `image` input for edits. |
+
+`size` takes a keyword (`"2K"`, `"4K"`) or explicit `"WIDTHxHEIGHT"`. Aspect
+ratio must be within 1:16 and 16:1. Up to 14 reference images; with multi-image
+generation, references + generated ≤ 15.
+
+Image generation is **synchronous** — there is no task polling (that is the
+video API). `seed` **is** supported. Returned image URLs are temporary, so
+download promptly rather than storing the URL.
+
+### Errors worth recognising
+
+| Error | Meaning |
+| --- | --- |
+| `ModelNotOpen` | Model not activated for the account; some also need a resource package. |
+| `InvalidParameter.DownloadFailed` | `CreateAsset` could not fetch the URL — expired presigned link? |
+| `InvalidParameter.FormatUnsupported` | Wrong `AssetType` or unsupported container. |
+| `InvalidParameter.FpsTooLow` | Video assets only: 23.8–60 fps. |
+| `size … must be at least N pixels` | Below the model's minimum area. |
+| `ListAssetGroups` 400 | The required `Filter` was omitted. |
+| HTTP 404, no body | Wrong OpenAPI host. |
+
+Source: implementation guide from a sibling project, verified there against the
+live BytePlus ModelArk API (global / South-East Asia route); the signing and
+asset-library claims re-verified here on 2026-08-09.
 
 ## Input materialization concern
 

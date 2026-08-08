@@ -1,5 +1,7 @@
 import { MockAeHostAdapter, type AeHostAdapter } from "@seed-ae/ae-host";
 import {
+  ArkAssetLibrary,
+  ArkOpenApiClient,
   MockImageProvider,
   MockVideoProvider,
   ProviderRegistry,
@@ -88,18 +90,42 @@ export function buildRegistry(
   registry.register(new MockImageProvider({ latencyMs: config.mockLatencyMs }));
 
   if (config.arkApiKey && config.seedreamModelId) {
+    // The asset library is optional and uses the *other* credential type.
+    let assetLibrary: ArkAssetLibrary | undefined;
+    if (config.arkAccessKeyId && config.arkSecretAccessKey) {
+      assetLibrary = new ArkAssetLibrary({
+        client: new ArkOpenApiClient({
+          accessKeyId: config.arkAccessKeyId,
+          secretAccessKey: config.arkSecretAccessKey,
+          host: config.arkOpenApiHost,
+          region: config.arkRegion,
+        }),
+        groupName: config.arkAssetGroup,
+        skipModeration: config.arkSkipModeration,
+      });
+    }
+
     registry.register(
       new SeedreamProvider({
         baseUrl: config.arkBaseUrl,
         apiKey: config.arkApiKey,
         model: config.seedreamModelId,
+        referencePolicy: config.arkReferencePolicy,
+        ...(assetLibrary ? { assetLibrary } : {}),
       }),
     );
+
+    if (config.arkReferencePolicy !== "inline" && !assetLibrary) {
+      logger.warn("provider.ark_asset_library_unavailable", {
+        reason: "SEED_ARK_AK / SEED_ARK_SK are not set; references go inline",
+        referencePolicy: config.arkReferencePolicy,
+      });
+    }
   } else {
     logger.warn("provider.seedream_unavailable", {
       reason: config.arkApiKey
         ? "SEEDREAM_MODEL_ID is not set"
-        : "ARK_API_KEY is not set",
+        : "ARK_API_KEY is not set (an AK/SK pair cannot authenticate inference)",
     });
   }
 

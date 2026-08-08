@@ -36,9 +36,12 @@ fail on is worse than one it cannot select.
 ### 4. Capabilities drive the UI, including what is disabled
 
 The seed field is enabled only when the selected provider declares
-`seed: true`. Seedream declares `false` because seed support is not among the
-fields confirmed from official Ark documentation. When it is confirmed, one
-capability flag turns the control on — no UI change.
+`seed: true`.
+
+*(Superseded 2026-08-09: Seedream originally declared `seed: false` because seed
+support was unconfirmed. It is now verified supported and declares `true` — see
+ADR 0005. The mechanism is the point: one capability flag turned the control on
+with no UI change.)*
 
 ### 5. Lineage uses a join table, not JSON containment
 

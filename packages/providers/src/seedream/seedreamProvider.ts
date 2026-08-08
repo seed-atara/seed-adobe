@@ -1,4 +1,11 @@
 import { SeedError } from "@seed-ae/domain";
+import type { ArkAssetLibrary } from "../ark/assetLibrary.js";
+import {
+  MAX_REFERENCES,
+  assertModelAvailable,
+  assertSizeAllowed,
+  sizesFor,
+} from "../ark/models.js";
 import type {
   GenerationProvider,
   ImageEditRequest,
@@ -10,38 +17,47 @@ import type {
   ProviderOutput,
 } from "../types.js";
 
+/**
+ * How a local reference frame reaches the model.
+ *
+ * `asset` is the sanctioned route: register the image in the Ark asset library
+ * and reference it as `asset://<id>`. Requests carrying recognisable real
+ * people are intercepted on the inline path, so a rights-sensitive pipeline
+ * must not fall back silently — hence `asset` (fail if it cannot be
+ * registered) being distinct from `asset-or-inline`.
+ */
+export type ReferencePolicy = "asset" | "asset-or-inline" | "inline";
+
 export interface SeedreamConfig {
-  /** e.g. https://ark.cn-beijing.volces.com */
+  /** Inference base, e.g. https://ark.ap-southeast.bytepluses.com/api/v3 */
   baseUrl: string;
-  /** Ark API key used as `Authorization: Bearer <key>`. */
+  /** Ark API key, used as `Authorization: Bearer <key>`. NOT an AK/SK pair. */
   apiKey: string;
   /** Model id — configuration, never a hard-coded guess. */
   model: string;
+  /** Asset library client; required for the `asset` policies. */
+  assetLibrary?: ArkAssetLibrary;
+  referencePolicy?: ReferencePolicy;
+  watermark?: boolean;
   timeoutMs?: number;
-  /** Injectable for tests. */
   fetchImpl?: typeof fetch;
 }
 
-const IMAGES_PATH = "/api/v3/images/generations";
+const IMAGES_PATH = "/images/generations";
 
 /**
- * Adapter for Volcengine Ark image generation (Seedream).
+ * Volcengine/BytePlus Ark image generation (Seedream).
  *
- * Verified from Volcengine developer documentation: the endpoint is
- * `POST /api/v3/images/generations` with `Authorization: Bearer $ARK_API_KEY`,
- * and documented payload fields include `model`, `prompt`, `image` (URL or
- * array of URLs), `size`, `sequential_image_generation`, `stream`,
- * `response_format` and `watermark`.
- *
- * Anything not in that list is NOT sent. Notably `seed` is not declared as a
- * capability here because it is not among the fields confirmed from official
- * docs — see docs/research/MODEL_API_NOTES.md. Turn it on only after verifying.
+ * `POST {baseUrl}/images/generations` with `Authorization: Bearer $ARK_API_KEY`.
+ * Image generation is **synchronous** — there is no task polling (that is the
+ * video API), so a submitted job comes back already terminal.
  */
 export class SeedreamProvider implements GenerationProvider {
   readonly id = "seedream";
 
   private readonly config: SeedreamConfig;
   private readonly fetchImpl: typeof fetch;
+  private readonly referencePolicy: ReferencePolicy;
   /** Ark answers in the initial response, so job state is held locally. */
   private readonly jobs = new Map<string, ProviderJobState>();
   private counter = 0;
@@ -50,34 +66,42 @@ export class SeedreamProvider implements GenerationProvider {
     if (!config.apiKey) {
       throw new SeedError(
         "unauthorized",
-        "Seedream requires ARK_API_KEY (Bearer auth). An AK/SK pair is a " +
-          "different Volcengine credential type and its signing scheme for " +
-          "this endpoint has not been verified — supply an Ark API key.",
+        "Seedream needs an Ark API key for `Authorization: Bearer` (inference). " +
+          "An account AK/SK pair is a different credential — it signs the asset " +
+          "library OpenAPI, and cannot authenticate image generation.",
       );
     }
+    assertModelAvailable(config.model);
+
     this.config = config;
     this.fetchImpl = config.fetchImpl ?? fetch;
+    this.referencePolicy = config.referencePolicy ?? "asset-or-inline";
+
+    if (this.referencePolicy === "asset" && !config.assetLibrary) {
+      throw new SeedError(
+        "bad_request",
+        'referencePolicy "asset" requires an asset library client',
+      );
+    }
   }
 
   async capabilities(): Promise<ProviderCapabilities> {
     return {
       id: this.id,
-      displayName: "Seedream (Volcengine Ark)",
+      displayName: "Seedream (Ark)",
       models: [this.config.model],
       operations: ["image.generate", "image.edit"],
       textToImage: true,
       imageToImage: true,
-      // Documented as a URL or an array of URLs; the exact upper bound is not
-      // stated in the docs consulted, so this is a conservative floor.
-      maxImageReferences: 4,
+      maxImageReferences: MAX_REFERENCES,
       textToVideo: false,
       imageToVideo: false,
       videoReferences: false,
       startEndFrames: false,
       audioReferences: false,
-      seed: false, // TODO: enable once seed support is confirmed from official docs.
-      sizes: ["1024x1024", "1920x1080", "1080x1920", "2048x2048"],
-      aspectRatios: ["1:1", "16:9", "9:16"],
+      seed: true,
+      sizes: sizesFor(this.config.model),
+      aspectRatios: ["1:1", "16:9", "9:16", "21:9"],
       async: false,
     };
   }
@@ -98,28 +122,54 @@ export class SeedreamProvider implements GenerationProvider {
     return state;
   }
 
+  /**
+   * Registers references ahead of time so pressing Generate is a cache hit.
+   * Registration is free and slow; generation is paid and interactive.
+   */
+  async prewarm(inputs: MaterializedInput[]): Promise<string[]> {
+    return Promise.all(inputs.map((input) => this.toImageValue(input)));
+  }
+
   private async send(
     request: ImageGenerationRequest | ImageEditRequest,
     references: MaterializedInput[],
   ): Promise<ProviderJob> {
-    const body: Record<string, unknown> = {
-      model: request.model || this.config.model,
-      prompt: request.prompt,
-      response_format: "b64_json",
-      watermark: false,
-    };
-    if (request.size) body.size = request.size;
+    const model = request.model || this.config.model;
+    assertModelAvailable(model);
 
-    const images = references.map(toArkImageValue);
+    const size = request.size ?? "2K";
+    assertSizeAllowed(model, size);
+
+    if (references.length > MAX_REFERENCES) {
+      throw new SeedError(
+        "unsupported_capability",
+        `Ark accepts at most ${MAX_REFERENCES} reference images, received ${references.length}`,
+      );
+    }
+
+    const images = await Promise.all(
+      references.map((reference) => this.toImageValue(reference)),
+    );
+
+    const body: Record<string, unknown> = {
+      model,
+      prompt: request.prompt,
+      size,
+      response_format: "url",
+      watermark: this.config.watermark ?? false,
+      sequential_image_generation: "disabled",
+    };
+    if (request.seed !== undefined) body.seed = request.seed;
     if (images.length === 1) body.image = images[0];
     else if (images.length > 1) body.image = images;
 
     this.counter += 1;
     const providerJobId = `seedream_${this.counter}_${request.correlationId}`;
+    // Generation can legitimately take minutes at 4K.
     const controller = new AbortController();
-    const timeout = setTimeout(
+    const timer = setTimeout(
       () => controller.abort(),
-      this.config.timeoutMs ?? 120_000,
+      this.config.timeoutMs ?? 300_000,
     );
 
     let response: Response;
@@ -138,10 +188,10 @@ export class SeedreamProvider implements GenerationProvider {
     } catch (cause) {
       throw new SeedError("provider_error", "Seedream request failed", { cause });
     } finally {
-      clearTimeout(timeout);
+      clearTimeout(timer);
     }
 
-    // Raw request is kept for reproducibility; the key never enters it.
+    // The key never enters the stored request.
     const rawRequest = { url: `${this.config.baseUrl}${IMAGES_PATH}`, body };
 
     if (!response.ok) {
@@ -149,7 +199,7 @@ export class SeedreamProvider implements GenerationProvider {
         status: "failed",
         error: {
           class: "provider_error",
-          message: `Seedream returned HTTP ${response.status}`,
+          message: describeFailure(response.status, payload),
         },
         raw: payload,
       };
@@ -166,7 +216,7 @@ export class SeedreamProvider implements GenerationProvider {
             error: {
               class: "provider_error",
               message:
-                "Seedream response contained no recognisable image data; raw payload preserved",
+                "Seedream response contained no image data; raw payload preserved",
             },
             raw: payload,
           };
@@ -174,22 +224,68 @@ export class SeedreamProvider implements GenerationProvider {
     this.jobs.set(providerJobId, state);
     return { providerJobId, state, rawRequest };
   }
+
+  /**
+   * Converts a materialized input into something the `image` field accepts:
+   * an `asset://` URI, an https URL, or a data URL.
+   */
+  private async toImageValue(input: MaterializedInput): Promise<string> {
+    if (input.kind === "url") return input.value;
+
+    const inline =
+      input.kind === "dataUrl"
+        ? input.value
+        : `data:${input.mimeType};base64,${input.value}`;
+
+    if (this.referencePolicy === "inline") return inline;
+
+    const library = this.config.assetLibrary;
+    if (!library) {
+      if (this.referencePolicy === "asset") {
+        throw new SeedError(
+          "bad_request",
+          'referencePolicy "asset" requires an asset library client',
+        );
+      }
+      return inline;
+    }
+
+    const base64 = inline.slice(inline.indexOf(",") + 1);
+    const bytes = Buffer.from(base64, "base64");
+
+    try {
+      const { assetId } = await library.ensureAsset({
+        bytes,
+        filename: `${input.assetId ?? "reference"}.png`,
+        mimeType: input.mimeType,
+      });
+      return `asset://${assetId}`;
+    } catch (cause) {
+      if (this.referencePolicy === "asset") {
+        // Never silently post raw pixels when the policy says otherwise:
+        // the inline path is what gets intercepted for real people.
+        throw cause;
+      }
+      return inline;
+    }
+  }
+}
+
+function describeFailure(status: number, payload: unknown): string {
+  const error = (payload as { error?: { message?: string; code?: string } })
+    ?.error;
+  const detail = error?.message ?? error?.code;
+  if (status === 404) {
+    return `Seedream returned HTTP 404 — the model may have been withdrawn or the base URL is wrong${
+      detail ? `: ${detail}` : ""
+    }`;
+  }
+  return `Seedream returned HTTP ${status}${detail ? `: ${detail}` : ""}`;
 }
 
 /**
- * The documented `image` field takes URLs. A local AE render therefore has to
- * be materialized first; a data URL is accepted here because some Ark examples
- * show base64 data URLs, but a plain local path never is.
- */
-function toArkImageValue(input: MaterializedInput): string {
-  if (input.kind === "url" || input.kind === "dataUrl") return input.value;
-  return `data:${input.mimeType};base64,${input.value}`;
-}
-
-/**
- * Tolerant response reader. The response schema was not confirmed field by
- * field from official docs, so this accepts the shapes Ark examples show and
- * otherwise reports failure with the raw payload intact rather than guessing.
+ * Reads both delivery shapes. Returned URLs are temporary, so the caller
+ * downloads immediately rather than storing the link.
  */
 function extractOutputs(payload: unknown): ProviderOutput[] {
   const data = (payload as { data?: unknown })?.data;

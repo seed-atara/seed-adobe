@@ -19,10 +19,22 @@ export interface ServiceConfig {
 }
 
 export interface ProviderConfig {
-  /** Seedream is registered only when both a key and a model id are present. */
+  /**
+   * Ark inference key (Bearer). Distinct from the AK/SK pair below: this one
+   * authenticates image generation, that one signs the asset library OpenAPI.
+   */
   arkApiKey?: string;
   arkBaseUrl: string;
   seedreamModelId?: string;
+  /** Account access key pair for the asset library. */
+  arkAccessKeyId?: string;
+  arkSecretAccessKey?: string;
+  arkOpenApiHost: string;
+  arkRegion: string;
+  arkAssetGroup: string;
+  arkSkipModeration: boolean;
+  /** How local frames reach the model — see ReferencePolicy. */
+  arkReferencePolicy: "asset" | "asset-or-inline" | "inline";
   /** Seedance stays unregistered as a working provider until its API is verified. */
   seedanceModelId?: string;
   /** Path to a real video file the mock video provider replays. */
@@ -62,6 +74,23 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServiceConfig 
       ...(env.SEEDREAM_MODEL_ID?.trim()
         ? { seedreamModelId: env.SEEDREAM_MODEL_ID.trim() }
         : {}),
+      ...(readKey(env, "SEED_ARK_AK", "ARK_ACCESS_KEY_ID")
+        ? { arkAccessKeyId: readKey(env, "SEED_ARK_AK", "ARK_ACCESS_KEY_ID") }
+        : {}),
+      ...(readKey(env, "SEED_ARK_SK", "ARK_SECRET_ACCESS_KEY")
+        ? {
+            arkSecretAccessKey: readKey(
+              env,
+              "SEED_ARK_SK",
+              "ARK_SECRET_ACCESS_KEY",
+            ),
+          }
+        : {}),
+      arkOpenApiHost: env.ARK_OPENAPI_HOST?.trim() || "open.byteplusapi.com",
+      arkRegion: env.ARK_REGION?.trim() || "ap-southeast-1",
+      arkAssetGroup: env.ARK_ASSET_GROUP?.trim() || "seed-ae",
+      arkSkipModeration: env.ARK_SKIP_MODERATION?.trim() === "true",
+      arkReferencePolicy: parseReferencePolicy(env.ARK_REFERENCE_POLICY),
       ...(env.SEEDANCE_MODEL_ID?.trim()
         ? { seedanceModelId: env.SEEDANCE_MODEL_ID.trim() }
         : {}),
@@ -71,6 +100,38 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServiceConfig 
       mockLatencyMs: parsePositiveInt(env.SEED_AE_MOCK_LATENCY_MS) ?? 1500,
     },
   };
+}
+
+function readKey(
+  env: NodeJS.ProcessEnv,
+  ...names: string[]
+): string | undefined {
+  for (const name of names) {
+    const value = env[name]?.trim();
+    if (value) return value;
+  }
+  return undefined;
+}
+
+const REFERENCE_POLICIES = ["asset", "asset-or-inline", "inline"] as const;
+
+/**
+ * Defaults to `asset-or-inline`. The `asset` policy is the correct choice when
+ * references contain recognisable real people — it refuses to fall back to
+ * posting raw pixels — but it needs a public URL publisher configured, so it
+ * is opt-in rather than the default.
+ */
+function parseReferencePolicy(
+  value: string | undefined,
+): (typeof REFERENCE_POLICIES)[number] {
+  const trimmed = value?.trim();
+  if (!trimmed) return "asset-or-inline";
+  if (!(REFERENCE_POLICIES as readonly string[]).includes(trimmed)) {
+    throw new Error(
+      `ARK_REFERENCE_POLICY must be one of ${REFERENCE_POLICIES.join(", ")}`,
+    );
+  }
+  return trimmed as (typeof REFERENCE_POLICIES)[number];
 }
 
 function parsePositiveInt(value: string | undefined): number | undefined {

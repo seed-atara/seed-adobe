@@ -80,90 +80,248 @@ describe("MockImageProvider", () => {
 });
 
 describe("SeedreamProvider", () => {
-  it("refuses to construct without an Ark API key, naming the AK/SK confusion", () => {
-    expect(() => new SeedreamProvider({ baseUrl: "https://x", apiKey: "", model: "m" }))
-      .toThrow(/AK\/SK pair is a different Volcengine credential type/);
+  const MODEL = "seedream-4-0-250828";
+
+  const provider = (overrides: Record<string, unknown> = {}) =>
+    new SeedreamProvider({
+      baseUrl: "https://ark.ap-southeast.bytepluses.com/api/v3",
+      apiKey: "ark-key",
+      model: MODEL,
+      referencePolicy: "inline",
+      ...overrides,
+    } as never);
+
+  it("refuses an AK/SK pair, explaining it is the wrong credential type", () => {
+    expect(
+      () => new SeedreamProvider({ baseUrl: "https://x", apiKey: "", model: MODEL }),
+    ).toThrow(/signs the asset library OpenAPI/);
   });
 
-  it("does not advertise seed support, which is unverified", async () => {
-    const provider = new SeedreamProvider({
-      baseUrl: "https://ark.example",
-      apiKey: "key",
-      model: "configured-model",
-    });
-    const caps = await provider.capabilities();
-    expect(caps.seed).toBe(false);
-    expect(caps.models).toEqual(["configured-model"]);
+  it("advertises seed support, which the API accepts", async () => {
+    const caps = await provider().capabilities();
+    expect(caps.seed).toBe(true);
+    expect(caps.maxImageReferences).toBe(14);
+    expect(caps.async).toBe(false);
+    expect(caps.models).toEqual([MODEL]);
   });
 
-  it("posts only documented fields and never leaks the key into rawRequest", async () => {
+  it("posts the verified field set and never leaks the key into rawRequest", async () => {
     let captured: { url: string; init: RequestInit } | undefined;
-    const provider = new SeedreamProvider({
-      baseUrl: "https://ark.example",
+    const seedream = provider({
       apiKey: "super-secret",
-      model: "configured-model",
       fetchImpl: (async (url: string, init: RequestInit) => {
         captured = { url: String(url), init };
         return new Response(
-          JSON.stringify({ data: [{ b64_json: "aGk=" }] }),
+          JSON.stringify({ data: [{ url: "https://cdn.example/out.png" }] }),
           { status: 200, headers: { "content-type": "application/json" } },
         );
       }) as unknown as typeof fetch,
     });
 
-    const job = await provider.generateImage({
-      model: "configured-model",
-      prompt: "a lighthouse",
-      size: "1024x1024",
+    const job = await seedream.generateImage({
+      model: MODEL,
+      prompt: "Image 1 is the reference. Relight as evening interior.",
+      size: "2K",
+      seed: 1234,
       correlationId: "cor_1",
-      references: [{ kind: "dataUrl", value: "data:image/png;base64,AA", mimeType: "image/png" }],
+      references: [
+        { kind: "dataUrl", value: "data:image/png;base64,AA", mimeType: "image/png" },
+      ],
     });
 
-    expect(captured?.url).toBe("https://ark.example/api/v3/images/generations");
-    const body = JSON.parse(String(captured?.init.body));
-    expect(Object.keys(body).sort()).toEqual(
-      ["image", "model", "prompt", "response_format", "size", "watermark"].sort(),
+    expect(captured?.url).toBe(
+      "https://ark.ap-southeast.bytepluses.com/api/v3/images/generations",
     );
-    expect(body.seed).toBeUndefined();
+    const body = JSON.parse(String(captured?.init.body));
+    expect(body).toMatchObject({
+      model: MODEL,
+      size: "2K",
+      seed: 1234,
+      response_format: "url",
+      watermark: false,
+      sequential_image_generation: "disabled",
+      image: "data:image/png;base64,AA",
+    });
     expect(JSON.stringify(job.rawRequest)).not.toContain("super-secret");
     expect(job.state.status).toBe("succeeded");
-    expect(job.state.outputs?.[0]?.base64).toBe("aGk=");
+    expect(job.state.outputs?.[0]?.url).toBe("https://cdn.example/out.png");
+  });
+
+  it("sends multiple references as an array", async () => {
+    let body: Record<string, unknown> | undefined;
+    const seedream = provider({
+      fetchImpl: (async (_url: string, init: RequestInit) => {
+        body = JSON.parse(String(init.body));
+        return new Response(JSON.stringify({ data: [{ b64_json: "aGk=" }] }), {
+          status: 200,
+        });
+      }) as unknown as typeof fetch,
+    });
+
+    await seedream.generateImage({
+      model: MODEL,
+      prompt: "combine these",
+      correlationId: "cor_2",
+      references: [
+        { kind: "base64", value: "AA", mimeType: "image/png" },
+        { kind: "url", value: "https://cdn.example/ref.png", mimeType: "image/png" },
+      ],
+    });
+    expect(body?.image).toEqual([
+      "data:image/png;base64,AA",
+      "https://cdn.example/ref.png",
+    ]);
+  });
+
+  it("rejects a size the model cannot produce before spending a call", async () => {
+    let called = false;
+    const seedream = provider({
+      model: "seedream-5-0-260128",
+      fetchImpl: (async () => {
+        called = true;
+        return new Response("{}", { status: 200 });
+      }) as unknown as typeof fetch,
+    });
+
+    await expect(
+      seedream.generateImage({
+        model: "seedream-5-0-260128",
+        prompt: "x",
+        size: "1024x1024",
+        correlationId: "cor_3",
+      }),
+    ).rejects.toThrow(/at least 3,686,400 pixels/);
+    expect(called).toBe(false);
+  });
+
+  it("rejects more than fourteen references", async () => {
+    const references = Array.from({ length: 15 }, () => ({
+      kind: "base64" as const,
+      value: "AA",
+      mimeType: "image/png",
+    }));
+    await expect(
+      provider().generateImage({
+        model: MODEL,
+        prompt: "x",
+        correlationId: "cor_4",
+        references,
+      }),
+    ).rejects.toThrow(/at most 14 reference images/);
   });
 
   it("fails loudly but keeps the raw payload when the response is unrecognisable", async () => {
-    const provider = new SeedreamProvider({
-      baseUrl: "https://ark.example",
-      apiKey: "key",
-      model: "m",
+    const seedream = provider({
       fetchImpl: (async () =>
         new Response(JSON.stringify({ unexpected: true }), { status: 200 })) as
         unknown as typeof fetch,
     });
-    const job = await provider.generateImage({
-      model: "m",
+    const job = await seedream.generateImage({
+      model: MODEL,
       prompt: "x",
-      correlationId: "cor_2",
+      correlationId: "cor_5",
     });
     expect(job.state.status).toBe("failed");
     expect(job.state.raw).toEqual({ unexpected: true });
   });
 
-  it("maps an HTTP error onto a failed job rather than throwing", async () => {
-    const provider = new SeedreamProvider({
-      baseUrl: "https://ark.example",
-      apiKey: "key",
-      model: "m",
+  it("maps an HTTP error onto a failed job and surfaces the API message", async () => {
+    const seedream = provider({
       fetchImpl: (async () =>
-        new Response(JSON.stringify({ error: "quota" }), { status: 429 })) as
-        unknown as typeof fetch,
+        new Response(JSON.stringify({ error: { message: "quota exceeded" } }), {
+          status: 429,
+        })) as unknown as typeof fetch,
     });
-    const job = await provider.generateImage({
-      model: "m",
+    const job = await seedream.generateImage({
+      model: MODEL,
       prompt: "x",
-      correlationId: "cor_3",
+      correlationId: "cor_6",
     });
     expect(job.state.status).toBe("failed");
     expect(job.state.error?.message).toContain("429");
+    expect(job.state.error?.message).toContain("quota exceeded");
+  });
+
+  it("explains a 404 as a withdrawn model or wrong base URL", async () => {
+    const seedream = provider({
+      fetchImpl: (async () => new Response("{}", { status: 404 })) as
+        unknown as typeof fetch,
+    });
+    const job = await seedream.generateImage({
+      model: MODEL,
+      prompt: "x",
+      correlationId: "cor_7",
+    });
+    expect(job.state.error?.message).toMatch(/withdrawn or the base URL is wrong/);
+  });
+
+  describe("reference policy", () => {
+    const failingLibrary = {
+      ensureAsset: async () => {
+        throw new Error("registration unavailable");
+      },
+    } as never;
+
+    it("asset policy refuses to fall back to posting raw pixels", async () => {
+      const seedream = provider({
+        referencePolicy: "asset",
+        assetLibrary: failingLibrary,
+      });
+      await expect(
+        seedream.generateImage({
+          model: MODEL,
+          prompt: "x",
+          correlationId: "cor_8",
+          references: [{ kind: "base64", value: "AA", mimeType: "image/png" }],
+        }),
+      ).rejects.toThrow(/registration unavailable/);
+    });
+
+    it("asset-or-inline degrades to a data URL", async () => {
+      let body: Record<string, unknown> | undefined;
+      const seedream = provider({
+        referencePolicy: "asset-or-inline",
+        assetLibrary: failingLibrary,
+        fetchImpl: (async (_url: string, init: RequestInit) => {
+          body = JSON.parse(String(init.body));
+          return new Response(JSON.stringify({ data: [{ b64_json: "aGk=" }] }), {
+            status: 200,
+          });
+        }) as unknown as typeof fetch,
+      });
+
+      await seedream.generateImage({
+        model: MODEL,
+        prompt: "x",
+        correlationId: "cor_9",
+        references: [{ kind: "base64", value: "AA", mimeType: "image/png" }],
+      });
+      expect(body?.image).toBe("data:image/png;base64,AA");
+    });
+
+    it("references a registered asset as asset://<id>", async () => {
+      let body: Record<string, unknown> | undefined;
+      const seedream = provider({
+        referencePolicy: "asset",
+        assetLibrary: {
+          ensureAsset: async () => ({ assetId: "asset-42", cached: true }),
+        } as never,
+        fetchImpl: (async (_url: string, init: RequestInit) => {
+          body = JSON.parse(String(init.body));
+          return new Response(JSON.stringify({ data: [{ b64_json: "aGk=" }] }), {
+            status: 200,
+          });
+        }) as unknown as typeof fetch,
+      });
+
+      await seedream.generateImage({
+        model: MODEL,
+        prompt: "Image 1 is the reference.",
+        correlationId: "cor_10",
+        references: [{ kind: "base64", value: "AA", mimeType: "image/png" }],
+      });
+      expect(body?.image).toBe("asset://asset-42");
+    });
   });
 });
 

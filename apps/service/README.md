@@ -21,8 +21,20 @@ Configuration comes from `.env` (see `.env.example`) or the environment:
 | `SEED_AE_POLL_INTERVAL_MS` | `1000` | How often a running job polls its provider |
 | `SEED_AE_MOCK_LATENCY_MS` | `1500` | Simulated latency for the mock image provider |
 | `SEED_AE_MOCK_VIDEO_FIXTURE` | — | Video file the mock video provider replays |
-| `ARK_API_KEY` | — | Enables Seedream (with `SEEDREAM_MODEL_ID`) |
+| `ARK_API_KEY` | — | Ark **inference** key (Bearer). Enables Seedream with `SEEDREAM_MODEL_ID` |
 | `SEEDREAM_MODEL_ID` | — | Seedream model id — never hard-coded |
+| `ARK_BASE_URL` | SEA route | Inference base URL |
+| `SEED_ARK_AK` / `SEED_ARK_SK` | — | Account key pair for the **asset library** (signed OpenAPI) |
+| `ARK_OPENAPI_HOST` | `open.byteplusapi.com` | Asset library host |
+| `ARK_REGION` | `ap-southeast-1` | Signing region |
+| `ARK_ASSET_GROUP` | `seed-ae` | Asset group to register into |
+| `ARK_REFERENCE_POLICY` | `asset-or-inline` | `asset` \| `asset-or-inline` \| `inline` |
+| `ARK_SKIP_MODERATION` | `false` | Bypass the CreateAsset content pre-filter |
+
+Ark uses **two** credential systems and they are not interchangeable:
+`ARK_API_KEY` bearer-authenticates image generation, while `SEED_ARK_AK`/`_SK`
+HMAC-sign the asset library. Generation needs the API key; the asset library is
+optional and only enables the `asset://` reference route.
 
 If no token is configured, the service prints a random one at startup. Set
 `SEED_AE_SESSION_TOKEN` in `.env` to keep it stable across restarts.
