@@ -1,0 +1,17 @@
+{
+  "name": "@seed-ae/service",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "main": "./src/index.ts",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "start": "tsx src/index.ts"
+  },
+  "dependencies": {
+    "@seed-ae/ae-host": "*",
+    "@seed-ae/domain": "*",
+    "@seed-ae/storage": "*",
+    "zod": "^4.0.0"
+  }
+}
