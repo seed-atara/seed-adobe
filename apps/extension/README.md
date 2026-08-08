@@ -80,3 +80,19 @@ npm run build --workspace @seed-ae/extension
 
 CEP caches aggressively; if a change does not appear, close and reopen the
 panel, or restart After Effects.
+
+## Debugging inside After Effects
+
+`.debug` opens a CEF remote debugging port. With the panel loaded in AE, open
+**http://localhost:8088** in Chrome for real DevTools — console, network,
+elements.
+
+This is the tool for the common failures:
+
+| Symptom | Look for |
+| --- | --- |
+| Panel is blank | Console errors; usually a bad `MainPath` or a missing build |
+| Not in the Extensions menu | PlayerDebugMode not set, or the folder is not in `%APPDATA%\Adobe\CEP\extensions` |
+| "Cannot reach the SEED service" | The service is not running, or is on a different port |
+| Capture does nothing | Console — ExtendScript errors come back as `{ok:false,error}` |
+| `EvalScript error.` | `seed-host.jsx` failed to parse; check the console for the line |
