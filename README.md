@@ -21,10 +21,10 @@ AE frame -> Capture -> Asset Library -> generate -> result registered
          -> lineage -> reopen recipe -> variation -> import / insert at playhead
 ```
 
-Seedream is implemented but unverified against the live API (needs an Ark API
-key). Seedance is deliberately inert until its official contract exists. There
-is no CEP extension yet, so `MockAeHostAdapter` stands in for After Effects.
-See `docs/STATUS.md`.
+**Seedream is verified working against the live BytePlus Ark API** — the loop
+above has been run end to end on real generations. Seedance stays inert until
+its request contract is verified. There is no CEP extension yet, so
+`MockAeHostAdapter` stands in for After Effects. See `docs/STATUS.md`.
 
 ## Quick start
 
@@ -32,7 +32,7 @@ Requires Node >= 22.13 (the service uses the built-in `node:sqlite`).
 
 ```bash
 npm install
-npm test          # 116 tests, no Adobe application needed
+npm test          # 121 tests, no Adobe application needed
 npm run typecheck
 npm run dev       # local service; prints a session token
 ```

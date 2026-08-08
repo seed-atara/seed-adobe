@@ -196,7 +196,13 @@ export class GenerationService {
       const submitted = await this.submit(provider, capabilities, request, generation, inputs);
       this.options.jobs.update(job.id, {
         providerJobId: submitted.providerJobId,
-        status: submitted.state.status === "queued" ? "running" : submitted.state.status,
+        // A provider-terminal state is NOT a job-terminal state: the outputs
+        // still have to be downloaded and registered. A synchronous provider
+        // (Seedream answers inline) would otherwise flip the job to
+        // "succeeded" while it still has zero outputs, and anything polling
+        // for completion would see a finished job with nothing in it.
+        // finish()/fail() own the terminal status.
+        status: "running",
         ...(submitted.state.progress !== undefined
           ? { progress: submitted.state.progress }
           : {}),

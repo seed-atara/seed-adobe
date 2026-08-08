@@ -140,6 +140,15 @@ Image generation is **synchronous** — there is no task polling (that is the
 video API). `seed` **is** supported. Returned image URLs are temporary, so
 download promptly rather than storing the URL.
 
+Observed on a real call (2026-08-09, `seedream-4-0-250828`, `size: "2K"`,
+one reference, `response_format: "url"`):
+
+- the result is **JPEG**, and nothing in the response says so — no format
+  field, and the payload shape is identical whatever it returns. Sniff the
+  downloaded bytes; do not assume PNG.
+- `"2K"` resolved to **2848x1600** for a 16:9 reference.
+- end-to-end wall time was ~19s including the download.
+
 ### Errors worth recognising
 
 | Error | Meaning |

@@ -4,9 +4,9 @@ Last updated: 2026-08-09
 
 ## Current milestone
 
-Milestones 0–3 complete against mock providers. Milestone 2 (Seedream) is coded
-but **unverified against the live API** — blocked on an Ark API key.
-Milestone 4 (Seedance) is deliberately not implemented.
+Milestones 0–3 complete, **Seedream verified against the live Ark API**.
+Milestone 4 (Seedance) is deliberately not implemented — the model id is now
+known (`dreamina-seedance-2-5-260628`) but its request contract is not.
 
 ## The V1 loop works
 
@@ -20,13 +20,26 @@ client, in a workspace path containing spaces (`…/V1 Demo/Project One/`). The
 generated images visibly retain the captured frame's structure and diverge by
 seed, so the recorded lineage reflects a real derivation.
 
-`npm test` — 116 tests. `npm run typecheck` — clean.
+`npm test` — 121 tests. `npm run typecheck` — clean.
 
-**Verified live against the BytePlus Ark API (2026-08-09):** the AK/SK request
-signer authenticates (`ListAssetGroups` on `open.byteplusapi.com`, secret used
-as issued), and content-hash dedupe finds existing registrations by fuzzy name
-search. The account's `SEED_KEYFRAMES` group already follows the same
-`<name>_<sha16>` convention.
+**Verified live against the BytePlus Ark API (2026-08-09).** The whole loop
+runs on real Seedream: capture -> generate -> register -> lineage -> reopen
+recipe -> variation -> import at playhead. Also verified: the AK/SK signer
+authenticates the asset library, and content-hash dedupe finds existing
+registrations by fuzzy name search.
+
+Two bugs only a live run could have surfaced, both fixed and covered by
+regression tests:
+
+1. **A synchronous provider marked its job succeeded before the outputs
+   existed.** Seedream answers inline, so the job flipped terminal while the
+   result was still downloading — anything polling for completion saw a
+   finished job with zero outputs. Terminal status now belongs solely to the
+   step that registers the media.
+2. **Ark returns JPEG and says nothing about it.** The adapter claimed
+   `image/png`, so files were written as `.png` containing JPEG, with wrong
+   mime metadata and silently skipped thumbnails. The ingestor now sniffs the
+   bytes and treats any provider-declared type as a hint.
 
 ## What exists
 
@@ -60,11 +73,10 @@ reference actions. Capability-driven controls. `npm run dev` in `apps/panel`.
 
 ## Known gaps
 
-- **Seedream inference is blocked on an `ARK_API_KEY`.** Everything else is
-  confirmed live: the account, the AK/SK signing, the model list, and
-  `SEEDREAM_MODEL_ID=seedream-4-0-250828`. A real generation returned
-  `401 The API key format is incorrect` because `ListApiKeys` only returns
-  masked key values — Ark reveals a key once, at creation. The adapter is
+- **Thumbnails are PNG-only, so no Seedream result has one.** Ark returns
+  JPEG and there is no JPEG decoder here. The panel falls back to serving the
+  full image, so the grid still works — but it ships ~700KB per card instead
+  of ~30KB. Needs a JPEG decoder or a different resize path. The adapter is
   implemented against the verified contract (synchronous, `seed` supported,
   per-model minimum output area enforced locally, up to 14 references), but no
   generation has been run: inference needs a Bearer API key from the Ark
@@ -91,9 +103,7 @@ reference actions. Capability-driven controls. `npm run dev` in `apps/panel`.
 
 ## Next engineering actions
 
-1. Get an Ark API key (Ark console -> API Keys) and a Seedream model id, then
-   run the loop against the real provider. Everything else for Seedream is in
-   place and unit-tested.
+1. Thumbnail JPEG results, so the library grid stops serving full-size images.
 2. Implement a `PublicUrlPublisher` (presigned S3/R2/GCS) to enable the
    `asset://` reference route, then switch `ARK_REFERENCE_POLICY` to `asset`.
 3. Build the CEP extension: manifest, ExtendScript host bridge (comp export,

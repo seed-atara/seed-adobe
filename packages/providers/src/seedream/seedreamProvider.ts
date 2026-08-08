@@ -299,7 +299,9 @@ function extractOutputs(payload: unknown): ProviderOutput[] {
     const b64 = typeof record.b64_json === "string" ? record.b64_json : undefined;
     if (!url && !b64) continue;
     outputs.push({
-      mimeType: "image/png",
+      // Ark does not declare the format and returns JPEG in practice; the
+      // ingestor sniffs the bytes rather than trusting a guess made here.
+      mimeType: "",
       ...(url ? { url } : {}),
       ...(b64 ? { base64: b64 } : {}),
       ...(typeof record.size === "string" ? parseSizeLoose(record.size) : {}),

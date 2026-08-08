@@ -306,3 +306,84 @@ describe("POST /v1/ae/import", () => {
     expect(response.status).toBe(404);
   });
 });
+
+describe("synchronous providers", () => {
+  /**
+   * Seedream answers inline rather than via polling. A provider-terminal state
+   * is not a job-terminal state — the result still has to be downloaded and
+   * registered — so a job must never report "succeeded" with no outputs.
+   */
+  it("does not report a job succeeded before its outputs are registered", async () => {
+    const { encodePng } = await import("@seed-ae/media");
+    const { ProviderRegistry } = await import("@seed-ae/providers");
+
+    const png = encodePng(8, 8, new Uint8Array(8 * 8 * 4).fill(200));
+    const syncProvider = {
+      id: "sync-image",
+      async capabilities() {
+        return {
+          id: "sync-image",
+          displayName: "Synchronous",
+          models: ["sync-v1"],
+          operations: ["image.generate"],
+          textToImage: true,
+          imageToImage: false,
+          maxImageReferences: 0,
+          textToVideo: false,
+          imageToVideo: false,
+          videoReferences: false,
+          startEndFrames: false,
+          audioReferences: false,
+          seed: false,
+          sizes: [],
+          aspectRatios: [],
+          async: false,
+        };
+      },
+      async generateImage() {
+        // Terminal on submit, exactly like Seedream.
+        return {
+          providerJobId: "sync-1",
+          state: {
+            status: "succeeded" as const,
+            outputs: [{ mimeType: "image/png", base64: png.toString("base64") }],
+          },
+        };
+      },
+      async getJob() {
+        return { status: "succeeded" as const };
+      },
+    };
+
+    const service = await startTestService({
+      registry: new ProviderRegistry().register(syncProvider as never),
+    });
+    try {
+      const started = await readJson(
+        await service.call("/v1/generations", {
+          method: "POST",
+          body: JSON.stringify({
+            providerId: "sync-image",
+            operation: "image.generate",
+            prompt: "a grey swatch",
+          }),
+        }),
+      );
+
+      // Observed immediately after submission, the job must not claim success.
+      const early = await readJson(await service.call(`/v1/jobs/${started.job.id}`));
+      expect(["queued", "running"]).toContain(early.job.status);
+      expect(early.outputs).toHaveLength(0);
+
+      await service.deps.generation.whenSettled(started.job.id);
+      const final = JobResponseSchema.parse(
+        await readJson(await service.call(`/v1/jobs/${started.job.id}`)),
+      );
+      expect(final.job.status).toBe("succeeded");
+      expect(final.outputs).toHaveLength(1);
+      expect(final.outputs[0]?.width).toBe(8);
+    } finally {
+      await service.close();
+    }
+  });
+});

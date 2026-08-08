@@ -6,7 +6,13 @@ import {
   type Asset,
   type AssetDraft,
 } from "@seed-ae/domain";
-import { decodePng, encodePng, fitWithin, readPngSize } from "@seed-ae/media";
+import {
+  decodePng,
+  encodePng,
+  fitWithin,
+  readPngSize,
+  sniffMimeType,
+} from "@seed-ae/media";
 import type { ProviderOutput } from "@seed-ae/providers";
 import { toStorageUri, type AssetRepository, type WorkspaceLayout } from "@seed-ae/storage";
 
@@ -47,7 +53,8 @@ export class MediaIngestor {
   ) {}
 
   async ingest(output: ProviderOutput, options: IngestOptions): Promise<Asset> {
-    const bytes = await this.readOutput(output, options.fetchImpl ?? fetch);
+    const downloaded = await this.readOutput(output, options.fetchImpl ?? fetch);
+    const bytes = downloaded.bytes;
 
     if (bytes.length === 0) {
       throw new SeedError("provider_error", "provider returned an empty result");
@@ -59,7 +66,14 @@ export class MediaIngestor {
       );
     }
 
-    const mimeType = output.mimeType || "application/octet-stream";
+    // The bytes win. Ark's image endpoint returns JPEG through a response that
+    // says nothing about format, so a provider-declared type is only a hint —
+    // trusting it wrote `.png` files full of JPEG.
+    const mimeType =
+      sniffMimeType(bytes) ??
+      concreteType(downloaded.contentType) ??
+      concreteType(output.mimeType) ??
+      "application/octet-stream";
     const filename = buildFilename(options, mimeType);
     const target = path.join(this.workspace.generatedDir, filename);
     await writeFile(target, bytes, { flag: "wx" }).catch((cause: unknown) => {
@@ -113,8 +127,10 @@ export class MediaIngestor {
   private async readOutput(
     output: ProviderOutput,
     fetchImpl: typeof fetch,
-  ): Promise<Buffer> {
-    if (output.base64) return Buffer.from(output.base64, "base64");
+  ): Promise<{ bytes: Buffer; contentType?: string }> {
+    if (output.base64) {
+      return { bytes: Buffer.from(output.base64, "base64") };
+    }
     if (!output.url) {
       throw new SeedError("provider_error", "provider result had no url or data");
     }
@@ -141,8 +157,22 @@ export class MediaIngestor {
         `downloading the result failed with HTTP ${response.status}`,
       );
     }
-    return Buffer.from(await response.arrayBuffer());
+    const contentType = response.headers.get("content-type") ?? undefined;
+    return {
+      bytes: Buffer.from(await response.arrayBuffer()),
+      ...(contentType ? { contentType } : {}),
+    };
   }
+}
+
+/** Ignores placeholder types so they never beat a real sniff. */
+function concreteType(value: string | undefined): string | undefined {
+  if (!value) return undefined;
+  const type = value.split(";")[0]?.trim().toLowerCase();
+  if (!type || type === "application/octet-stream" || type === "binary/octet-stream") {
+    return undefined;
+  }
+  return type;
 }
 
 /**
