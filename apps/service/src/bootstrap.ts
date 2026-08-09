@@ -158,14 +158,20 @@ export function buildRegistry(
     );
   }
 
-  // Always constructed so its capabilities can be shown as "pending", never
-  // registered as something the panel can actually run.
-  const seedance = new SeedanceProvider({
-    ...(config.seedanceModelId ? { model: config.seedanceModelId } : {}),
-  });
-  if (seedance.configured) {
-    logger.warn("provider.seedance_config_ignored", {
-      reason: "the Seedance 2.5 API contract is not verified; adapter is inert",
+  // Seedance shares Seedream's Bearer credential; only the model differs.
+  if (config.arkApiKey && config.seedanceModelId) {
+    registry.register(
+      new SeedanceProvider({
+        baseUrl: config.arkBaseUrl,
+        apiKey: config.arkApiKey,
+        model: config.seedanceModelId,
+      }),
+    );
+  } else {
+    logger.warn("provider.seedance_unavailable", {
+      reason: config.arkApiKey
+        ? "SEEDANCE_MODEL_ID is not set"
+        : "ARK_API_KEY is not set",
     });
   }
 

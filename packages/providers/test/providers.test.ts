@@ -326,15 +326,199 @@ describe("SeedreamProvider", () => {
 });
 
 describe("SeedanceProvider", () => {
-  it("advertises nothing and refuses to run", async () => {
-    const provider = new SeedanceProvider({ model: "whatever" });
-    const caps = await provider.capabilities();
-    expect(caps.operations).toEqual([]);
-    expect(caps.textToVideo).toBe(false);
+  const MODEL = "dreamina-seedance-2-5-260628";
 
+  function provider(handler: (url: string, init: RequestInit) => Response) {
+    return new SeedanceProvider({
+      baseUrl: "https://ark.example/api/v3",
+      apiKey: "ark-key",
+      model: MODEL,
+      fetchImpl: (async (url: string, init: RequestInit) =>
+        handler(String(url), init)) as unknown as typeof fetch,
+    });
+  }
+
+  const created = (id: string) =>
+    new Response(JSON.stringify({ id }), { status: 200 });
+
+  it("refuses to construct without an Ark API key or a model", () => {
+    expect(
+      () => new SeedanceProvider({ baseUrl: "x", apiKey: "", model: MODEL }),
+    ).toThrow(/Ark API key/);
+    expect(
+      () => new SeedanceProvider({ baseUrl: "x", apiKey: "k", model: "" }),
+    ).toThrow(/configured model id/);
+  });
+
+  it("declares video capabilities and asynchronous delivery", async () => {
+    const caps = await provider(() => created("t")).capabilities();
+    expect(caps.operations).toEqual(["video.generate"]);
+    expect(caps.textToVideo).toBe(true);
+    expect(caps.imageToVideo).toBe(true);
+    expect(caps.async).toBe(true);
+    expect(caps.seed).toBe(true);
+  });
+
+  it("posts a text part for text-to-video", async () => {
+    let body: Record<string, unknown> | undefined;
+    const job = await provider((url, init) => {
+      expect(url).toBe("https://ark.example/api/v3/contents/generations/tasks");
+      body = JSON.parse(String(init.body));
+      return created("cgt-1");
+    }).generateVideo({
+      model: MODEL,
+      prompt: "a lighthouse at dusk",
+      seed: 42,
+      durationSeconds: 5,
+      aspectRatio: "16:9",
+      parameters: { size: "720p" },
+      correlationId: "cor_1",
+    });
+
+    expect(body).toMatchObject({
+      model: MODEL,
+      content: [{ type: "text", text: "a lighthouse at dusk" }],
+      seed: 42,
+      duration: 5,
+      ratio: "16:9",
+      resolution: "720p",
+      output_format: "mp4",
+    });
+    expect(job.providerJobId).toBe("cgt-1");
+    expect(job.state.status).toBe("queued");
+  });
+
+  it("adds the reference as an image_url object, which the API requires", async () => {
+    let body: any;
+    await provider((_url, init) => {
+      body = JSON.parse(String(init.body));
+      return created("cgt-2");
+    }).generateVideo({
+      model: MODEL,
+      prompt: "push in slowly",
+      correlationId: "cor_2",
+      firstFrame: { kind: "base64", value: "AA", mimeType: "image/png" },
+    });
+
+    expect(body.content).toEqual([
+      { type: "text", text: "push in slowly" },
+      { type: "image_url", image_url: { url: "data:image/png;base64,AA" } },
+    ]);
+  });
+
+  it("never sends framespersecond, which the API does not validate", async () => {
+    // A wrong value here is accepted and silently creates a billable task.
+    let body: any;
+    await provider((_url, init) => {
+      body = JSON.parse(String(init.body));
+      return created("cgt-3");
+    }).generateVideo({
+      model: MODEL,
+      prompt: "x",
+      correlationId: "cor_3",
+      parameters: { framespersecond: 999, fps: 999 },
+    });
+
+    expect(body.framespersecond).toBeUndefined();
+    expect(body.fps).toBeUndefined();
+  });
+
+  it("requires something to generate from", async () => {
     await expect(
-      provider.generateVideo({ model: "whatever", prompt: "x", correlationId: "c" }),
-    ).rejects.toThrow(/contract has not been verified/);
+      provider(() => created("cgt-4")).generateVideo({
+        model: MODEL,
+        prompt: "   ",
+        correlationId: "cor_4",
+      }),
+    ).rejects.toThrow(/needs a prompt, a reference image, or both/);
+  });
+
+  it("keeps polling while the task is running", async () => {
+    const state = await provider(() =>
+      new Response(JSON.stringify({ id: "cgt-5", status: "running" }), { status: 200 }),
+    ).getJob("cgt-5");
+    expect(state.status).toBe("running");
+  });
+
+  it("treats an unfamiliar status as still running rather than guessing", async () => {
+    const state = await provider(() =>
+      new Response(JSON.stringify({ status: "preprocessing" }), { status: 200 }),
+    ).getJob("cgt-6");
+    expect(state.status).toBe("running");
+  });
+
+  it("returns the signed video URL on success", async () => {
+    const state = await provider(() =>
+      new Response(
+        JSON.stringify({
+          status: "succeeded",
+          content: { video_url: "https://tos.example/out.mp4?X-Tos-Expires=86400" },
+          usage: { total_tokens: 1296900 },
+        }),
+        { status: 200 },
+      ),
+    ).getJob("cgt-7");
+
+    expect(state.status).toBe("succeeded");
+    expect(state.outputs?.[0]?.url).toBe(
+      "https://tos.example/out.mp4?X-Tos-Expires=86400",
+    );
+    // The type is decided by sniffing the downloaded bytes, not asserted here.
+    expect(state.outputs?.[0]?.mimeType).toBe("");
+  });
+
+  it("fails loudly if success arrives without a video", async () => {
+    const state = await provider(() =>
+      new Response(JSON.stringify({ status: "succeeded", content: {} }), { status: 200 }),
+    ).getJob("cgt-8");
+    expect(state.status).toBe("failed");
+    expect(state.error?.message).toMatch(/no video_url/);
+  });
+
+  it("surfaces a task failure with the API message", async () => {
+    const state = await provider(() =>
+      new Response(
+        JSON.stringify({ status: "failed", error: { message: "content policy" } }),
+        { status: 200 },
+      ),
+    ).getJob("cgt-9");
+    expect(state.status).toBe("failed");
+    expect(state.error?.message).toBe("content policy");
+  });
+
+  it("says plainly that a running task cannot be stopped", async () => {
+    await expect(
+      provider(() =>
+        new Response(
+          JSON.stringify({
+            error: { code: "InvalidAction.RunningTaskDeletion", message: "no" },
+          }),
+          { status: 409 },
+        ),
+      ).cancelJob("cgt-10"),
+    ).rejects.toThrow(/cannot stop a task once it is running/);
+  });
+
+  it("strips the request id Ark appends to every message", async () => {
+    await expect(
+      provider(() =>
+        new Response(
+          JSON.stringify({
+            error: { code: "InvalidParameter", message: "bad ratio. Request id: 021786" },
+          }),
+          { status: 400 },
+        ),
+      ).generateVideo({ model: MODEL, prompt: "x", correlationId: "c" }),
+      // The sentence keeps its full stop; only the request id goes.
+    ).rejects.toThrow(/bad ratio\.$/);
+  });
+
+  it("reports an auth failure as unauthorized, not a provider fault", async () => {
+    await expect(
+      provider(() =>
+        new Response(JSON.stringify({ error: { message: "bad key" } }), { status: 401 }),
+      ).generateVideo({ model: MODEL, prompt: "x", correlationId: "c" }),
+    ).rejects.toMatchObject({ code: "unauthorized" });
   });
 });
 
@@ -353,5 +537,59 @@ describe("ProviderRegistry", () => {
     expect(registry.get("mock-image").id).toBe("mock-image");
     expect(registry.has("seedream")).toBe(false);
     expect(() => registry.get("seedream")).toThrow(/unknown provider/);
+  });
+});
+
+describe("SeedanceProvider ratio semantics", () => {
+  const MODEL = "dreamina-seedance-2-5-260628";
+
+  function capture(handler: (body: any) => void) {
+    return new SeedanceProvider({
+      baseUrl: "https://ark.example/api/v3",
+      apiKey: "k",
+      model: MODEL,
+      fetchImpl: (async (_url: string, init: RequestInit) => {
+        handler(JSON.parse(String(init.body)));
+        return new Response(JSON.stringify({ id: "cgt-x" }), { status: 200 });
+      }) as unknown as typeof fetch,
+    });
+  }
+
+  it("sends ratio for text-to-video", async () => {
+    let body: any;
+    await capture((b) => (body = b)).generateVideo({
+      model: MODEL,
+      prompt: "a lighthouse",
+      aspectRatio: "16:9",
+      correlationId: "c",
+    });
+    expect(body.ratio).toBe("16:9");
+  });
+
+  it("omits ratio for image-to-video, where the API derives it", async () => {
+    // "For first-frame or first-last-frame generation, the output ratio
+    // follows the first-frame image." Sending it is a hard error.
+    let body: any;
+    await capture((b) => (body = b)).generateVideo({
+      model: MODEL,
+      prompt: "push in",
+      aspectRatio: "16:9",
+      correlationId: "c",
+      firstFrame: { kind: "base64", value: "AA", mimeType: "image/png" },
+    });
+    expect(body.ratio).toBeUndefined();
+  });
+
+  it("rejects a duration outside 4..30 before spending a call", async () => {
+    let called = false;
+    await expect(
+      capture(() => (called = true)).generateVideo({
+        model: MODEL,
+        prompt: "x",
+        durationSeconds: 3,
+        correlationId: "c",
+      }),
+    ).rejects.toThrow(/4 to 30 seconds/);
+    expect(called).toBe(false);
   });
 });
