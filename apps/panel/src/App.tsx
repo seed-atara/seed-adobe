@@ -96,15 +96,14 @@ export function App() {
     (async () => {
       try {
         await client.health();
-        const [{ providers: caps }, context] = await Promise.all([
-          client.providers(),
-          client.aeContext(),
-        ]);
+        const { providers: caps } = await client.providers();
         if (cancelled) return;
 
+        // Providers and the form come first and unconditionally. Reading the
+        // AE context is allowed to fail — a panel with empty dropdowns is
+        // useless, whereas a panel that cannot yet see a comp is merely
+        // waiting for one.
         setProviders(caps);
-        setAeContext(bridge ? await bridge.getContext() : context.context);
-        setHostId(bridge ? "after-effects" : context.host);
         setConnection("live");
         setConnectionMessage("");
         setForm((current) =>
@@ -118,6 +117,19 @@ export function App() {
               },
         );
         await refreshAssets();
+
+        try {
+          if (bridge) {
+            setAeContext(await bridge.getContext());
+            setHostId("after-effects");
+          } else {
+            const { context, host } = await client.aeContext();
+            setAeContext(context);
+            setHostId(host);
+          }
+        } catch (hostCause) {
+          if (!cancelled) report(hostCause);
+        }
       } catch (cause) {
         if (cancelled) return;
         if (cause instanceof ServiceError && cause.status === 401) {
@@ -137,7 +149,7 @@ export function App() {
     return () => {
       cancelled = true;
     };
-  }, [client, token, refreshAssets, bridge]);
+  }, [client, token, refreshAssets, bridge, report]);
 
   // Keep the comp context readout honest while the artist moves the playhead.
   useEffect(() => {

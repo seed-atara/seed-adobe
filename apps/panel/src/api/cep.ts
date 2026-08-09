@@ -50,14 +50,29 @@ export async function reloadHostScript(): Promise<void> {
   if (!cep) throw new Error("not running inside After Effects");
 
   const jsxPath = `${extensionRoot()}/jsx/seed-host.jsx`;
+
+  /*
+   * $.evalFile returns the value of the last expression in the file, and
+   * seed-host.jsx is nothing but function declarations — so it returns
+   * undefined even on a perfectly successful load. Prove the load by asking
+   * whether the functions now exist.
+   */
+  const probe = `(function () {
+    try {
+      $.evalFile(new File(${JSON.stringify(jsxPath)}));
+      return (typeof seedPing === "function") ? "ok" : "loaded-but-empty";
+    } catch (e) {
+      return "error: " + e;
+    }
+  })()`;
+
   const raw = await new Promise<string>((resolve) => {
-    // Returns "true" on success; anything else means AE could not read it.
-    cep.evalScript(`$.evalFile(${JSON.stringify(jsxPath)})`, resolve);
+    cep.evalScript(probe, resolve);
   });
 
-  if (raw !== "true") {
+  if (raw !== "ok") {
     throw new Error(
-      `After Effects could not load the host script at ${jsxPath} (${raw})`,
+      `Could not load the host script at ${jsxPath} (${raw})`,
     );
   }
 }
