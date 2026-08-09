@@ -713,6 +713,24 @@ textarea {
   display: block;
 }
 
+/*
+ * Alpha shown as a checkerboard rather than flat white. An AE frame captured
+ * with a Region of Interest is mostly transparent, and against white that
+ * reads as a broken half-image instead of as empty pixels.
+ */
+.preview,
+.card .thumb,
+.ref {
+  background-color: var(--face-light);
+  background-image:
+    linear-gradient(45deg, var(--shadow) 25%, transparent 25%),
+    linear-gradient(-45deg, var(--shadow) 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, var(--shadow) 75%),
+    linear-gradient(-45deg, transparent 75%, var(--shadow) 75%);
+  background-size: 12px 12px;
+  background-position: 0 0, 0 6px, 6px -6px, -6px 0;
+}
+
 .kv {
   display: grid;
   grid-template-columns: 72px 1fr;

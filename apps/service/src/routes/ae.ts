@@ -10,7 +10,7 @@ import {
   type AssetDraft,
   type CapturedMedia,
 } from "@seed-ae/domain";
-import { readPngSize } from "@seed-ae/media";
+import { alphaBounds, decodePng, readPngSize } from "@seed-ae/media";
 import { resolveStorageUri, toStorageUri } from "@seed-ae/storage";
 import { z } from "zod";
 import type { AppDeps } from "../app.js";
@@ -30,12 +30,43 @@ export function aeContextRoute(deps: AppDeps) {
  * provenance. Shared by the service-driven capture and the CEP panel, which
  * renders the frame itself and then hands over the path.
  */
+export interface RegisteredCapture {
+  asset: Asset;
+  /** Set when the frame came back only partly rendered. */
+  warning?: string;
+}
+
+/**
+ * Flags a frame that After Effects only partly rendered.
+ *
+ * A Region of Interest leaves everything outside it fully transparent, which
+ * reads downstream as a broken image — and a model given such a reference will
+ * faithfully work from the empty part too. Better to say so at capture time.
+ */
+function describePartialRender(bytes: Buffer): string | undefined {
+  const decoded = decodePng(bytes);
+  if (!decoded) return undefined;
+
+  const { box, coverage } = alphaBounds(decoded);
+  if (!box) return "The captured frame is fully transparent - nothing rendered.";
+  if (coverage > 0.995) return undefined;
+
+  const width = box.maxX - box.minX + 1;
+  const height = box.maxY - box.minY + 1;
+  return (
+    `Only ${Math.round(coverage * 100)}% of this frame was rendered ` +
+    `(${width}x${height} at ${box.minX},${box.minY} of ${decoded.width}x${decoded.height}). ` +
+    `The rest is transparent - a Region of Interest in the composition viewer ` +
+    `is the usual cause.`
+  );
+}
+
 async function registerCapturedFrame(
   deps: AppDeps,
   captured: CapturedMedia,
   format: "png" | "exr",
   includesAlpha: boolean,
-): Promise<Asset> {
+): Promise<RegisteredCapture> {
   const stats = await stat(captured.path);
   const bytes = await readFile(captured.path);
   const probed = readPngSize(bytes);
@@ -66,14 +97,17 @@ async function registerCapturedFrame(
     ? deps.assets.setThumbnail(asset.id, thumbnailUri)
     : asset;
 
+  const warning = describePartialRender(bytes);
+
   deps.logger.info("ae.frame.captured", {
     assetId: asset.id,
     compName: captured.sourceContext.compName,
     frameNumber: captured.sourceContext.frameNumber,
     byteSize: stats.size,
+    ...(warning ? { partialRender: true } : {}),
   });
 
-  return registered;
+  return { asset: registered, ...(warning ? { warning } : {}) };
 }
 
 /**
@@ -92,13 +126,13 @@ export function captureFrameRoute(deps: AppDeps) {
       outputDir: deps.workspace.originalsDir,
     });
 
-    const asset = await registerCapturedFrame(
+    const registered = await registerCapturedFrame(
       deps,
       captured,
       request.format,
       request.includeAlpha,
     );
-    return json({ asset }, 201);
+    return json(registered, 201);
   };
 }
 
@@ -144,13 +178,13 @@ export function registerCaptureRoute(deps: AppDeps) {
       sourceContext: request.context,
     };
 
-    const asset = await registerCapturedFrame(
+    const registered = await registerCapturedFrame(
       deps,
       captured,
       request.format,
       request.includeAlpha,
     );
-    return json({ asset }, 201);
+    return json(registered, 201);
   };
 }
 

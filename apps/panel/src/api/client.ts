@@ -94,7 +94,7 @@ export class SeedClient {
     return this.request("/v1/ae/context");
   }
 
-  captureFrame(): Promise<{ asset: Asset }> {
+  captureFrame(): Promise<{ asset: Asset; warning?: string }> {
     return this.request("/v1/ae/capture-frame", { method: "POST", body: {} });
   }
 
@@ -121,7 +121,7 @@ export class SeedClient {
     context: Record<string, unknown>;
     width?: number;
     height?: number;
-  }): Promise<{ asset: Asset }> {
+  }): Promise<{ asset: Asset; warning?: string }> {
     return this.request("/v1/ae/register-capture", {
       method: "POST",
       body: input,

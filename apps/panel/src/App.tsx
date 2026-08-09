@@ -63,6 +63,8 @@ export function App() {
   const [form, setForm] = useState<GenerateForm>(EMPTY_FORM);
   const [job, setJob] = useState<JobView | undefined>();
   const [error, setError] = useState<string | undefined>();
+  /** Non-fatal capture feedback, e.g. a partly rendered frame. */
+  const [notice, setNotice] = useState<string | undefined>();
   const [busy, setBusy] = useState(false);
 
   const selected = assets.find((asset) => asset.id === selectedId);
@@ -189,9 +191,10 @@ export function App() {
     setBusy(true);
     setError(undefined);
     try {
-      const asset = bridge
+      const { asset, warning } = bridge
         ? await bridge.captureFrame()
-        : (await client.captureFrame()).asset;
+        : await client.captureFrame();
+      setNotice(warning);
       await refreshAssets();
       setSelectedId(asset.id);
       // A fresh capture is almost always the next reference.
@@ -331,6 +334,7 @@ export function App() {
       <div className="body">
         <main className="column">
           {error ? <div className="notice error">{error}</div> : null}
+          {notice ? <div className="notice">{notice}</div> : null}
 
           {tab === "generate" ? (
             <GenerateView

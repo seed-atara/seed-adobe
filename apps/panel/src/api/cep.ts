@@ -163,7 +163,7 @@ export class CepAeBridge {
   }
 
   /** Renders the current frame into the workspace and registers it. */
-  async captureFrame(): Promise<Asset> {
+  async captureFrame(): Promise<{ asset: Asset; warning?: string }> {
     await this.ensureHost();
     const { workspace } = await this.client.workspace();
     const context = await this.getContext();
@@ -174,7 +174,7 @@ export class CepAeBridge {
     );
 
     // The service owns path validation, registration and thumbnailing.
-    const { asset } = await this.client.registerCapture({
+    return this.client.registerCapture({
       path: captured.path,
       context: {
         ...context,
@@ -184,7 +184,6 @@ export class CepAeBridge {
       width: captured.width,
       height: captured.height,
     });
-    return asset;
   }
 
   async importAsset(
