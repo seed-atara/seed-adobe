@@ -12,3 +12,4 @@ Thumbs.db
 .seed-ae/
 local-assets/
 tmp/
+.seed-watchdog.log
