@@ -277,7 +277,7 @@ export function App() {
   }
 
   return (
-    <div className="shell">
+    <div className="shell" data-host={bridge ? "cep" : "browser"}>
       <div className="titlebar">
         <span className="icon">S</span>
         <span className="label">SEED / AE</span>
