@@ -47,7 +47,9 @@ export async function bootstrap({
   const assets = new AssetRepository(db);
   const generations = new GenerationRepository(db);
   const jobs = new JobRepository(db);
-  const ingestor = new MediaIngestor(workspace, assets);
+  const ingestor = new MediaIngestor(workspace, assets, (reason, assetId) => {
+    activeLogger.warn("asset.thumbnail_failed", { assetId, reason });
+  });
   const providerRegistry = registry ?? buildRegistry(config.providers, activeLogger);
 
   const generation = new GenerationService({
@@ -63,6 +65,21 @@ export async function bootstrap({
 
   // Anything left running belongs to a process that no longer exists.
   generation.reconcileInterruptedJobs();
+
+  // Catch up any asset that never got a thumbnail. Not awaited: the service
+  // should start serving immediately, and a missing thumbnail is cosmetic.
+  void ingestor
+    .backfillThumbnails()
+    .then(({ done, failed }) => {
+      if (done > 0 || failed > 0) {
+        activeLogger.info("asset.thumbnails_backfilled", { done, failed });
+      }
+    })
+    .catch((error: unknown) => {
+      activeLogger.warn("asset.thumbnail_backfill_failed", {
+        errorMessage: error instanceof Error ? error.message : String(error),
+      });
+    });
 
   return {
     config,

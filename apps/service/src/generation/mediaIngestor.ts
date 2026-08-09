@@ -1,4 +1,4 @@
-import { writeFile } from "node:fs/promises";
+import { readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import {
   SeedError,
@@ -15,7 +15,12 @@ import {
   sniffMimeType,
 } from "@seed-ae/media";
 import type { ProviderOutput } from "@seed-ae/providers";
-import { toStorageUri, type AssetRepository, type WorkspaceLayout } from "@seed-ae/storage";
+import {
+  resolveStorageUri,
+  toStorageUri,
+  type AssetRepository,
+  type WorkspaceLayout,
+} from "@seed-ae/storage";
 
 /** Refuse absurd downloads rather than filling the user's disk. */
 export const MAX_OUTPUT_BYTES = 256 * 1024 * 1024;
@@ -51,6 +56,8 @@ export class MediaIngestor {
   constructor(
     private readonly workspace: WorkspaceLayout,
     private readonly assets: AssetRepository,
+    /** Optional so tests can construct one bare. */
+    private readonly onThumbnailFailure?: (reason: string, assetId: string) => void,
   ) {}
 
   async ingest(output: ProviderOutput, options: IngestOptions): Promise<Asset> {
@@ -114,16 +121,52 @@ export class MediaIngestor {
   async writeThumbnail(bytes: Buffer, assetId: string): Promise<string | undefined> {
     // JPEG comes back at 1/8 scale already, which is thumbnail-sized.
     const decoded = decodePng(bytes) ?? decodeJpegPreview(bytes);
-    if (!decoded) return undefined;
+    if (!decoded) {
+      // Not fatal, but say so: a silent failure looks like a broken panel.
+      this.onThumbnailFailure?.("no decoder for these bytes", assetId);
+      return undefined;
+    }
 
     try {
       const small = fitWithin(decoded, THUMBNAIL_MAX_EDGE, THUMBNAIL_MAX_EDGE);
       const target = path.join(this.workspace.thumbnailsDir, `${assetId}.png`);
       await writeFile(target, encodePng(small.width, small.height, small.rgba));
       return toStorageUri(this.workspace, target);
-    } catch {
+    } catch (cause) {
+      this.onThumbnailFailure?.(
+        cause instanceof Error ? cause.message : String(cause),
+        assetId,
+      );
       return undefined;
     }
+  }
+
+  /**
+   * Fills in thumbnails for assets that never got one — after a crash, or
+   * after a decoder gains a format it previously could not read. Failures are
+   * per-asset and never abort the sweep.
+   */
+  async backfillThumbnails(limit = 200): Promise<{ done: number; failed: number }> {
+    let done = 0;
+    let failed = 0;
+
+    for (const asset of this.assets.listMissingThumbnails(limit)) {
+      try {
+        const absolute = resolveStorageUri(this.workspace, asset.storageUri);
+        const bytes = await readFile(absolute);
+        const uri = await this.writeThumbnail(bytes, asset.id);
+        if (uri) {
+          this.assets.setThumbnail(asset.id, uri);
+          done += 1;
+        } else {
+          failed += 1;
+        }
+      } catch {
+        failed += 1;
+      }
+    }
+
+    return { done, failed };
   }
 
   private async readOutput(
