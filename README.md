@@ -50,8 +50,14 @@ or run it in a browser against the mock AE host:
 cd apps/panel && npm run dev    # http://localhost:47830
 ```
 
-Paste the printed session token into the panel, press **Capture current frame**,
-write a prompt, and press **Generate**.
+Get the session token onto your clipboard with:
+
+```bash
+npm run token
+```
+
+Paste it into the panel, press **Capture current frame**, write a prompt, and
+press **Generate**.
 
 To verify the whole loop headlessly against a running service:
 

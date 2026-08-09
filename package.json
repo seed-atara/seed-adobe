@@ -18,7 +18,8 @@
     "typecheck": "tsc -p tsconfig.json",
     "lint": "npm run typecheck",
     "install:extension": "node scripts/install-extension.mjs",
-    "uninstall:extension": "node scripts/install-extension.mjs --uninstall"
+    "uninstall:extension": "node scripts/install-extension.mjs --uninstall",
+    "token": "node scripts/token.mjs"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",
