@@ -34,16 +34,97 @@ The Volcengine product page surfaced on 2026-08-08 lists "Doubao video generatio
 Source:
 - https://www.volcengine.com/
 
-## Seedance 2.5
+## Seedance 2.5 — contract confirmed against the live API (2026-08-09)
 
-Product objective: use Seedance 2.5 as the hero video model for the ByteDance demonstration.
+Product objective: Seedance 2.5 as the hero video model for the ByteDance
+demonstration.
 
-As of this research snapshot, this starter pack does **not** contain a verified official Seedance 2.5 Ark request/response schema. Therefore:
-- do not guess endpoints
-- do not derive production contracts from third-party examples
-- do not alias an older model's payload and call it 2.5
-- build a provider skeleton and mock fixture
-- update this file with official docs/access once obtained
+The contract below was **not** guessed and **not** taken from third parties. It
+was read off the live Ark API on an account that already has 473 tasks,
+50 of them `dreamina-seedance-2-5-260628`, by:
+
+1. listing real completed tasks (`GET`), and
+2. sending deliberately invalid requests and reading the validation errors,
+   which name the accepted fields and values.
+
+### Endpoints
+
+| Purpose | Call |
+| --- | --- |
+| Create | `POST {ARK_BASE_URL}/contents/generations/tasks` |
+| Poll one | `GET {ARK_BASE_URL}/contents/generations/tasks/{id}` |
+| List | `GET {ARK_BASE_URL}/contents/generations/tasks?page_size=N` |
+| Delete | `DELETE {ARK_BASE_URL}/contents/generations/tasks/{id}` |
+
+Auth is the same Bearer `ARK_API_KEY` as image generation. Unlike Seedream,
+video **is** asynchronous: create returns `{"id": "cgt-..."}` and you poll.
+
+### Request
+
+Required: `model` and `content`. `content` is an array of typed parts, and the
+API states the accepted types outright:
+
+> `content[0].type` … supported values are: `text`, `image_url`, `audio_url`,
+> `video_url`
+
+- `{"type": "text", "text": "..."}`
+- `{"type": "image_url", "image_url": {"url": "..."}}` — an **object**; a bare
+  string is rejected with ``The parameter `content.image_url` … is not valid``
+
+The API infers the mode from the parts and says so in errors: with only text it
+reports `... for model dreamina-seedance-2-5 in t2v`, with an image part
+`... in i2v`.
+
+Optional parameters, all observed on real completed tasks: `seed`,
+`resolution` (e.g. `720p`), `ratio` (e.g. `16:9`), `duration` (e.g. `30`),
+`framespersecond` (e.g. `24`), `generate_audio`, `output_format` (`mp4`),
+`draft`, `service_tier`, `priority`, `execution_expires_after`.
+
+`resolution`, `ratio` and `duration` are validated **per model and per mode** —
+the error is `the parameter X specified in the request is not valid for model
+dreamina-seedance-2-5 in t2v`, without listing the accepted set. Treat them as
+configuration and surface the API's rejection rather than hard-coding a list.
+
+### Response (verified, succeeded task)
+
+```json
+{
+  "id": "cgt-20260809211822-9lklw",
+  "model": "dreamina-seedance-2-5-260628",
+  "status": "succeeded",
+  "content": { "video_url": "https://ark-acg-ap-southeast-1.tos-...mp4?X-Tos-Expires=86400..." },
+  "usage": { "completion_tokens": 1296900, "total_tokens": 1296900 },
+  "created_at": 1786281507, "updated_at": 1786282564,
+  "seed": 99588, "resolution": "720p", "ratio": "16:9",
+  "duration": 30, "framespersecond": 24,
+  "generate_audio": true, "output_format": "mp4"
+}
+```
+
+Observed statuses: `running`, `succeeded`, `failed`. Timestamps are unix
+seconds. `content.video_url` is a **signed TOS URL with
+`X-Tos-Expires=86400`** — 24 hours — so download on completion rather than
+storing the link. A 30s 720p generation billed 1,296,900 completion tokens.
+
+### Traps
+
+- **`framespersecond` is not validated.** A nonsense value such as `999` is
+  accepted and **creates a real, billable task**. Probing this endpoint with
+  "obviously invalid" values is unsafe unless the invalid field is one that is
+  actually checked (`resolution`, `ratio`, `duration` and `output_format` all
+  reject cleanly).
+- **A running task cannot be stopped.** `DELETE` returns
+  `InvalidAction.RunningTaskDeletion`, and there is no cancel route — POSTing
+  to `/cancel` or `/stop` falls through to the *creation* handler and asks for
+  `model`, so retrying there can create yet another task.
+- Poll with `GET`; nothing else is safe to retry blindly.
+
+### Still to confirm
+
+- Accepted values for `resolution`, `ratio` and `duration` per mode.
+- Whether `video_url` and `audio_url` parts serve reference video / audio, and
+  whether `asset://` URIs work here as they do for images.
+- First/last frame semantics for image-to-video.
 
 ## Ark credential types: API key vs AK/SK — RESOLVED (2026-08-09)
 
