@@ -43,10 +43,26 @@ export interface ProviderConfig {
   mockLatencyMs: number;
 }
 
-export function loadDotEnv(cwd: string = process.cwd()): void {
-  const envPath = path.join(cwd, ".env");
-  if (existsSync(envPath)) {
-    process.loadEnvFile(envPath);
+/**
+ * Loads `.env`, searching upward from the working directory.
+ *
+ * `npm run dev` runs the service with `apps/service` as its cwd, so looking
+ * only at `process.cwd()` silently missed the repo-root `.env` — the service
+ * started with no credentials and no configured workspace, which looks like a
+ * broken install rather than a missing file.
+ */
+export function loadDotEnv(startDir: string = process.cwd()): string | undefined {
+  let dir = path.resolve(startDir);
+
+  for (;;) {
+    const candidate = path.join(dir, ".env");
+    if (existsSync(candidate)) {
+      process.loadEnvFile(candidate);
+      return candidate;
+    }
+    const parent = path.dirname(dir);
+    if (parent === dir) return undefined; // reached the filesystem root
+    dir = parent;
   }
 }
 

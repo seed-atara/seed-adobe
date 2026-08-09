@@ -3,7 +3,7 @@ import { bootstrap } from "./bootstrap.js";
 import { loadConfig, loadDotEnv } from "./config.js";
 import { createLogger } from "./logger.js";
 
-loadDotEnv();
+const envFile = loadDotEnv();
 
 const logger = createLogger();
 const config = loadConfig();
@@ -15,6 +15,8 @@ server.listen(config.port, config.host, () => {
     url: `http://${config.host}:${config.port}`,
     workspace: deps.workspace.root,
     aeHost: deps.aeHost.id,
+    envFile: envFile ?? "(none found)",
+    providers: deps.registry.ids().join(", "),
   });
   if (config.ephemeralToken) {
     // Printed once so a local panel can be pointed at this process. Set
