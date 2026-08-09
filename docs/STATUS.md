@@ -74,7 +74,7 @@ Insert at playhead / Variation / Use as reference actions. Controls are driven
 by declared provider capabilities.
 
 Ships as a CEP extension that docks in After Effects:
-`pwsh -File scripts/install-extension.ps1`, then Window → Extensions → SEED / AE.
+`npm run install:extension`, then Window → Extensions → SEED / AE.
 In CEP the panel drives AE itself through `jsx/seed-host.jsx` (capture via
 `saveFrameToPng`, import into a SEED folder, insert at playhead inside an undo
 group) and registers results with the service. In a browser it falls back to

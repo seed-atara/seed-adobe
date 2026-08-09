@@ -39,8 +39,8 @@ npm run dev       # local service; prints a session token
 
 Then either dock it in After Effects:
 
-```powershell
-pwsh -ExecutionPolicy Bypass -File scripts/install-extension.ps1
+```bash
+npm run install:extension
 # restart AE, then Window > Extensions > SEED / AE
 ```
 

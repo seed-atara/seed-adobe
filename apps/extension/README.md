@@ -18,7 +18,7 @@ Then:
 3. **Window → Extensions → SEED / AE**
 4. Paste the session token.
 
-`scripts/install-extension.ps1 -Uninstall` removes it.
+`npm run uninstall:extension` removes it.
 
 ## Why CEP
 
