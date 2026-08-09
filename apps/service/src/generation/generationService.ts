@@ -280,6 +280,17 @@ export class GenerationService {
         );
       }
 
+      // A generated clip has no decodable thumbnail; borrow the reference
+      // frame's, which for image-to-video is its own first frame.
+      const posterSource = inputAssets[0];
+      if (posterSource) {
+        for (const asset of assets) {
+          if (asset.kind === "video" && !asset.thumbnailUri) {
+            await this.options.ingestor.adoptPoster(asset.id, posterSource.id);
+          }
+        }
+      }
+
       this.finish(
         job.id,
         generation.id,

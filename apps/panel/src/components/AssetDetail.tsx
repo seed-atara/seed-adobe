@@ -4,6 +4,7 @@ import type { SeedClient } from "../api/client.ts";
 import type { CepAeBridge } from "../api/cep.ts";
 import {
   AssetImage,
+  AssetVideo,
   OriginBadge,
   SectionLabel,
   formatBytes,
@@ -75,7 +76,9 @@ export function AssetDetail({
       <SectionLabel>asset</SectionLabel>
 
       <div className="preview">
-        {asset.kind === "image" && asset.status !== "missing" ? (
+        {asset.kind === "video" && asset.status !== "missing" ? (
+          <AssetVideo client={client} asset={asset} />
+        ) : asset.kind === "image" && asset.status !== "missing" ? (
           <AssetImage client={client} asset={asset} variant="thumbnail" />
         ) : (
           <div className="empty" style={{ border: "none" }}>

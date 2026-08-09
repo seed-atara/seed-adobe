@@ -708,9 +708,26 @@ textarea {
   overflow: hidden;
 }
 
-.preview img {
+.preview img,
+.preview video {
   width: 100%;
   display: block;
+}
+
+/* A generated clip carries its reference frame as a poster, so the grid needs
+   to say which cards are video. */
+.play-marker {
+  position: absolute;
+  right: 3px;
+  bottom: 3px;
+  width: 16px;
+  height: 16px;
+  display: grid;
+  place-items: center;
+  font-size: 8px;
+  color: var(--white);
+  background: rgba(0, 0, 0, 0.65);
+  border: 1px solid var(--white);
 }
 
 /*

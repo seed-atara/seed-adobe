@@ -135,15 +135,15 @@ export class AssetRepository {
     return { assets: rows.map(rowToAsset), total: totalRow.total };
   }
 
-  /** Ready assets that have no thumbnail yet, oldest first. */
-  listMissingThumbnails(limit = 200): Asset[] {
+  /** Ready assets of a kind that have no thumbnail yet, oldest first. */
+  listMissingThumbnails(limit = 200, kind: AssetKind = "image"): Asset[] {
     const rows = this.db
       .prepare(
         `SELECT ${SELECT_COLUMNS} FROM assets
-          WHERE thumbnail_uri IS NULL AND status = 'ready' AND kind = 'image'
+          WHERE thumbnail_uri IS NULL AND status = 'ready' AND kind = ?
           ORDER BY rowid ASC LIMIT ?`,
       )
-      .all(limit) as unknown as AssetRow[];
+      .all(kind, limit) as unknown as AssetRow[];
     return rows.map(rowToAsset);
   }
 

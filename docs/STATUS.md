@@ -4,24 +4,31 @@ Last updated: 2026-08-09
 
 ## Current milestone
 
-Milestones 0–3 complete, **Seedream verified against the live Ark API**, and
-the panel ships as a **CEP extension that docks inside After Effects**.
-Milestone 4 (Seedance) is deliberately not implemented — the model id is now
-known (`dreamina-seedance-2-5-260628`) but its request contract is not.
+**Milestones 0–4 complete.** Seedream and Seedance 2.5 are both verified
+against the live BytePlus Ark API, and the panel docks inside After Effects.
 
 ## The V1 loop works
 
 ```
-AE frame → Capture → Asset Library → generate → job → result registered
-        → lineage → reopen recipe → variation (branches) → import / insert at playhead
+AE frame → Capture → Asset Library → Seedream (image) or Seedance 2.5 (video)
+        → result registered → lineage → reopen recipe → variation
+        → import / insert at playhead
 ```
 
-Verified end to end against a running service, driven through the panel's own
-client, in a workspace path containing spaces (`…/V1 Demo/Project One/`). The
-generated images visibly retain the captured frame's structure and diverge by
-seed, so the recorded lineage reflects a real derivation.
+Verified end to end on real generations, driven through the panel's own client:
 
-`npm test` — 121 tests. `npm run typecheck` — clean.
+- **Seedream** `seedream-4-0-250828` — image-to-image from a captured frame.
+  Results visibly retain the frame's structure and diverge by seed, so the
+  recorded lineage reflects a real derivation.
+- **Seedance 2.5** `dreamina-seedance-2-5-260628` — image-to-video from a
+  captured frame. 4s at 480p, about 4 minutes, a complete 2.3MB mp4 whose box
+  chain ends exactly at EOF, registered with lineage back to the source frame
+  and a recoverable recipe.
+
+Also verified in a workspace path containing spaces, and with the AK/SK signer
+against the asset library.
+
+`npm test` — 148 tests. `npm run typecheck` — clean.
 
 **Verified live against the BytePlus Ark API (2026-08-09).** The whole loop
 runs on real Seedream: capture -> generate -> register -> lineage -> reopen
@@ -55,8 +62,8 @@ regression tests:
   Append-only and immutability enforced by triggers.
 - `@seed-ae/providers` — `GenerationProvider` + capabilities, `ProviderRegistry`,
   `MockImageProvider`, `MockVideoProvider`, `SeedreamProvider`,
-  `SeedanceProvider` (inert), and the Ark layer: request signer, OpenAPI client,
-  asset library with content-hash dedupe, per-model size constraints.
+  `SeedanceProvider` (working), and the Ark layer: request signer, OpenAPI
+  client, asset library with content-hash dedupe, per-model constraints.
 - `@seed-ae/ae-host` — `AeHostAdapter` contract and `MockAeHostAdapter`.
 
 ### Service (`apps/service`)
@@ -82,33 +89,29 @@ the service's mock host, so everything stays testable without Adobe.
 
 ## Known gaps
 
-- **The panel has not been driven inside After Effects.** It was verified in
-  a browser against the live service — capture, generate, library, recipe,
-  lineage and detail all confirmed working — but no one has yet loaded the
-  extension in AE and pressed Capture on a real comp. The ExtendScript host is
-  written and reviewed, not executed. The adapter is
-  implemented against the verified contract (synchronous, `seed` supported,
-  per-model minimum output area enforced locally, up to 14 references), but no
-  generation has been run: inference needs a Bearer API key from the Ark
-  console, which we do not have. The account AK/SK pair is a *different*
-  credential and cannot authenticate it.
-- **No public URL publisher.** `CreateAsset` fetches references over https and
-  rejects `data:` URLs, so registering a local AE frame needs a presigned-link
-  implementation of `PublicUrlPublisher`. Until then the reference policy falls
-  back to inline data URLs — which is the wrong route for recognisable real
-  people, hence the explicit `asset` policy that refuses to fall back.
-- **No CEP extension yet.** The panel runs in a browser; `MockAeHostAdapter`
-  stands in for After Effects. Route decided (CEP — see
-  `docs/research/ADOBE_INTEGRATION_NOTES.md`); the extension itself is unbuilt.
-- Video is fixture-replay only; no real video provider.
-- Thumbnails cover PNG and JPEG. WebP and video have no decoder and degrade
-  to no thumbnail (the panel then shows a placeholder).
+- **Video posters are borrowed, not extracted.** There is no video decoder
+  here, so a generated clip shows the thumbnail of the frame it was generated
+  from. For image-to-video that frame *is* the first frame, so it is honest —
+  but it is not a real extract, and a text-to-video result gets no poster.
+- **No public URL publisher**, so Ark asset registration (`asset://`) cannot be
+  used for local frames; references go inline as data URLs. That is the wrong
+  route for recognisable real people — see ADR 0005.
+- **Region of Interest silently halves a capture.** Detected and warned about
+  now, but not prevented: AE has no scripting API to read or clear it.
+- Thumbnails cover PNG and JPEG. WebP has no decoder and degrades to none.
 - Interrupted jobs are closed out as failed on startup rather than resumed.
-  True resume would need to re-poll the provider by `providerJobId`.
+- Seedance text-to-video is implemented but only image-to-video has been run
+  live; accepted parameter values may differ between the two modes.
 
 ## Next engineering actions
 
-1. Load the extension in After Effects and run the loop on a real comp.
+1. Run the full demo in After Effects: capture a hero frame, generate with
+   Seedance 2.5, insert the clip at the playhead. Every piece is verified
+   individually; the sequence as a performance is not.
 2. Implement a `PublicUrlPublisher` (presigned S3/R2/GCS) to enable the
    `asset://` reference route, then switch `ARK_REFERENCE_POLICY` to `asset`.
-3. Seedance 2.5 once official docs and access exist — adapter only.
+3. Extract a real first frame for video posters, or accept the borrowed one
+   and say so in the UI.
+4. Confirm Seedance text-to-video parameters, and whether `video_url` /
+   `audio_url` content parts are usable.
+5. Milestone 5 (LLM/agent) — only once the deterministic workflow is excellent.

@@ -114,3 +114,48 @@ export function AssetImage({
   if (!url) return <span className="placeholder">...</span>;
   return <img className={className} src={url} alt={asset.filename} />;
 }
+
+/**
+ * Plays generated video inline.
+ *
+ * Muted and looping by default: a clip in a panel is something you glance at
+ * while working, not something that should start making noise. Fetched with
+ * the token like every other asset, so the source is an object URL.
+ */
+export function AssetVideo({
+  client,
+  asset,
+}: {
+  client: SeedClient;
+  asset: Asset;
+}) {
+  const [url, setUrl] = useState<string | undefined>();
+  const [failed, setFailed] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    let objectUrl: string | undefined;
+    setUrl(undefined);
+    setFailed(false);
+
+    client
+      .assetBlob(asset)
+      .then((blob) => {
+        if (cancelled) return;
+        objectUrl = URL.createObjectURL(blob);
+        setUrl(objectUrl);
+      })
+      .catch(() => {
+        if (!cancelled) setFailed(true);
+      });
+
+    return () => {
+      cancelled = true;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [client, asset.id]);
+
+  if (failed) return <span className="placeholder">could not load video</span>;
+  if (!url) return <span className="placeholder">loading video...</span>;
+  return <video src={url} controls muted loop playsInline preload="metadata" />;
+}

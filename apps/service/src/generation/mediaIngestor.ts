@@ -1,4 +1,4 @@
-import { readFile, writeFile } from "node:fs/promises";
+import { copyFile, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import {
   SeedError,
@@ -138,6 +138,33 @@ export class MediaIngestor {
         assetId,
       );
       return undefined;
+    }
+  }
+
+  /**
+   * Gives a video the thumbnail of the frame it was generated from.
+   *
+   * There is no video decoder here, so a generated clip would otherwise sit in
+   * the library as a grey box. For image-to-video the reference *is* the first
+   * frame, so its thumbnail is an honest poster rather than a stand-in — and
+   * the lineage already records where it came from.
+   */
+  async adoptPoster(videoAssetId: string, sourceAssetId: string): Promise<boolean> {
+    const source = this.assets.getById(sourceAssetId);
+    if (!source?.thumbnailUri) return false;
+
+    try {
+      const from = resolveStorageUri(this.workspace, source.thumbnailUri);
+      const to = path.join(this.workspace.thumbnailsDir, `${videoAssetId}.png`);
+      await copyFile(from, to);
+      this.assets.setThumbnail(videoAssetId, toStorageUri(this.workspace, to));
+      return true;
+    } catch (cause) {
+      this.onThumbnailFailure?.(
+        cause instanceof Error ? cause.message : String(cause),
+        videoAssetId,
+      );
+      return false;
     }
   }
 

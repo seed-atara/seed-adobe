@@ -35,11 +35,16 @@ export function LibraryView({ client, assets, selectedId, onSelect }: Props) {
             <div className="thumb">
               {asset.status === "missing" ? (
                 <span className="placeholder">media missing</span>
-              ) : asset.kind === "image" ? (
+              ) : asset.thumbnailUri || asset.kind === "image" ? (
                 <AssetImage client={client} asset={asset} variant="thumbnail" />
               ) : (
                 <span className="placeholder">{asset.kind}</span>
               )}
+              {asset.kind === "video" ? (
+                <span className="play-marker" aria-hidden="true">
+                  &#9654;
+                </span>
+              ) : null}
               <div className="corner">
                 <OriginBadge asset={asset} />
               </div>

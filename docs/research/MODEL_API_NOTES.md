@@ -119,12 +119,33 @@ storing the link. A 30s 720p generation billed 1,296,900 completion tokens.
   `model`, so retrying there can create yet another task.
 - Poll with `GET`; nothing else is safe to retry blindly.
 
+### Accepted values (probed 2026-08-09, `dreamina-seedance-2-5-260628`, i2v)
+
+Each probe carried `output_format: "bogus"` — a field the API does validate —
+so a candidate that passed still failed overall and no task was created.
+
+| Parameter | Accepted | Rejected |
+| --- | --- | --- |
+| `duration` | 4, 5, 6, 8, 10, 12, 15, 16, 20, 24, 30 | 3 |
+| `resolution` | `480p`, `720p` | `1080p`, `2k`, `4k` |
+| `ratio` | `16:9`, `9:16`, `1:1`, `4:3`, `21:9`, `adaptive` | — but see below |
+
+**`ratio` must not be sent for image-to-video.** A real i2v request with one is
+rejected: *"For first-frame or first-last-frame generation, the output ratio
+follows the first-frame image."* Text-to-video may choose one. The parameter
+probe above shows ratios as accepted because validation order differs when the
+request is otherwise invalid — which is a good reminder that probe results are
+weaker evidence than a real call.
+
+A 4s 480p image-to-video run took about 4 minutes and returned a 2.3MB mp4.
+
 ### Still to confirm
 
-- Accepted values for `resolution`, `ratio` and `duration` per mode.
 - Whether `video_url` and `audio_url` parts serve reference video / audio, and
   whether `asset://` URIs work here as they do for images.
-- First/last frame semantics for image-to-video.
+- Last-frame semantics (the error message implies first-last-frame generation
+  exists, but not how to express it).
+- Accepted values for text-to-video, which may differ from i2v.
 
 ## Ark credential types: API key vs AK/SK — RESOLVED (2026-08-09)
 

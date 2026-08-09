@@ -32,7 +32,7 @@ Requires Node >= 22.13 (the service uses the built-in `node:sqlite`).
 
 ```bash
 npm install
-npm test          # 126 tests, no Adobe application needed
+npm test          # 148 tests, no Adobe application needed
 npm run typecheck
 npm run dev       # local service; prints a session token
 ```

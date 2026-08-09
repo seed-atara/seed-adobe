@@ -68,18 +68,28 @@ export async function bootstrap({
 
   // Catch up any asset that never got a thumbnail. Not awaited: the service
   // should start serving immediately, and a missing thumbnail is cosmetic.
-  void ingestor
-    .backfillThumbnails()
-    .then(({ done, failed }) => {
-      if (done > 0 || failed > 0) {
-        activeLogger.info("asset.thumbnails_backfilled", { done, failed });
-      }
-    })
-    .catch((error: unknown) => {
-      activeLogger.warn("asset.thumbnail_backfill_failed", {
-        errorMessage: error instanceof Error ? error.message : String(error),
-      });
+  void (async () => {
+    const { done, failed } = await ingestor.backfillThumbnails();
+    if (done > 0 || failed > 0) {
+      activeLogger.info("asset.thumbnails_backfilled", { done, failed });
+    }
+
+    // Videos cannot be decoded here, so they borrow the poster of the frame
+    // they were generated from.
+    let posters = 0;
+    for (const video of assets.listMissingThumbnails(200, "video")) {
+      const generation = video.generationId
+        ? generations.getById(video.generationId)
+        : undefined;
+      const source = generation?.inputAssetIds[0];
+      if (source && (await ingestor.adoptPoster(video.id, source))) posters += 1;
+    }
+    if (posters > 0) activeLogger.info("asset.posters_backfilled", { posters });
+  })().catch((error: unknown) => {
+    activeLogger.warn("asset.thumbnail_backfill_failed", {
+      errorMessage: error instanceof Error ? error.message : String(error),
     });
+  });
 
   return {
     config,
