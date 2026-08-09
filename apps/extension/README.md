@@ -78,8 +78,22 @@ Rebuild into the extension with:
 npm run build --workspace @seed-ae/extension
 ```
 
-CEP caches aggressively; if a change does not appear, close and reopen the
-panel, or restart After Effects.
+### Reloading after a change
+
+Rebuild and reinstall, then **reload the panel** — Ctrl+R in the DevTools at
+http://localhost:8088, or close and reopen it from the Extensions menu.
+
+```bash
+npm run install:extension
+```
+
+One reload is enough for both the UI *and* the ExtendScript host. The
+manifest's `ScriptPath` is evaluated once when the extension loads, so a page
+reload would otherwise leave After Effects running the old `seed-host.jsx` and
+make a host fix look like it did nothing. The panel therefore re-evaluates the
+host itself on boot via `$.evalFile`, so restarting AE is not needed.
+
+Restart After Effects only if the manifest changed.
 
 ## Debugging inside After Effects
 
