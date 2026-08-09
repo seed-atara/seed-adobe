@@ -108,6 +108,27 @@ function seedGetContext() {
 
 // ------------------------------------------------------------------ capture
 
+/** ExtendScript paths are happiest with forward slashes. */
+function seedNormalizePath(value) {
+    return String(value).replace(/\\/g, "/");
+}
+
+/** Folder.create() only makes the leaf, so build the chain ourselves. */
+function seedEnsureFolder(pathString) {
+    var folder = new Folder(seedNormalizePath(pathString));
+    if (folder.exists) return folder;
+
+    var parts = seedNormalizePath(pathString).split("/");
+    var current = "";
+    for (var i = 0; i < parts.length; i++) {
+        current = current === "" ? parts[i] : current + "/" + parts[i];
+        if (current === "" || /^[A-Za-z]:$/.test(current)) continue;
+        var step = new Folder(current);
+        if (!step.exists) step.create();
+    }
+    return new Folder(seedNormalizePath(pathString));
+}
+
 /**
  * Renders the frame under the playhead to a PNG.
  *
@@ -118,10 +139,15 @@ function seedCaptureFrame(outputDir, basename) {
     try {
         var comp = seedActiveComp();
         if (!comp) return seedFail("no active composition");
+        if (typeof comp.saveFrameToPng !== "function") {
+            return seedFail(
+                "this After Effects version has no CompItem.saveFrameToPng"
+            );
+        }
 
-        var folder = new Folder(outputDir);
-        if (!folder.exists && !folder.create()) {
-            return seedFail("could not create " + outputDir);
+        var folder = seedEnsureFolder(outputDir);
+        if (!folder.exists) {
+            return seedFail("could not create output folder: " + outputDir);
         }
 
         var frame = Math.round(comp.time * comp.frameRate);
@@ -135,15 +161,46 @@ function seedCaptureFrame(outputDir, basename) {
         do {
             var suffix = String(attempt);
             while (suffix.length < 3) suffix = "0" + suffix;
-            target = new File(folder.fsName + "/" + safe + "_f" + stamp + "_" + suffix + ".png");
+            target = new File(
+                seedNormalizePath(folder.fsName) + "/" + safe + "_f" + stamp + "_" + suffix + ".png"
+            );
             attempt++;
         } while (target.exists && attempt < 1000);
 
-        comp.saveFrameToPng(comp.time, target);
-        if (!target.exists) return seedFail("After Effects did not write the frame");
+        var targetPath = target.fsName;
+        try {
+            comp.saveFrameToPng(comp.time, target);
+        } catch (writeError) {
+            return seedFail("saveFrameToPng failed: " + writeError);
+        }
+
+        /*
+         * Re-stat through a NEW File object. An ExtendScript File caches what
+         * it knew at construction time, so asking the same instance whether it
+         * exists can answer with a stale "no" immediately after a write.
+         */
+        var written = null;
+        for (var check = 0; check < 20; check++) {
+            var probe = new File(targetPath);
+            if (probe.exists && probe.length > 0) {
+                written = probe;
+                break;
+            }
+            $.sleep(50);
+        }
+
+        if (!written) {
+            return seedFail(
+                "After Effects reported no error but no file appeared at " +
+                    targetPath +
+                    " (folder exists: " + folder.exists +
+                    ", folder: " + folder.fsName + ")"
+            );
+        }
 
         return seedOk({
-            path: target.fsName,
+            path: written.fsName,
+            bytes: written.length,
             width: comp.width,
             height: comp.height,
             frameNumber: frame,
@@ -158,7 +215,7 @@ function seedCaptureFrame(outputDir, basename) {
 
 function seedImport(path) {
     try {
-        var file = new File(path);
+        var file = new File(seedNormalizePath(path));
         if (!file.exists) return seedFail("file not found: " + path);
 
         var options = new ImportOptions(file);
