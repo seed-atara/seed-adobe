@@ -115,6 +115,25 @@ export async function reloadHostScript(): Promise<string> {
   return loadedHost;
 }
 
+/** Which host script is defined right now, without loading anything. */
+async function currentHostName(): Promise<string | undefined> {
+  const cep = window.__adobe_cep__;
+  if (!cep) return undefined;
+
+  const raw = await new Promise<string>((resolve) => {
+    cep.evalScript(
+      '(function () { try { return (typeof seedPing === "function") ? seedPing() : "none"; } catch (e) { return "none"; } })()',
+      resolve,
+    );
+  });
+
+  try {
+    return (JSON.parse(raw) as { result?: { host?: string } }).result?.host;
+  } catch {
+    return undefined;
+  }
+}
+
 interface HostResult<T> {
   ok: boolean;
   result?: T;
@@ -181,19 +200,29 @@ export class CepAeBridge {
 
   constructor(private readonly client: SeedClient) {}
 
-  private ensureHost(): Promise<void> {
-    if (!this.hostReady) {
-      this.hostReady = reloadHostScript()
-        .then((host) => {
-          this.loadedHost = host;
-        })
-        .catch((error: unknown) => {
-          // Let the next call retry rather than caching the failure forever.
-          this.hostReady = undefined;
-          throw error;
-        });
+  /**
+   * Makes sure the *right* host script is the one currently defined.
+   *
+   * Loading once per session is not enough. Both hosts define the same
+   * function names into one shared ExtendScript engine, and CEP evaluates the
+   * manifest's ScriptPath on its own schedule — after the panel has loaded its
+   * choice, it can silently overwrite it. That is how a Premiere panel ended
+   * up running After Effects' seedCaptureFrame and reporting "no active
+   * composition".
+   *
+   * So this checks who is actually defined before every call — one cheap
+   * evalScript — and reloads only when it finds the wrong one.
+   */
+  private async ensureHost(): Promise<void> {
+    const expected = hostApp() === "PPRO" ? "premiere-pro" : "after-effects";
+
+    const current = await currentHostName();
+    if (current === expected) {
+      this.loadedHost = current;
+      return;
     }
-    return this.hostReady;
+
+    this.loadedHost = await reloadHostScript();
   }
 
   async ping(): Promise<{ version: string; hasProject: boolean }> {

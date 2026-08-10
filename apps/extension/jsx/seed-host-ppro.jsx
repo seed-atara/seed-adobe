@@ -64,7 +64,10 @@ function seedOk(payload) {
 }
 
 function seedFail(message) {
-    return seedJson({ ok: false, error: String(message) });
+    // Name the script: both hosts share one ExtendScript engine, so knowing
+    // which one answered is the difference between a clear diagnosis and a
+    // confusing message borrowed from the other application.
+    return seedJson({ ok: false, error: "[premiere-pro] " + String(message) });
 }
 
 function seedNormalizePath(value) {
