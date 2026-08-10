@@ -25,6 +25,7 @@ const EMPTY_FORM: GenerateForm = {
   prompt: "",
   seed: "",
   size: "",
+  durationSeconds: "",
   inputAssetIds: [],
 };
 
@@ -266,6 +267,10 @@ export function App() {
         operation: composed.operation,
         prompt: composed.prompt,
         ...(composed.size ? { size: composed.size } : {}),
+        durationSeconds:
+          composed.durationSeconds === undefined
+            ? current.durationSeconds
+            : String(composed.durationSeconds),
         ...(composed.seed !== undefined ? { seed: String(composed.seed) } : {}),
         inputAssetIds: composed.references.map((reference) => reference.assetId),
       }));
@@ -287,6 +292,9 @@ export function App() {
         prompt: form.prompt,
         ...(form.seed.trim() ? { seed: form.seed.trim() } : {}),
         ...(form.size ? { size: form.size } : {}),
+        ...(Number(form.durationSeconds) > 0
+          ? { durationSeconds: Number(form.durationSeconds) }
+          : {}),
         inputAssetIds: form.inputAssetIds,
         ...(form.parentAssetId ? { parentAssetId: form.parentAssetId } : {}),
         ...(form.parentGenerationId
@@ -322,6 +330,10 @@ export function App() {
           prompt: recipe.prompt,
           seed: recipe.seed === undefined ? "" : String(recipe.seed),
           size: typeof recipe.size === "string" ? recipe.size : "",
+          durationSeconds:
+            typeof recipe.durationSeconds === "number"
+              ? String(recipe.durationSeconds)
+              : "",
           inputAssetIds: recipe.inputAssetIds ?? [],
           parentAssetId: recipe.parentAssetId,
           parentGenerationId: recipe.parentGenerationId,

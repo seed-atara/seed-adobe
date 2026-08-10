@@ -20,6 +20,8 @@ export interface GenerateForm {
   prompt: string;
   seed: string;
   size: string;
+  /** Kept as text so the field can be cleared; parsed at submit. */
+  durationSeconds: string;
   inputAssetIds: string[];
   parentAssetId?: string;
   parentGenerationId?: string;
@@ -344,6 +346,24 @@ export function GenerateView({
             onChange={(event) => patch({ seed: event.target.value })}
           />
         </Field>
+
+        {provider?.durationSecondsRange ? (
+          <Field
+            label="Duration"
+            hint={`${provider.durationSecondsRange[0]}–${provider.durationSecondsRange[1]} seconds`}
+          >
+            <input
+              type="number"
+              min={provider.durationSecondsRange[0]}
+              max={provider.durationSecondsRange[1]}
+              value={form.durationSeconds}
+              placeholder="provider default"
+              onChange={(event) =>
+                patch({ durationSeconds: event.target.value })
+              }
+            />
+          </Field>
+        ) : null}
 
         {form.parentGenerationId ? (
           <div className="notice">
