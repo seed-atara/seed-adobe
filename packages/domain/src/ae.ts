@@ -13,6 +13,16 @@ export const AeLayerRefSchema = z.object({
   name: z.string(),
 });
 
+/** A square of a larger comp, as a region guide currently defines it. */
+export const AeRegionRefSchema = z.object({
+  name: z.string(),
+  centerX: z.number(),
+  centerY: z.number(),
+  width: z.number().int().positive(),
+  height: z.number().int().positive(),
+});
+export type AeRegionRef = z.infer<typeof AeRegionRefSchema>;
+
 export const AeContextSchema = z.object({
   projectName: z.string().optional(),
   projectPath: z.string().optional(),
@@ -30,6 +40,13 @@ export const AeContextSchema = z.object({
   workAreaDurationSeconds: z.number().min(0).optional(),
   colorSpace: z.string().optional(),
   selectedLayers: z.array(AeLayerRefSchema).optional(),
+  /**
+   * Which part of a larger plate a region capture came from, in comp pixels.
+   *
+   * Without this the crop cannot be put back where it belongs, and a library
+   * full of squares says nothing about where any of them came from.
+   */
+  region: AeRegionRefSchema.optional(),
 });
 
 export type AeLayerRef = z.infer<typeof AeLayerRefSchema>;
