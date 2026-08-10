@@ -187,12 +187,15 @@ export class CepAeBridge {
   /** Renders the current frame into the workspace and registers it. */
   async captureFrame(): Promise<{ asset: Asset; warning?: string }> {
     await this.ensureHost();
-    const { workspace } = await this.client.workspace();
+    const { workspace, pproStillPreset } = await this.client.workspace();
     const context = await this.getContext();
     const compName = typeof context.compName === "string" ? context.compName : "comp";
 
+    // The third argument is the Premiere still preset; After Effects ignores it.
     const captured = await evalHost<CaptureResult>(
-      `seedCaptureFrame(${quote(workspace.originalsDir)}, ${quote(compName)})`,
+      `seedCaptureFrame(${quote(workspace.originalsDir)}, ${quote(compName)}, ${
+        pproStillPreset ? quote(pproStillPreset) : "null"
+      })`,
     );
 
     // The service owns path validation, registration and thumbnailing.

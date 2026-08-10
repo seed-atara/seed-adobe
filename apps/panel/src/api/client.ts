@@ -107,6 +107,7 @@ export class SeedClient {
       generatedDir: string;
     };
     aeHost: string;
+    pproStillPreset?: string;
   }> {
     return this.request("/v1/workspace");
   }

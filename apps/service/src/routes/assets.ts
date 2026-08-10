@@ -62,6 +62,9 @@ export function workspaceRoute(deps: AppDeps) {
         generatedDir: deps.workspace.generatedDir,
       },
       aeHost: deps.aeHost.id,
+      ...(deps.config.pproStillPreset
+        ? { pproStillPreset: deps.config.pproStillPreset }
+        : {}),
     });
 }
 

@@ -16,6 +16,12 @@ export interface ServiceConfig {
   ephemeralToken: boolean;
   providers: ProviderConfig;
   pollIntervalMs: number;
+  /**
+   * Optional .epr still preset for Premiere frame export. Presets are
+   * per-install, so SEED cannot ship one; without it Premiere relies on the
+   * undocumented QE exporter alone.
+   */
+  pproStillPreset?: string;
 }
 
 export interface ProviderConfig {
@@ -83,6 +89,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServiceConfig 
       env.SEED_AE_WORKSPACE?.trim() || process.cwd(),
     ),
     pollIntervalMs: parsePositiveInt(env.SEED_AE_POLL_INTERVAL_MS) ?? 1000,
+    ...(env.SEED_PPRO_STILL_PRESET?.trim()
+      ? { pproStillPreset: path.resolve(env.SEED_PPRO_STILL_PRESET.trim()) }
+      : {}),
     providers: {
       ...(env.ARK_API_KEY?.trim() ? { arkApiKey: env.ARK_API_KEY.trim() } : {}),
       arkBaseUrl:

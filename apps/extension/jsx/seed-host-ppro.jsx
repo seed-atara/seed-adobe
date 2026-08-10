@@ -150,15 +150,119 @@ function seedGetContext() {
 
 // ------------------------------------------------------------------ capture
 
+/** Newest file in a folder, used to find what an exporter actually wrote. */
+function seedNewestFile(folder, sinceMs) {
+    var files = folder.getFiles(function (f) {
+        return f instanceof File;
+    });
+    var best = null;
+    for (var i = 0; i < files.length; i++) {
+        var modified = files[i].modified ? files[i].modified.getTime() : 0;
+        if (modified < sinceMs) continue;
+        if (!best || modified > best.modified.getTime()) best = files[i];
+    }
+    return best;
+}
+
+/** Waits for a file to appear and stop growing. */
+function seedAwaitFile(path) {
+    var last = -1;
+    for (var check = 0; check < 40; check++) {
+        var probe = new File(path);
+        if (probe.exists && probe.length > 0) {
+            if (probe.length === last) return probe;
+            last = probe.length;
+        }
+        $.sleep(50);
+    }
+    var final = new File(path);
+    return final.exists && final.length > 0 ? final : null;
+}
+
+/**
+ * Route 1: the QE DOM.
+ *
+ * Fast and needs no preset, but Adobe does not document it and it is reported
+ * to fail on some builds. Returns a File, or null to let the caller fall back.
+ */
+function seedExportViaQE(sequence, targetPath) {
+    if (typeof app.enableQE !== "function") return null;
+    app.enableQE();
+    if (typeof qe === "undefined" || !qe.project) return null;
+
+    var qeSequence = qe.project.getActiveSequence();
+    if (!qeSequence || typeof qeSequence.exportFramePNG !== "function") return null;
+
+    try {
+        qeSequence.exportFramePNG(qeSequence.CTI.timecode, targetPath);
+    } catch (error) {
+        return null;
+    }
+    return seedAwaitFile(targetPath);
+}
+
+/**
+ * Route 2: exportAsMediaDirect with a still-image preset.
+ *
+ * This is the documented path — the same machinery behind the Program
+ * Monitor's camera button — but it needs an .epr preset, which is per-install,
+ * so SEED cannot ship one. Point SEED_PPRO_STILL_PRESET at a PNG still preset
+ * exported from Premiere's Export Settings dialog.
+ *
+ * It renders the in-to-out range, so the playhead frame is isolated first and
+ * the user's in/out points are restored afterwards.
+ */
+function seedExportViaPreset(sequence, folder, presetPath, seconds, fps) {
+    var preset = new File(seedNormalizePath(presetPath));
+    if (!preset.exists) return null;
+
+    var previousIn = null;
+    var previousOut = null;
+    try {
+        previousIn = sequence.getInPoint();
+        previousOut = sequence.getOutPoint();
+    } catch (error) {
+        // Older builds may not expose these; we simply cannot restore them.
+    }
+
+    var startedAt = new Date().getTime() - 1000;
+    var written = null;
+    try {
+        var frameSeconds = fps > 0 ? 1 / fps : 0.04;
+        sequence.setInPoint(seconds);
+        sequence.setOutPoint(seconds + frameSeconds);
+
+        // The exporter names the file itself, so scan for what appeared.
+        var stem = seedNormalizePath(folder.fsName) + "/seed_still";
+        sequence.exportAsMediaDirect(stem, preset.fsName, "ENCODE_IN_TO_OUT");
+
+        for (var wait = 0; wait < 60 && !written; wait++) {
+            $.sleep(100);
+            written = seedNewestFile(folder, startedAt);
+        }
+    } catch (error) {
+        written = null;
+    } finally {
+        try {
+            if (previousIn !== null) sequence.setInPoint(previousIn.seconds);
+            if (previousOut !== null) sequence.setOutPoint(previousOut.seconds);
+        } catch (restoreError) {
+            // Nothing further we can do; the export already happened.
+        }
+    }
+    return written;
+}
+
 /**
  * Exports the frame under the playhead.
  *
- * Premiere has no documented equivalent of After Effects' saveFrameToPng. The
- * working route is the QE DOM, which Adobe does not document and which is
- * reported to fail silently in some builds — so this checks hard for the file
- * afterwards and says exactly what happened rather than assuming success.
+ * Premiere has no documented equivalent of After Effects' saveFrameToPng, so
+ * this tries the undocumented-but-quick QE route first and falls back to the
+ * documented preset-based export. Note that the Program Monitor's camera
+ * button is "Export Frame" — it genuinely writes a file, unlike After Effects'
+ * Take Snapshot, which only holds an image in memory for comparison.
  */
-function seedCaptureFrame(outputDir, basename) {
+function seedCaptureFrame(outputDir, basename, presetPath) {
     try {
         var sequence = seedActiveSequence();
         if (!sequence) return seedFail("no active sequence");
@@ -166,23 +270,6 @@ function seedCaptureFrame(outputDir, basename) {
         var folder = seedEnsureFolder(outputDir);
         if (!folder.exists) {
             return seedFail("could not create output folder: " + outputDir);
-        }
-
-        if (typeof app.enableQE !== "function") {
-            return seedFail(
-                "this Premiere version does not expose the QE DOM, which frame export needs"
-            );
-        }
-        app.enableQE();
-        if (typeof qe === "undefined" || !qe.project) {
-            return seedFail("the QE DOM did not initialise");
-        }
-        var qeSequence = qe.project.getActiveSequence();
-        if (!qeSequence) return seedFail("QE could not see the active sequence");
-        if (typeof qeSequence.exportFramePNG !== "function") {
-            return seedFail(
-                "this Premiere version has no QE exportFramePNG; frame capture is unavailable"
-            );
         }
 
         var fps = seedSequenceFps(sequence);
@@ -204,41 +291,30 @@ function seedCaptureFrame(outputDir, basename) {
             attempt++;
         } while (new File(targetPath).exists && attempt < 1000);
 
-        try {
-            // QE wants the playhead's timecode string, not a Time object.
-            qeSequence.exportFramePNG(qeSequence.CTI.timecode, targetPath);
-        } catch (writeError) {
-            return seedFail("QE exportFramePNG failed: " + writeError);
-        }
+        var written = seedExportViaQE(sequence, targetPath);
+        var route = "qe";
 
-        /*
-         * Re-stat through a new File each time. An ExtendScript File caches
-         * what it knew at construction, so the same instance can answer with a
-         * stale "no" straight after a write — the exact trap that made the
-         * After Effects host report working captures as failures.
-         */
-        var written = null;
-        for (var check = 0; check < 40; check++) {
-            var probe = new File(targetPath);
-            if (probe.exists && probe.length > 0) {
-                written = probe;
-                break;
-            }
-            $.sleep(50);
+        if (!written && presetPath) {
+            written = seedExportViaPreset(sequence, folder, presetPath, seconds, fps);
+            route = "preset";
         }
 
         if (!written) {
             return seedFail(
-                "Premiere reported no error but no file appeared at " +
-                    targetPath +
-                    ". QE frame export is undocumented and does not work on every " +
-                    "build; try a different sequence or export the frame manually."
+                "Premiere wrote no frame. The QE exporter is undocumented and " +
+                    "unavailable on some builds" +
+                    (presetPath
+                        ? ", and the still preset at " + presetPath + " did not produce a file."
+                        : ". Set SEED_PPRO_STILL_PRESET to a PNG still preset (.epr) " +
+                          "exported from Premiere's Export Settings to enable the " +
+                          "documented fallback.")
             );
         }
 
         return seedOk({
             path: written.fsName,
             bytes: written.length,
+            route: route,
             width: Number(sequence.frameSizeHorizontal) || 0,
             height: Number(sequence.frameSizeVertical) || 0,
             frameNumber: frame,

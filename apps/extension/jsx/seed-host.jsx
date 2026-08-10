@@ -136,6 +136,8 @@ function seedEnsureFolder(pathString) {
  * queue, so it neither disturbs the user's queue nor requires a template.
  */
 function seedCaptureFrame(outputDir, basename) {
+    // A third argument (the Premiere still preset) is accepted and ignored,
+    // so the panel can call both hosts identically.
     try {
         var comp = seedActiveComp();
         if (!comp) return seedFail("no active composition");
