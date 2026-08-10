@@ -217,15 +217,35 @@ function seedExportViaQE(sequence, targetPath, trace) {
         return null;
     }
 
+    /*
+     * The argument form is undocumented and varies: some builds want the
+     * playhead timecode string, others the sequence time. Try both rather
+     * than declaring defeat on the first "Unknown error exception".
+     */
+    var attempts = [];
     try {
-        qeSequence.exportFramePNG(qeSequence.CTI.timecode, targetPath);
-    } catch (error) {
-        trace.push("QE: exportFramePNG threw: " + error);
-        return null;
+        attempts.push(["CTI timecode", qeSequence.CTI.timecode]);
+    } catch (ctiError) {
+        trace.push("QE: could not read CTI timecode");
     }
-    var file = seedAwaitFile(targetPath);
-    if (!file) trace.push("QE: reported no error but wrote no file");
-    return file;
+    try {
+        attempts.push(["player position", String(sequence.getPlayerPosition().ticks)]);
+    } catch (posError) {
+        // optional
+    }
+
+    for (var a = 0; a < attempts.length; a++) {
+        try {
+            qeSequence.exportFramePNG(attempts[a][1], targetPath);
+        } catch (error) {
+            trace.push("QE: exportFramePNG(" + attempts[a][0] + ") threw: " + error);
+            continue;
+        }
+        var file = seedAwaitFile(targetPath);
+        if (file) return file;
+        trace.push("QE: " + attempts[a][0] + " reported no error but wrote no file");
+    }
+    return null;
 }
 
 /**
@@ -238,6 +258,41 @@ function seedExportViaQE(sequence, targetPath, trace) {
  *
  * It renders the in-to-out range, so the playhead frame is isolated first and
  * the user's in/out points are restored afterwards.
+ */
+/**
+ * Premiere's work-area constants for exportAsMediaDirect.
+ *
+ * The parameter is an integer, not a name: passing "ENCODE_IN_TO_OUT" is
+ * rejected with "Illegal Parameter type". The values are tried in order of
+ * preference, because which one a given build accepts is not documented
+ * anywhere we could verify.
+ */
+var SEED_WORK_AREA_TYPES = [1, 0, 2];
+
+/** Sets in/out defensively — builds differ on whether they want a number. */
+function seedSetInOut(sequence, inSeconds, outSeconds, trace) {
+    try {
+        sequence.setInPoint(inSeconds);
+        sequence.setOutPoint(outSeconds);
+        return true;
+    } catch (numberError) {
+        try {
+            sequence.setInPoint(String(inSeconds));
+            sequence.setOutPoint(String(outSeconds));
+            return true;
+        } catch (stringError) {
+            trace.push("could not set in/out points: " + stringError);
+            return false;
+        }
+    }
+}
+
+/**
+ * Route 2: exportAsMediaDirect with a still-image preset.
+ *
+ * The documented path — the machinery behind the Program Monitor's camera
+ * button. It renders in-to-out, so the playhead frame is isolated first and
+ * the editor's own in/out points are put back afterwards.
  */
 function seedExportViaPreset(sequence, folder, presetPath, seconds, fps, trace) {
     var preset = new File(seedNormalizePath(presetPath));
@@ -263,29 +318,48 @@ function seedExportViaPreset(sequence, folder, presetPath, seconds, fps, trace) 
     var written = null;
     try {
         var frameSeconds = fps > 0 ? 1 / fps : 0.04;
-        sequence.setInPoint(seconds);
-        sequence.setOutPoint(seconds + frameSeconds);
+        seedSetInOut(sequence, seconds, seconds + frameSeconds, trace);
 
-        // The exporter appends its own extension, and may number the file.
         var stem = seedNormalizePath(folder.fsName) + "/seed_still_" + startedAt;
-        var returned = sequence.exportAsMediaDirect(stem, preset.fsName, "ENCODE_IN_TO_OUT");
-        trace.push("exportAsMediaDirect returned " + String(returned));
 
-        // Encoding is not always synchronous, so wait for something to land.
-        for (var wait = 0; wait < 150 && !written; wait++) {
-            $.sleep(100);
-            written = seedNewestFile(folder, startedAt);
+        for (var t = 0; t < SEED_WORK_AREA_TYPES.length && !written; t++) {
+            var workAreaType = SEED_WORK_AREA_TYPES[t];
+            try {
+                var returned = sequence.exportAsMediaDirect(
+                    stem,
+                    preset.fsName,
+                    workAreaType
+                );
+                trace.push("exportAsMediaDirect(type " + workAreaType + ") returned " + String(returned));
+            } catch (callError) {
+                trace.push("exportAsMediaDirect(type " + workAreaType + ") threw: " + callError);
+                continue;
+            }
+
+            // Encoding is not always synchronous, so wait for the file.
+            for (var wait = 0; wait < 150 && !written; wait++) {
+                $.sleep(100);
+                written = seedNewestFile(folder, startedAt);
+            }
+            if (!written) {
+                trace.push("type " + workAreaType + ": nothing appeared within 15s");
+            }
         }
-        if (!written) trace.push("no new file appeared in 15s of waiting");
     } catch (error) {
-        trace.push("exportAsMediaDirect threw: " + error);
+        trace.push("preset export failed: " + error);
         written = null;
     } finally {
         try {
-            if (previousIn !== null) sequence.setInPoint(previousIn.seconds);
-            if (previousOut !== null) sequence.setOutPoint(previousOut.seconds);
+            if (previousIn !== null && previousOut !== null) {
+                seedSetInOut(
+                    sequence,
+                    Number(previousIn.seconds),
+                    Number(previousOut.seconds),
+                    trace
+                );
+            }
         } catch (restoreError) {
-            trace.push("could not restore in/out points");
+            trace.push("could not restore in/out points: " + restoreError);
         }
     }
     return written;
