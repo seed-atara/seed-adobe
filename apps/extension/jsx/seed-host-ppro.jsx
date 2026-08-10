@@ -433,3 +433,22 @@ function seedPing() {
         return seedFail(error);
     }
 }
+
+/*
+ * Host-specific aliases.
+ *
+ * Both host scripts run in ONE shared ExtendScript engine, and CEP re-evaluates
+ * whichever ScriptPath its manifest dispatch chose — on its own schedule, after
+ * the panel has loaded the script it wants. With shared names the last writer
+ * won, which is how a Premiere panel ended up running After Effects'
+ * seedCaptureFrame and reporting "[after-effects] no active composition".
+ *
+ * Unique names per host end the fight: CEP can redefine the generic names as
+ * often as it likes, and the panel calls these instead.
+ */
+
+var seedPpro_ping = seedPing;
+var seedPpro_getContext = seedGetContext;
+var seedPpro_captureFrame = seedCaptureFrame;
+var seedPpro_import = seedImport;
+var seedPpro_insertAtPlayhead = seedInsertAtPlayhead;

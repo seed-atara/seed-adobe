@@ -185,6 +185,25 @@ describe("host scripts", () => {
       for (const name of required) {
         expect(source, `${file} is missing ${name}`).toContain(`function ${name}(`);
       }
+
+      /*
+       * Both scripts share one ExtendScript engine and CEP re-evaluates its own
+       * ScriptPath whenever it likes, so the generic names cannot be trusted to
+       * belong to the script the panel loaded. Each host must also export
+       * uniquely prefixed aliases, which is what the panel actually calls.
+       */
+      const prefix = file.includes("ppro") ? "seedPpro_" : "seedAeft_";
+      for (const alias of [
+        "ping",
+        "getContext",
+        "captureFrame",
+        "import",
+        "insertAtPlayhead",
+      ]) {
+        expect(source, `${file} is missing ${prefix}${alias}`).toContain(
+          `var ${prefix}${alias} =`,
+        );
+      }
       // Every host function must answer in the {ok,...} envelope.
       expect(source).toContain("function seedOk(");
       expect(source).toContain("function seedFail(");

@@ -81,8 +81,8 @@ export async function reloadHostScript(): Promise<string> {
   const probe = `(function () {
     try {
       $.evalFile(new File(${JSON.stringify(jsxPath)}));
-      if (typeof seedPing !== "function") return "loaded-but-empty";
-      return seedPing();
+      if (typeof ${hostPrefix()}ping !== "function") return "loaded-but-empty";
+      return ${hostPrefix()}ping();
     } catch (e) {
       return "error: " + e;
     }
@@ -115,23 +115,30 @@ export async function reloadHostScript(): Promise<string> {
   return loadedHost;
 }
 
-/** Which host script is defined right now, without loading anything. */
-async function currentHostName(): Promise<string | undefined> {
+/**
+ * The host-specific prefix for this application.
+ *
+ * Both host scripts share one ExtendScript engine and CEP re-evaluates its own
+ * ScriptPath whenever it likes, so the generic `seed*` names cannot be trusted
+ * to belong to the script we loaded. Each host also exports uniquely prefixed
+ * aliases, and those are what the panel calls.
+ */
+function hostPrefix(): string {
+  return hostApp() === "PPRO" ? "seedPpro_" : "seedAeft_";
+}
+
+/** Whether this host's namespaced entry points are defined right now. */
+async function hostIsLoaded(): Promise<boolean> {
   const cep = window.__adobe_cep__;
-  if (!cep) return undefined;
+  if (!cep) return false;
 
   const raw = await new Promise<string>((resolve) => {
     cep.evalScript(
-      '(function () { try { return (typeof seedPing === "function") ? seedPing() : "none"; } catch (e) { return "none"; } })()',
+      `(function () { return (typeof ${hostPrefix()}ping === "function") ? "yes" : "no"; })()`,
       resolve,
     );
   });
-
-  try {
-    return (JSON.parse(raw) as { result?: { host?: string } }).result?.host;
-  } catch {
-    return undefined;
-  }
+  return raw === "yes";
 }
 
 interface HostResult<T> {
@@ -214,25 +221,19 @@ export class CepAeBridge {
    * evalScript — and reloads only when it finds the wrong one.
    */
   private async ensureHost(): Promise<void> {
-    const expected = hostApp() === "PPRO" ? "premiere-pro" : "after-effects";
-
-    const current = await currentHostName();
-    if (current === expected) {
-      this.loadedHost = current;
-      return;
-    }
-
+    // Cheap check; the aliases survive CEP redefining the generic names.
+    if (this.loadedHost && (await hostIsLoaded())) return;
     this.loadedHost = await reloadHostScript();
   }
 
   async ping(): Promise<{ version: string; hasProject: boolean }> {
     await this.ensureHost();
-    return evalHost<{ version: string; hasProject: boolean }>("seedPing()");
+    return evalHost<{ version: string; hasProject: boolean }>(`${hostPrefix()}ping()`);
   }
 
   async getContext(): Promise<Record<string, unknown>> {
     await this.ensureHost();
-    const { context } = await evalHost<AeContextResult>("seedGetContext()");
+    const { context } = await evalHost<AeContextResult>(`${hostPrefix()}getContext()`);
     return context;
   }
 
@@ -245,7 +246,7 @@ export class CepAeBridge {
 
     // The third argument is the Premiere still preset; After Effects ignores it.
     const captured = await evalHost<CaptureResult>(
-      `seedCaptureFrame(${quote(workspace.originalsDir)}, ${quote(compName)}, ${
+      `${hostPrefix()}captureFrame(${quote(workspace.originalsDir)}, ${quote(compName)}, ${
         pproStillPreset ? quote(pproStillPreset) : "null"
       })`,
     );
@@ -270,11 +271,11 @@ export class CepAeBridge {
     await this.ensureHost();
     const { path, filename } = await this.client.assetPath(assetId);
     const imported = await evalHost<{ projectItemId: string; name: string }>(
-      `seedImport(${quote(path)})`,
+      `${hostPrefix()}import(${quote(path)})`,
     );
 
     if (insertAtPlayhead) {
-      await evalHost(`seedInsertAtPlayhead(${quote(imported.projectItemId)})`);
+      await evalHost(`${hostPrefix()}insertAtPlayhead(${quote(imported.projectItemId)})`);
     }
     return { name: imported.name || filename, insertedAtPlayhead: insertAtPlayhead };
   }
