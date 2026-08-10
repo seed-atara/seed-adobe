@@ -64,8 +64,14 @@ export const StartGenerationRequestSchema = z.object({
   size: z.string().optional(),
   durationSeconds: z.number().positive().optional(),
   aspectRatio: z.string().optional(),
-  /** Reference assets, in order. The first is the edit subject for image.edit. */
-  inputAssetIds: z.array(z.string()).max(8).default([]),
+  /**
+   * Reference assets, in order. The first is the edit subject for image.edit.
+   *
+   * The ceiling is the most any configured provider accepts, not a judgement
+   * about what is useful — Seedance takes many, and each provider's own
+   * capabilities narrow it further.
+   */
+  inputAssetIds: z.array(z.string()).max(30).default([]),
   /** Set when this generation descends from an existing asset/recipe. */
   parentAssetId: z.string().optional(),
   parentGenerationId: z.string().optional(),

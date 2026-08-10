@@ -18,6 +18,14 @@ export interface SeedanceConfig {
   model: string;
   /** Ark defaults this on; SEED keeps it explicit. */
   generateAudio?: boolean;
+  /**
+   * How many reference images to offer.
+   *
+   * Validation accepted 64 without complaint, and ByteDance's launch material
+   * says 30, but only a handful have actually been generated with — so this is
+   * configuration rather than a constant.
+   */
+  maxReferences?: number;
   timeoutMs?: number;
   fetchImpl?: typeof fetch;
 }
@@ -30,7 +38,26 @@ const TASKS_PATH = "/contents/generations/tasks";
  */
 type ContentPart =
   | { type: "text"; text: string }
-  | { type: "image_url"; image_url: { url: string } };
+  | {
+      type: "image_url";
+      image_url: { url: string };
+      /**
+       * Required as soon as a request carries more than one image: the API
+       * answers a roleless pair with "role must be specified for image
+       * contents". Verified values are `first_frame`, `last_frame` and
+       * `reference_image`; anything else is "invalid role specified".
+       */
+      role?: SeedanceImageRole;
+    };
+
+/**
+ * How an image is used, in the API's own vocabulary.
+ *
+ * These are the only accepted values, established by probing the live API —
+ * `reference`, `subject`, `image`, `start_frame` and `end_frame` are all
+ * rejected.
+ */
+export type SeedanceImageRole = "first_frame" | "last_frame" | "reference_image";
 
 /**
  * Seedance 2.5 video generation on Volcengine/BytePlus Ark.
@@ -44,6 +71,14 @@ type ContentPart =
  * error. Frame rate is left to the model's default until the accepted range is
  * confirmed.
  */
+/** One image part, with the role the API requires. */
+function seedanceImage(
+  input: MaterializedInput,
+  role: SeedanceImageRole,
+): ContentPart {
+  return { type: "image_url", image_url: { url: toUrl(input) }, role };
+}
+
 export class SeedanceProvider implements GenerationProvider {
   readonly id = "seedance";
 
@@ -73,15 +108,20 @@ export class SeedanceProvider implements GenerationProvider {
       operations: ["video.generate"],
       textToImage: false,
       imageToImage: false,
-      // A reference image turns the request into i2v, which the API reports
-      // in its own error messages.
-      maxImageReferences: 1,
+      /*
+       * Multi-reference is the model's headline feature and the API confirms
+       * it: any number of `reference_image` parts is accepted, and the request
+       * becomes r2v rather than i2v — the mode appears in its error messages.
+       */
+      maxImageReferences: this.config.maxReferences ?? 30,
       textToVideo: true,
       imageToVideo: true,
       videoReferences: false,
       // `video_url` and `audio_url` parts exist but their semantics are
       // unconfirmed, so they are not offered.
-      startEndFrames: false,
+      // A first_frame + last_frame pair passes validation; more than one of
+      // either is refused by count.
+      startEndFrames: true,
       audioReferences: false,
       seed: true,
       /*
@@ -103,13 +143,48 @@ export class SeedanceProvider implements GenerationProvider {
     const prompt = request.prompt.trim();
     if (prompt) content.push({ type: "text", text: prompt });
 
-    // The first frame leads; any further references follow it.
-    const references = [
+    /*
+     * Images reach the model one of two ways, and the API treats them as
+     * mutually exclusive modes:
+     *
+     *   frame-anchored (i2v) — a first frame, optionally with a last frame.
+     *     The generated motion starts from that exact image.
+     *   reference-driven (r2v) — any number of reference images. The model
+     *     draws on them without reproducing any one of them as a frame.
+     *
+     * Mixing them is refused: "first/last frame content cannot be mixed with
+     * reference media content." So the mode is chosen here rather than left to
+     * a request that cannot express the distinction.
+     */
+    const loose = [
       ...(request.firstFrame ? [request.firstFrame] : []),
       ...(request.references ?? []),
     ];
-    for (const reference of references) {
-      content.push({ type: "image_url", image_url: { url: toUrl(reference) } });
+
+    let mode: "frame" | "reference" | "text" = "text";
+    if (request.lastFrame) {
+      mode = "frame";
+      if (request.references?.length) {
+        throw new SeedError(
+          "unsupported_capability",
+          "Seedance will not mix a last frame with reference images — use " +
+            "first and last frames, or references, but not both",
+        );
+      }
+      if (request.firstFrame) {
+        content.push(seedanceImage(request.firstFrame, "first_frame"));
+      }
+      content.push(seedanceImage(request.lastFrame, "last_frame"));
+    } else if (loose.length === 1) {
+      // One image anchors the opening frame, which is what makes a captured
+      // plate animate from itself rather than merely resemble itself.
+      mode = "frame";
+      content.push(seedanceImage(loose[0] as MaterializedInput, "first_frame"));
+    } else if (loose.length > 1) {
+      mode = "reference";
+      for (const reference of loose) {
+        content.push(seedanceImage(reference, "reference_image"));
+      }
     }
 
     if (content.length === 0) {
@@ -141,8 +216,11 @@ export class SeedanceProvider implements GenerationProvider {
      * refuses it outright: "For first-frame or first-last-frame generation,
      * the output ratio follows the first-frame image."
      */
-    const isImageToVideo = references.length > 0;
-    if (request.aspectRatio && !isImageToVideo) body.ratio = request.aspectRatio;
+    // A first frame dictates the output ratio, so sending one is refused:
+    // "For first-frame or first-last-frame generation, the output ratio
+    // follows the first-frame image." Reference-driven requests have no such
+    // anchor and do accept a ratio.
+    if (request.aspectRatio && mode !== "frame") body.ratio = request.aspectRatio;
     // `size` carries the resolution keyword for video (480p/720p/1080p).
     const resolution = request.parameters?.size ?? request.parameters?.resolution;
     if (typeof resolution === "string") body.resolution = resolution;

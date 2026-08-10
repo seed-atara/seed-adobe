@@ -388,7 +388,7 @@ describe("SeedanceProvider", () => {
     expect(job.state.status).toBe("queued");
   });
 
-  it("adds the reference as an image_url object, which the API requires", async () => {
+  it("names a lone image as the first frame, so the plate animates from itself", async () => {
     let body: any;
     await provider((_url, init) => {
       body = JSON.parse(String(init.body));
@@ -402,8 +402,101 @@ describe("SeedanceProvider", () => {
 
     expect(body.content).toEqual([
       { type: "text", text: "push in slowly" },
-      { type: "image_url", image_url: { url: "data:image/png;base64,AA" } },
+      {
+        type: "image_url",
+        image_url: { url: "data:image/png;base64,AA" },
+        role: "first_frame",
+      },
     ]);
+  });
+
+  it("sends several images as references, which is what makes it r2v", async () => {
+    // Beyond one image the API refuses a roleless request outright:
+    // "role must be specified for image contents".
+    let body: any;
+    await provider((_url, init) => {
+      body = JSON.parse(String(init.body));
+      return created("cgt-refs");
+    }).generateVideo({
+      model: MODEL,
+      prompt: "in this world",
+      correlationId: "cor_refs",
+      references: [
+        { kind: "base64", value: "AA", mimeType: "image/png" },
+        { kind: "base64", value: "BB", mimeType: "image/png" },
+        { kind: "base64", value: "CC", mimeType: "image/png" },
+      ],
+    });
+
+    expect(body.content.slice(1)).toEqual([
+      { type: "image_url", image_url: { url: "data:image/png;base64,AA" }, role: "reference_image" },
+      { type: "image_url", image_url: { url: "data:image/png;base64,BB" }, role: "reference_image" },
+      { type: "image_url", image_url: { url: "data:image/png;base64,CC" }, role: "reference_image" },
+    ]);
+  });
+
+  it("pairs a first and last frame when both are given", async () => {
+    let body: any;
+    await provider((_url, init) => {
+      body = JSON.parse(String(init.body));
+      return created("cgt-frames");
+    }).generateVideo({
+      model: MODEL,
+      prompt: "open the curtain",
+      correlationId: "cor_frames",
+      firstFrame: { kind: "base64", value: "AA", mimeType: "image/png" },
+      lastFrame: { kind: "base64", value: "ZZ", mimeType: "image/png" },
+    });
+
+    expect(body.content.slice(1)).toEqual([
+      { type: "image_url", image_url: { url: "data:image/png;base64,AA" }, role: "first_frame" },
+      { type: "image_url", image_url: { url: "data:image/png;base64,ZZ" }, role: "last_frame" },
+    ]);
+  });
+
+  it("refuses to mix frames with references, as the API does", async () => {
+    // "first/last frame content cannot be mixed with reference media content."
+    await expect(
+      provider(() => created("cgt-mixed")).generateVideo({
+        model: MODEL,
+        prompt: "both at once",
+        correlationId: "cor_mixed",
+        firstFrame: { kind: "base64", value: "AA", mimeType: "image/png" },
+        lastFrame: { kind: "base64", value: "ZZ", mimeType: "image/png" },
+        references: [{ kind: "base64", value: "BB", mimeType: "image/png" }],
+      }),
+    ).rejects.toThrow(/not mix a last frame with reference images/);
+  });
+
+  it("omits the ratio when a first frame sets it, and sends it otherwise", async () => {
+    let anchored: any;
+    await provider((_url, init) => {
+      anchored = JSON.parse(String(init.body));
+      return created("cgt-ratio-1");
+    }).generateVideo({
+      model: MODEL,
+      prompt: "push in",
+      correlationId: "cor_ratio_1",
+      aspectRatio: "16:9",
+      firstFrame: { kind: "base64", value: "AA", mimeType: "image/png" },
+    });
+    expect(anchored.ratio).toBeUndefined();
+
+    let referenced: any;
+    await provider((_url, init) => {
+      referenced = JSON.parse(String(init.body));
+      return created("cgt-ratio-2");
+    }).generateVideo({
+      model: MODEL,
+      prompt: "push in",
+      correlationId: "cor_ratio_2",
+      aspectRatio: "16:9",
+      references: [
+        { kind: "base64", value: "AA", mimeType: "image/png" },
+        { kind: "base64", value: "BB", mimeType: "image/png" },
+      ],
+    });
+    expect(referenced.ratio).toBe("16:9");
   });
 
   it("never sends framespersecond, which the API does not validate", async () => {

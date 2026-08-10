@@ -51,6 +51,8 @@ export interface ProviderConfig {
   arkReferencePolicy: "asset" | "asset-or-inline" | "inline";
   /** Seedance stays unregistered as a working provider until its API is verified. */
   seedanceModelId?: string;
+  /** How many reference images Seedance is offered; see the research notes. */
+  seedanceMaxReferences?: number;
   /** Path to a real video file the mock video provider replays. */
   mockVideoFixture?: string;
   /** Simulated latency for the mock image provider, so demos show job states. */
@@ -126,6 +128,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServiceConfig 
       arkReferencePolicy: parseReferencePolicy(env.ARK_REFERENCE_POLICY),
       ...(env.SEEDANCE_MODEL_ID?.trim()
         ? { seedanceModelId: env.SEEDANCE_MODEL_ID.trim() }
+        : {}),
+      ...(parsePositiveInt(env.SEEDANCE_MAX_REFERENCES)
+        ? { seedanceMaxReferences: parsePositiveInt(env.SEEDANCE_MAX_REFERENCES) }
         : {}),
       ...(env.SEED_AE_MOCK_VIDEO_FIXTURE?.trim()
         ? { mockVideoFixture: path.resolve(env.SEED_AE_MOCK_VIDEO_FIXTURE.trim()) }

@@ -201,6 +201,9 @@ export function buildRegistry(
         baseUrl: config.arkBaseUrl,
         apiKey: config.arkApiKey,
         model: config.seedanceModelId,
+        ...(config.seedanceMaxReferences
+          ? { maxReferences: config.seedanceMaxReferences }
+          : {}),
       }),
     );
   } else {

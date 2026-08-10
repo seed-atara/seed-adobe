@@ -283,3 +283,50 @@ When updating:
 2. Add retrieval date.
 3. Separate confirmed API behavior from model marketing.
 4. Capture endpoint, auth, sync/async semantics, limits, accepted media, and output lifecycle.
+
+## Seedance 2.5 — how images reach the model (verified 2026-08-11)
+
+Established by probing the live API with `dreamina-seedance-2-5-260628`. Every
+probe carried `duration: 3`, which this model rejects, so validation always
+failed and no billable task was created; the complaint that came back is the
+evidence. The script is `scripts/seedance-references.ts`.
+
+**Each image part needs a `role` once a request carries more than one.** A
+roleless pair is refused:
+
+> The parameter `content` specified in the request is not valid: role must be
+> specified for image contents.
+
+**Three roles are accepted**, and only these — `reference`, `subject`, `image`,
+`start_frame` and `end_frame` all come back as "invalid role specified for
+image content":
+
+| `role` | Count | Mode the API reports |
+|---|---|---|
+| `first_frame` | at most 1 | `i2v` |
+| `last_frame` | at most 1 | — |
+| `reference_image` | many | `r2v` |
+
+Exceeding a count is named exactly: "expected at most one first frame image
+content but got 2 instead."
+
+**The two modes are mutually exclusive.** Mixing them is refused:
+
+> first/last frame content cannot be mixed with reference media content.
+
+So a request either anchors on frames (`first_frame`, optionally with
+`last_frame`) or draws on references (`reference_image` × n) — never both. The
+adapter chooses: a single image becomes `first_frame`, so a captured plate
+animates from itself; several become `reference_image`.
+
+**No reference count was refused.** 30 passed, and so did 64 — validation does
+not appear to cap it. ByteDance's launch material says 30. Since only a handful
+have actually been *generated* with, the offered maximum is configuration
+(`SEEDANCE_MAX_REFERENCES`, default 30) rather than a constant.
+
+**Ratio follows the same split.** A first frame dictates the output ratio and
+sending one is refused ("the output ratio follows the first-frame image");
+reference-driven requests have no such anchor and do accept `ratio`.
+
+Still unverified: whether generation quality holds at high reference counts,
+and what `video_url` / `audio_url` parts do.
