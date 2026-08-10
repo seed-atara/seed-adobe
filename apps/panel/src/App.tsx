@@ -7,8 +7,12 @@ import {
   type JobView,
   type ProviderCapabilitiesDto,
 } from "./api/client.ts";
-import { CepAeBridge, hostApp, isCepHost } from "./api/cep.ts";
-import { GenerateView, type GenerateForm } from "./components/GenerateView.tsx";
+import { CepAeBridge, hostApp, isCepHost, type AeRegion } from "./api/cep.ts";
+import {
+  GenerateView,
+  type GenerateForm,
+  type RegionSettings,
+} from "./components/GenerateView.tsx";
 import { LibraryView } from "./components/LibraryView.tsx";
 import { AssetDetail } from "./components/AssetDetail.tsx";
 import { LineageView } from "./components/LineageView.tsx";
@@ -73,6 +77,14 @@ export function App() {
   const [canDirect, setCanDirect] = useState(false);
   const [directing, setDirecting] = useState(false);
   const [plan, setPlan] = useState<ComposedPlan | undefined>();
+  const [regions, setRegions] = useState<AeRegion[]>();
+  const [region, setRegion] = useState<RegionSettings>({
+    name: "",
+    newSize: "1024",
+    feather: "24",
+    startSeconds: "",
+    stretchToSeconds: "",
+  });
 
   const selected = assets.find((asset) => asset.id === selectedId);
 
@@ -138,6 +150,8 @@ export function App() {
         try {
           if (bridge) {
             setAeContext(await bridge.getContext());
+            // Regions are an After Effects idea; Premiere has no equivalent.
+            if (hostApp() === "AEFT") await refreshRegions();
             setHostId(hostApp());
             setLoadedHost(bridge.loadedHost);
           } else {
@@ -225,6 +239,108 @@ export function App() {
       setBusy(false);
     }
   }, [client, bridge, refreshAssets, report]);
+
+  /**
+   * Reads the comp's region guides back.
+   *
+   * After Effects owns them — they are ordinary layers the artist can move,
+   * rename or delete — so the panel never caches them across an action.
+   */
+  const refreshRegions = useCallback(async () => {
+    if (!bridge) return;
+    try {
+      const { regions: found } = await bridge.listRegions();
+      setRegions(found);
+      setRegion((current) =>
+        found.some((item) => item.name === current.name)
+          ? current
+          : { ...current, name: found[0]?.name ?? "" },
+      );
+    } catch {
+      // A comp with no project open is not an error worth interrupting for.
+      setRegions([]);
+    }
+  }, [bridge]);
+
+  const addRegion = useCallback(async () => {
+    if (!bridge) return;
+    setBusy(true);
+    try {
+      const created = await bridge.createRegion(Number(region.newSize) || 1024);
+      await refreshRegions();
+      setRegion((current) => ({ ...current, name: created.name }));
+      setNotice(
+        `Added ${created.name} at ${created.width}x${created.height}. ` +
+          "Move and scale it in the comp, then capture.",
+      );
+    } catch (cause) {
+      report(cause);
+    } finally {
+      setBusy(false);
+    }
+  }, [bridge, region.newSize, refreshRegions, report]);
+
+  const captureRegion = useCallback(async () => {
+    if (!bridge || !region.name) return;
+    setBusy(true);
+    setError(undefined);
+    try {
+      const { asset, warning, region: captured, compName } =
+        await bridge.captureRegion(region.name, Number(region.feather) || 0);
+      setNotice(
+        warning ??
+          `Captured ${captured.width}x${captured.height} into “${compName}”, ` +
+            "placed back over the plate. Generate, then composite the result.",
+      );
+      await refreshRegions();
+      await refreshAssets();
+      setSelectedId(asset.id);
+      setForm((current) => ({
+        ...current,
+        inputAssetIds: [...current.inputAssetIds, asset.id],
+      }));
+    } catch (cause) {
+      report(cause);
+    } finally {
+      setBusy(false);
+    }
+  }, [bridge, region.name, refreshRegions, refreshAssets, report]);
+
+  /** Composites the finished clip back onto the region it came from. */
+  const insertRegion = useCallback(async () => {
+    const output = job?.outputs[0];
+    if (!bridge || !output || !region.name) return;
+    setBusy(true);
+    try {
+      const placed = await bridge.insertRegion(output.id, {
+        regionName: region.name,
+        featherPixels: Number(region.feather) || 0,
+        ...(Number(region.startSeconds) >= 0 && region.startSeconds.trim()
+          ? { startSeconds: Number(region.startSeconds) }
+          : {}),
+        ...(Number(region.stretchToSeconds) > 0
+          ? { stretchToSeconds: Number(region.stretchToSeconds) }
+          : {}),
+      });
+      const retimed =
+        Math.round(placed.stretchPercent) === 100
+          ? ""
+          : ` at ${Math.round(placed.stretchPercent)}% speed`;
+      const scaled =
+        placed.sourceWidth === placed.width
+          ? ""
+          : ` (${placed.sourceWidth}x${placed.sourceHeight} scaled to ${placed.width}x${placed.height})`;
+      setNotice(
+        `Composited ${placed.name} into “${placed.compName}” at ` +
+          `${placed.atSeconds.toFixed(2)}s${retimed}${scaled}, ` +
+          `${placed.featherPixels}px feather. The plate underneath is untouched.`,
+      );
+    } catch (cause) {
+      report(cause);
+    } finally {
+      setBusy(false);
+    }
+  }, [bridge, job, region, report]);
 
   /**
    * Turns the description into a proposed generation.
@@ -427,6 +543,12 @@ export function App() {
               directing={directing}
               {...(plan ? { plan } : {})}
               onDismissPlan={() => setPlan(undefined)}
+              {...(regions ? { regions } : {})}
+              region={region}
+              onRegionChange={setRegion}
+              onAddRegion={addRegion}
+              onCaptureRegion={captureRegion}
+              onInsertRegion={insertRegion}
               onCapture={captureFrame}
               onGenerate={startGeneration}
               onCancel={cancelJob}

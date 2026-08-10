@@ -173,6 +173,33 @@ export interface CaptureResult {
  * The service stays host-agnostic, and so does this class: After Effects and
  * Premiere expose the same host functions under the same names.
  */
+/** A region guide as After Effects currently has it, in comp pixels. */
+export interface AeRegion {
+  name: string;
+  centerX: number;
+  centerY: number;
+  width: number;
+  height: number;
+  /** True once the region has a sub-comp, which capture creates. */
+  hasComp: boolean;
+  /** True once that sub-comp is placed back over the plate. */
+  composited: boolean;
+}
+
+export interface AeRegionPlacement {
+  name: string;
+  regionName: string;
+  compName: string;
+  atSeconds: number;
+  width: number;
+  height: number;
+  /** The clip's own resolution, which rarely matches the region's. */
+  sourceWidth: number;
+  sourceHeight: number;
+  featherPixels: number;
+  stretchPercent: number;
+}
+
 export class CepAeBridge {
   readonly id = "cep";
 
@@ -240,6 +267,100 @@ export class CepAeBridge {
       width: captured.width,
       height: captured.height,
     });
+  }
+
+  // ------------------------------------------------------------- regions
+
+  /**
+   * Adds a region guide to the comp.
+   *
+   * It is a plain shape layer, so it is adjusted with Position and Scale like
+   * anything else in the timeline — SEED only reads its transform back.
+   */
+  async createRegion(size: number): Promise<AeRegion> {
+    await this.ensureHost();
+    const { region } = await evalHost<{ region: AeRegion }>(
+      `${hostPrefix()}createRegion(${Math.round(size)})`,
+    );
+    return region;
+  }
+
+  async listRegions(): Promise<{
+    regions: AeRegion[];
+    compWidth: number;
+    compHeight: number;
+  }> {
+    await this.ensureHost();
+    return evalHost(`${hostPrefix()}listRegions()`);
+  }
+
+  /** Renders just the region and registers it, region geometry and all. */
+  async captureRegion(
+    regionName: string,
+    featherPixels: number,
+  ): Promise<{
+    asset: Asset;
+    warning?: string;
+    region: AeRegion;
+    compName: string;
+  }> {
+    await this.ensureHost();
+    const { workspace } = await this.client.workspace();
+    const context = await this.getContext();
+    const compName = typeof context.compName === "string" ? context.compName : "comp";
+
+    const captured = await evalHost<
+      CaptureResult & { region: AeRegion; compName: string }
+    >(
+      `${hostPrefix()}captureRegion(${quote(regionName)}, ${quote(
+        workspace.originalsDir,
+      )}, ${quote(compName)}, ${Math.round(featherPixels)})`,
+    );
+
+    const registered = await this.client.registerCapture({
+      path: captured.path,
+      context: {
+        ...context,
+        frameNumber: captured.frameNumber,
+        timeSeconds: captured.timeSeconds,
+        // Provenance has to record which part of the plate this came from, or
+        // the crop can never be put back where it belongs.
+        region: captured.region,
+      },
+      width: captured.width,
+      height: captured.height,
+    });
+
+    return { ...registered, region: captured.region, compName: captured.compName };
+  }
+
+  /**
+   * Imports a generated clip and composites it back onto its region.
+   *
+   * The plate is left untouched: the clip arrives as its own feathered layer,
+   * so the composite can be adjusted or deleted without rebuilding anything.
+   */
+  async insertRegion(
+    assetId: string,
+    options: {
+      regionName: string;
+      featherPixels: number;
+      startSeconds?: number;
+      stretchToSeconds?: number;
+    },
+  ): Promise<AeRegionPlacement> {
+    await this.ensureHost();
+    const { path, filename } = await this.client.assetPath(assetId);
+    const imported = await evalHost<{ projectItemId: string; name: string }>(
+      `${hostPrefix()}import(${quote(path)})`,
+    );
+
+    const placed = await evalHost<AeRegionPlacement>(
+      `${hostPrefix()}insertRegion(${quote(imported.projectItemId)}, ${JSON.stringify(
+        options,
+      )})`,
+    );
+    return { ...placed, name: placed.name || filename };
   }
 
   async importAsset(

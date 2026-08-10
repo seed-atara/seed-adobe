@@ -1,5 +1,6 @@
 import { useRef, useState } from "react";
 import type { Asset, ComposedPlan, GenerationOperation } from "@seed-ae/domain";
+import type { AeRegion } from "../api/cep.ts";
 import {
   assetToken,
   completeMention,
@@ -12,6 +13,19 @@ import type {
   SeedClient,
 } from "../api/client.ts";
 import { AssetImage, Field, SectionLabel, StatusBadge } from "./primitives.tsx";
+
+/** The region controls, kept together so App owns one piece of state. */
+export interface RegionSettings {
+  name: string;
+  /** Edge length for the next region added, in comp pixels. */
+  newSize: string;
+  /** Softness of the composite edge, in comp pixels. */
+  feather: string;
+  /** Blank means the playhead. */
+  startSeconds: string;
+  /** Blank means the clip's own length. */
+  stretchToSeconds: string;
+}
 
 export interface GenerateForm {
   providerId: string;
@@ -44,6 +58,13 @@ interface Props {
   directing?: boolean;
   plan?: ComposedPlan;
   onDismissPlan?: () => void;
+  /** Absent outside After Effects, where regions do not apply. */
+  regions?: AeRegion[];
+  region?: RegionSettings;
+  onRegionChange?: (region: RegionSettings) => void;
+  onAddRegion?: () => void;
+  onCaptureRegion?: () => void;
+  onInsertRegion?: () => void;
 }
 
 export function GenerateView({
@@ -62,6 +83,12 @@ export function GenerateView({
   directing = false,
   plan,
   onDismissPlan,
+  regions,
+  region,
+  onRegionChange,
+  onAddRegion,
+  onCaptureRegion,
+  onInsertRegion,
 }: Props) {
   const promptRef = useRef<HTMLTextAreaElement>(null);
   const [mentionQuery, setMentionQuery] = useState<string>();
@@ -99,6 +126,14 @@ export function GenerateView({
   const patch = (changes: Partial<GenerateForm>) =>
     onFormChange({ ...form, ...changes });
 
+  const patchRegion = (changes: Partial<RegionSettings>) => {
+    if (region && onRegionChange) onRegionChange({ ...region, ...changes });
+  };
+
+  const selected = regions?.find((item) => item.name === region?.name);
+  const finishedOutput =
+    job?.job.status === "succeeded" ? job.outputs[0] : undefined;
+
   const running =
     job !== undefined &&
     (job.job.status === "queued" || job.job.status === "running");
@@ -131,6 +166,126 @@ export function GenerateView({
           </div>
         ) : null}
       </section>
+
+      {regions && region ? (
+        <section className="section">
+          <SectionLabel>region</SectionLabel>
+          <div className="hint faint" style={{ marginBottom: 6 }}>
+            Animate part of a larger plate. The region is an ordinary shape
+            layer — move and scale it in the comp and SEED reads it back.
+          </div>
+
+          {regions.length === 0 ? (
+            <div className="row">
+              <Field label="Size">
+                <input
+                  type="number"
+                  min={64}
+                  value={region.newSize}
+                  onChange={(event) =>
+                    patchRegion({ newSize: event.target.value })
+                  }
+                />
+              </Field>
+              <Field label="&nbsp;">
+                <button className="btn wide" onClick={onAddRegion} disabled={busy}>
+                  Add region
+                </button>
+              </Field>
+            </div>
+          ) : (
+            <>
+              <div className="row">
+                <Field
+                  label="Region"
+                  hint={
+                    selected
+                      ? `${selected.width}x${selected.height} at ${Math.round(
+                          selected.centerX,
+                        )}, ${Math.round(selected.centerY)}`
+                      : undefined
+                  }
+                >
+                  <select
+                    value={region.name}
+                    onChange={(event) => patchRegion({ name: event.target.value })}
+                  >
+                    {regions.map((item) => (
+                      <option key={item.name} value={item.name}>
+                        {item.name}
+                      </option>
+                    ))}
+                  </select>
+                </Field>
+                <Field label="&nbsp;">
+                  <button className="btn wide" onClick={onAddRegion} disabled={busy}>
+                    Add another
+                  </button>
+                </Field>
+              </div>
+
+              <button
+                className="btn primary wide"
+                onClick={onCaptureRegion}
+                disabled={busy || referencesFull || !selected}
+              >
+                Capture region
+              </button>
+
+              <div className="row" style={{ marginTop: 8 }}>
+                <Field label="Feather" hint="px, softens the composite edge">
+                  <input
+                    type="number"
+                    min={0}
+                    value={region.feather}
+                    onChange={(event) =>
+                      patchRegion({ feather: event.target.value })
+                    }
+                  />
+                </Field>
+                <Field label="Start" hint="seconds, blank = playhead">
+                  <input
+                    type="number"
+                    min={0}
+                    step="0.1"
+                    value={region.startSeconds}
+                    placeholder="playhead"
+                    onChange={(event) =>
+                      patchRegion({ startSeconds: event.target.value })
+                    }
+                  />
+                </Field>
+              </div>
+
+              <Field label="Stretch to" hint="seconds, blank = the clip's own length">
+                <input
+                  type="number"
+                  min={0}
+                  step="0.1"
+                  value={region.stretchToSeconds}
+                  placeholder="native length"
+                  onChange={(event) =>
+                    patchRegion({ stretchToSeconds: event.target.value })
+                  }
+                />
+              </Field>
+
+              <button
+                className="btn wide"
+                onClick={onInsertRegion}
+                disabled={busy || !finishedOutput || !selected}
+                title={
+                  finishedOutput
+                    ? "Composite the result back onto the region"
+                    : "Generate something first"
+                }
+              >
+                Composite result into region
+              </button>
+            </>
+          )}
+        </section>
+      ) : null}
 
       <section className="section">
         <SectionLabel>references</SectionLabel>

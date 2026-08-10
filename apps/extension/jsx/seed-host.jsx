@@ -281,6 +281,489 @@ function seedInsertAtPlayhead(projectItemId) {
 }
 
 /** Probe used by the panel to confirm the host script actually loaded. */
+// ------------------------------------------------------------------- regions
+
+/*
+ * A region is a square of a larger plate, animated on its own and composited
+ * back.
+ *
+ * Three objects make one region, and each has a job:
+ *
+ *   1. a guide layer in the plate comp — the control. It is an ordinary shape
+ *      layer, so it is adjusted with the Position and Scale properties the
+ *      artist already uses, and can be keyframed, parented or duplicated.
+ *   2. a sub-comp, sized to the region — the workspace. It holds the captured
+ *      still, and later the animated clip on top of it.
+ *   3. a layer in the plate comp holding that sub-comp — the composite. It is
+ *      feathered, so the animated square blends into the surrounding plate
+ *      instead of reading as a patch.
+ *
+ * The sub-comp holds the captured *still*, never the plate comp itself: a
+ * comp cannot contain a comp that contains it, and the animation is built from
+ * that frozen frame anyway.
+ */
+
+var SEED_REGION_PREFIX = "SEED Region";
+var SEED_COMPOSITE_SUFFIX = " (comp)";
+
+/**
+ * The edge length the layer's rectangle was built at.
+ *
+ * Read from the shape itself rather than remembered, so a project reopened
+ * tomorrow still measures correctly.
+ */
+function seedRegionBaseSize(layer) {
+    try {
+        var group = layer.property("Contents").property(1);
+        var rect = group.property("Contents").property("Rectangle Path 1");
+        return rect.property("Size").value[0];
+    } catch (error) {
+        return 1024;
+    }
+}
+
+/** The rectangle a region layer currently covers, in comp pixels. */
+function seedRegionRect(layer) {
+    var position = layer.property("Transform").property("Position").value;
+    var scale = layer.property("Transform").property("Scale").value;
+    var base = seedRegionBaseSize(layer);
+
+    return {
+        centerX: position[0],
+        centerY: position[1],
+        width: Math.max(8, Math.round((base * scale[0]) / 100)),
+        height: Math.max(8, Math.round((base * scale[1]) / 100))
+    };
+}
+
+/**
+ * The guide layers, and only those.
+ *
+ * The composite layer carries the region's name too, so matching on the name
+ * alone would treat the thing being composited as another control.
+ */
+function seedFindRegions(comp) {
+    var found = [];
+    for (var i = 1; i <= comp.numLayers; i++) {
+        var layer = comp.layer(i);
+        if (
+            layer.name.indexOf(SEED_REGION_PREFIX) === 0 &&
+            layer.guideLayer === true &&
+            layer instanceof ShapeLayer
+        ) {
+            found.push(layer);
+        }
+    }
+    return found;
+}
+
+function seedRegionByName(comp, name) {
+    var regions = seedFindRegions(comp);
+    if (!name) return regions.length > 0 ? regions[0] : null;
+    for (var i = 0; i < regions.length; i++) {
+        if (regions[i].name === name) return regions[i];
+    }
+    return null;
+}
+
+/** The project comp that belongs to a region, if it has been made yet. */
+function seedFindRegionComp(name) {
+    for (var i = 1; i <= app.project.numItems; i++) {
+        var item = app.project.item(i);
+        if (item instanceof CompItem && item.name === name) return item;
+    }
+    return null;
+}
+
+/** The layer in the plate comp that holds a region's sub-comp. */
+function seedFindComposite(comp, name) {
+    var target = name + SEED_COMPOSITE_SUFFIX;
+    for (var i = 1; i <= comp.numLayers; i++) {
+        if (comp.layer(i).name === target) return comp.layer(i);
+    }
+    return null;
+}
+
+/** Keeps SEED's own items together instead of loose in the project root. */
+function seedProjectFolder() {
+    for (var i = 1; i <= app.project.numItems; i++) {
+        var item = app.project.item(i);
+        if (item instanceof FolderItem && item.name === "SEED") return item;
+    }
+    return app.project.items.addFolder("SEED");
+}
+
+function seedDescribeRegion(comp, layer) {
+    var rect = seedRegionRect(layer);
+    var sub = seedFindRegionComp(layer.name);
+    return {
+        name: layer.name,
+        centerX: rect.centerX,
+        centerY: rect.centerY,
+        width: rect.width,
+        height: rect.height,
+        hasComp: sub !== null,
+        composited: seedFindComposite(comp, layer.name) !== null
+    };
+}
+
+/** Creates a region guide, centred, sized to fit the plate. */
+function seedCreateRegion(size) {
+    try {
+        var comp = seedActiveComp();
+        if (!comp) return seedFail("no active composition");
+
+        app.beginUndoGroup("SEED: add region");
+
+        var edge = Number(size) > 0 ? Number(size) : 1024;
+        // A region larger than the plate cannot be captured from it.
+        var limit = Math.min(comp.width, comp.height);
+        if (edge > limit) edge = limit;
+
+        var existing = seedFindRegions(comp).length;
+        var layer = comp.layers.addShape();
+        layer.name = SEED_REGION_PREFIX + " " + (existing + 1);
+
+        var group = layer.property("Contents").addProperty("ADBE Vector Group");
+        var contents = group.property("Contents");
+        var rect = contents.addProperty("ADBE Vector Shape - Rect");
+        rect.property("Size").setValue([edge, edge]);
+        rect.property("Position").setValue([0, 0]);
+
+        var stroke = contents.addProperty("ADBE Vector Graphic - Stroke");
+        stroke.property("Color").setValue([0, 1, 1]);
+        stroke.property("Stroke Width").setValue(4);
+
+        layer.property("Transform").property("Position").setValue([
+            comp.width / 2,
+            comp.height / 2
+        ]);
+        // Excluded from renders, so it can never be baked into a capture.
+        layer.guideLayer = true;
+
+        app.endUndoGroup();
+        return seedOk({ region: seedDescribeRegion(comp, layer) });
+    } catch (error) {
+        try { app.endUndoGroup(); } catch (ignored) {}
+        return seedFail(error);
+    }
+}
+
+function seedListRegions() {
+    try {
+        var comp = seedActiveComp();
+        if (!comp) return seedFail("no active composition");
+
+        var layers = seedFindRegions(comp);
+        var described = [];
+        for (var i = 0; i < layers.length; i++) {
+            described.push(seedDescribeRegion(comp, layers[i]));
+        }
+        return seedOk({
+            regions: described,
+            compWidth: comp.width,
+            compHeight: comp.height
+        });
+    } catch (error) {
+        return seedFail(error);
+    }
+}
+
+/**
+ * Builds or refreshes the region's sub-comp around a captured still.
+ *
+ * Re-capturing an existing region reuses its comp rather than making another,
+ * so whatever the artist has already built inside it survives.
+ */
+function seedEnsureRegionComp(comp, region, rect, stillFile) {
+    var sub = seedFindRegionComp(region.name);
+    if (!sub) {
+        sub = app.project.items.addComp(
+            region.name,
+            rect.width,
+            rect.height,
+            comp.pixelAspect,
+            comp.duration,
+            comp.frameRate
+        );
+        sub.parentFolder = seedProjectFolder();
+    } else if (sub.width !== rect.width || sub.height !== rect.height) {
+        // The guide was rescaled since the last capture.
+        sub.width = rect.width;
+        sub.height = rect.height;
+    }
+
+    // Replace the previous plate still; anything the artist added stays.
+    for (var i = sub.numLayers; i >= 1; i--) {
+        if (sub.layer(i).name.indexOf("SEED plate") === 0) sub.layer(i).remove();
+    }
+
+    var imported = app.project.importFile(new ImportOptions(stillFile));
+    imported.parentFolder = seedProjectFolder();
+    var plate = sub.layers.add(imported);
+    plate.name = "SEED plate";
+    plate.moveToEnd();
+    plate.property("Transform").property("Position").setValue([
+        sub.width / 2,
+        sub.height / 2
+    ]);
+
+    return sub;
+}
+
+/**
+ * Places the region's sub-comp back over the plate, feathered.
+ *
+ * Because the sub-comp's own background is the captured still, the feathered
+ * edge fades into pixels identical to the plate underneath — which is what
+ * makes the join invisible.
+ */
+function seedPlaceComposite(comp, region, rect, featherPixels) {
+    var sub = seedFindRegionComp(region.name);
+    if (!sub) return null;
+
+    var layer = seedFindComposite(comp, region.name);
+    if (!layer) {
+        layer = comp.layers.add(sub);
+        layer.name = region.name + SEED_COMPOSITE_SUFFIX;
+        // Above the plate, below anything the artist put on top.
+        layer.moveToBeginning();
+    }
+
+    layer.property("Transform").property("Position").setValue([
+        rect.centerX,
+        rect.centerY
+    ]);
+    layer.property("Transform").property("Scale").setValue([100, 100]);
+
+    var feather = Number(featherPixels);
+    if (isNaN(feather) || feather < 0) feather = 24;
+
+    // Rebuild rather than adjust: the region may have been resized.
+    var masks = layer.property("ADBE Mask Parade");
+    for (var m = masks.numProperties; m >= 1; m--) masks.property(m).remove();
+
+    if (feather > 0) {
+        var inset = Math.min(feather, sub.width / 4, sub.height / 4);
+        var mask = masks.addProperty("ADBE Mask Atom");
+        var shape = new Shape();
+        shape.vertices = [
+            [inset, inset],
+            [sub.width - inset, inset],
+            [sub.width - inset, sub.height - inset],
+            [inset, sub.height - inset]
+        ];
+        shape.closed = true;
+        mask.property("ADBE Mask Shape").setValue(shape);
+        mask.property("ADBE Mask Feather").setValue([feather, feather]);
+        mask.maskMode = MaskMode.ADD;
+    }
+
+    return layer;
+}
+
+/**
+ * Renders just the region, at the playhead, and preps its sub-comp.
+ *
+ * After Effects can only write a whole composition, so the region is framed by
+ * a temporary comp holding the plate offset behind it. That temp comp is
+ * removed afterwards whether or not the render succeeded — leaving debris in
+ * someone's project is worse than failing.
+ */
+function seedCaptureRegion(regionName, outputDir, basename, featherPixels) {
+    var temp = null;
+    var hidden = [];
+    try {
+        var comp = seedActiveComp();
+        if (!comp) return seedFail("no active composition");
+
+        var region = seedRegionByName(comp, regionName);
+        if (!region) {
+            return seedFail(
+                regionName
+                    ? "no region layer named " + regionName
+                    : "this comp has no region yet — add one first"
+            );
+        }
+
+        var rect = seedRegionRect(region);
+        var folder = seedEnsureFolder(outputDir);
+        if (!folder.exists) {
+            return seedFail("could not create output folder: " + outputDir);
+        }
+
+        app.beginUndoGroup("SEED: capture region");
+
+        // Hide every guide, and any composite already over this region, so the
+        // capture is of the plate itself and not of an earlier result.
+        var regions = seedFindRegions(comp);
+        for (var r = 0; r < regions.length; r++) {
+            if (regions[r].enabled) {
+                regions[r].enabled = false;
+                hidden.push(regions[r]);
+            }
+        }
+        var existingComposite = seedFindComposite(comp, region.name);
+        if (existingComposite && existingComposite.enabled) {
+            existingComposite.enabled = false;
+            hidden.push(existingComposite);
+        }
+
+        temp = app.project.items.addComp(
+            "SEED Capture (temp)",
+            rect.width,
+            rect.height,
+            comp.pixelAspect,
+            Math.max(comp.duration, 1 / comp.frameRate),
+            comp.frameRate
+        );
+
+        var plate = temp.layers.add(comp);
+        // Put the region's centre at the centre of the temp comp.
+        plate.property("Transform").property("Position").setValue([
+            rect.width / 2 - (rect.centerX - comp.width / 2),
+            rect.height / 2 - (rect.centerY - comp.height / 2)
+        ]);
+        temp.time = comp.time;
+
+        var frame = Math.round(comp.time * comp.frameRate);
+        var safe = String(basename || comp.name).replace(/[^A-Za-z0-9._-]+/g, "_");
+        var stamp = String(frame);
+        while (stamp.length < 5) stamp = "0" + stamp;
+
+        var attempt = 1;
+        var target;
+        do {
+            var suffix = String(attempt);
+            while (suffix.length < 3) suffix = "0" + suffix;
+            target = new File(
+                seedNormalizePath(folder.fsName) +
+                    "/" + safe + "_r" + stamp + "_" + suffix + ".png"
+            );
+            attempt++;
+        } while (target.exists && attempt < 1000);
+
+        var targetPath = target.fsName;
+        try {
+            temp.saveFrameToPng(temp.time, target);
+        } catch (writeError) {
+            return seedFail("saveFrameToPng failed on the region comp: " + writeError);
+        }
+
+        var written = null;
+        for (var check = 0; check < 20; check++) {
+            var probe = new File(targetPath);
+            if (probe.exists && probe.length > 0) {
+                written = probe;
+                break;
+            }
+            $.sleep(50);
+        }
+        if (!written) return seedFail("no region frame appeared at " + targetPath);
+
+        var sub = seedEnsureRegionComp(comp, region, rect, written);
+        seedPlaceComposite(comp, region, rect, featherPixels);
+
+        return seedOk({
+            path: written.fsName,
+            bytes: written.length,
+            width: rect.width,
+            height: rect.height,
+            frameNumber: frame,
+            timeSeconds: comp.time,
+            compName: sub.name,
+            region: seedDescribeRegion(comp, region)
+        });
+    } catch (error) {
+        return seedFail(error);
+    } finally {
+        if (temp) {
+            try { temp.remove(); } catch (ignored) {}
+        }
+        for (var h = 0; h < hidden.length; h++) {
+            try { hidden[h].enabled = true; } catch (ignored) {}
+        }
+        try { app.endUndoGroup(); } catch (ignored) {}
+    }
+}
+
+/**
+ * Drops an animated clip into its region's sub-comp.
+ *
+ * The plate is never touched. The clip goes on top of the captured still
+ * inside the sub-comp, and the sub-comp is what sits — feathered — over the
+ * plate, so the whole composite can be retimed, replaced or deleted without
+ * rebuilding anything.
+ */
+function seedInsertRegion(projectItemId, options) {
+    try {
+        var comp = seedActiveComp();
+        if (!comp) return seedFail("no active composition");
+
+        var item = seedFindItemById(projectItemId);
+        if (!item) return seedFail("project item " + projectItemId + " not found");
+
+        var settings = options || {};
+        var region = seedRegionByName(comp, settings.regionName);
+        if (!region) return seedFail("no region to composite into — add one first");
+
+        var rect = seedRegionRect(region);
+        var sub = seedFindRegionComp(region.name);
+        if (!sub) {
+            return seedFail(
+                "capture " + region.name + " first — its comp does not exist yet"
+            );
+        }
+
+        app.beginUndoGroup("SEED: composite region");
+
+        var layer = sub.layers.add(item);
+        layer.moveToBeginning();
+        layer.startTime =
+            settings.startSeconds === undefined || settings.startSeconds === null
+                ? comp.time
+                : Number(settings.startSeconds);
+
+        // Retime before anything measures the layer's length.
+        if (Number(settings.stretchToSeconds) > 0 && item.duration > 0) {
+            layer.stretch = (Number(settings.stretchToSeconds) / item.duration) * 100;
+        }
+
+        // Fill the sub-comp exactly; the clip usually differs from the region
+        // in resolution, since the model has its own output sizes.
+        var sourceWidth = item.width || sub.width;
+        var sourceHeight = item.height || sub.height;
+        layer.property("Transform").property("Scale").setValue([
+            (sub.width / sourceWidth) * 100,
+            (sub.height / sourceHeight) * 100
+        ]);
+        layer.property("Transform").property("Position").setValue([
+            sub.width / 2,
+            sub.height / 2
+        ]);
+
+        var composite = seedPlaceComposite(comp, region, rect, settings.featherPixels);
+
+        app.endUndoGroup();
+
+        return seedOk({
+            name: item.name,
+            regionName: region.name,
+            compName: sub.name,
+            atSeconds: layer.startTime,
+            width: rect.width,
+            height: rect.height,
+            sourceWidth: sourceWidth,
+            sourceHeight: sourceHeight,
+            featherPixels: composite ? Number(settings.featherPixels) || 0 : 0,
+            stretchPercent: layer.stretch
+        });
+    } catch (error) {
+        try { app.endUndoGroup(); } catch (ignored) {}
+        return seedFail(error);
+    }
+}
+
 function seedPing() {
     try {
         return seedOk({
@@ -311,3 +794,7 @@ var seedAeft_getContext = seedGetContext;
 var seedAeft_captureFrame = seedCaptureFrame;
 var seedAeft_import = seedImport;
 var seedAeft_insertAtPlayhead = seedInsertAtPlayhead;
+var seedAeft_createRegion = seedCreateRegion;
+var seedAeft_listRegions = seedListRegions;
+var seedAeft_captureRegion = seedCaptureRegion;
+var seedAeft_insertRegion = seedInsertRegion;

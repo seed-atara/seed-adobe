@@ -122,6 +122,33 @@ rationale — nothing is queued until the artist presses Generate. See ADR 0007.
   and the panel does not offer the button.
 - Try it without the panel: `npx tsx scripts/direct.ts "describe the shot"`.
 
+## Regions — animating part of a larger plate (After Effects)
+
+A tall or wide plate can be animated a square at a time. Three objects make one
+region, each with a job:
+
+1. **A guide layer** in the plate comp — the control. An ordinary shape layer,
+   adjusted with Position and Scale, so it can be keyframed or parented like
+   anything else. SEED only reads its transform back.
+2. **A sub-comp**, sized to the region — the workspace. Holds the captured
+   still, and later the animated clip on top of it. Created on first capture and
+   reused after, so anything the artist builds inside it survives.
+3. **A composite layer** in the plate comp holding that sub-comp, feathered.
+   Because the sub-comp's background is the captured still, the feathered edge
+   fades into pixels identical to the plate underneath, which is what makes the
+   join invisible.
+
+The sub-comp holds the captured *still*, never the plate comp itself — a comp
+cannot contain a comp that contains it, and the animation is built from that
+frozen frame anyway.
+
+Feather, start time, and a stretch-to duration are all panel parameters. The
+plate is never modified: the composite can be retimed, replaced, or deleted
+without rebuilding anything.
+
+Not yet exercised in After Effects — the host functions parse and the panel
+builds, but the round trip has not been run against a real project.
+
 ## Next engineering actions
 
 1. Run the full demo in After Effects: capture a hero frame, generate with
