@@ -22,6 +22,7 @@ import { GenerationService } from "./generation/generationService.js";
 import { InputMaterializer } from "./generation/inputMaterializer.js";
 import { MediaIngestor } from "./generation/mediaIngestor.js";
 import { createLogger, type Logger } from "./logger.js";
+import { findStillPreset } from "./pproPresets.js";
 
 export interface BootstrapOptions {
   config: ServiceConfig;
@@ -66,6 +67,20 @@ export async function bootstrap({
   // Anything left running belongs to a process that no longer exists.
   generation.reconcileInterruptedJobs();
 
+  // Premiere frame export needs a still preset. Look for one rather than
+  // making the artist hunt down a file path.
+  let stillPreset = config.pproStillPreset;
+  if (!stillPreset) {
+    const discovered = await findStillPreset();
+    if (discovered) {
+      stillPreset = discovered.path;
+      activeLogger.info("ppro.still_preset_found", {
+        name: discovered.name,
+        path: discovered.path,
+      });
+    }
+  }
+
   // Catch up any asset that never got a thumbnail. Not awaited: the service
   // should start serving immediately, and a missing thumbnail is cosmetic.
   void (async () => {
@@ -92,7 +107,7 @@ export async function bootstrap({
   });
 
   return {
-    config,
+    config: stillPreset ? { ...config, pproStillPreset: stillPreset } : config,
     db,
     workspace,
     assets,
