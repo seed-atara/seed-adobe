@@ -161,6 +161,27 @@ function seedGetContext() {
 
 // ------------------------------------------------------------------ capture
 
+/**
+ * Newest file in a folder, once it has stopped growing.
+ *
+ * Media Encoder writes progressively, so returning as soon as a file appears
+ * hands over a partial frame — and on Windows the writer still holds the lock,
+ * which the service then hits as EBUSY.
+ */
+function seedNewestSettledFile(folder, sinceMs) {
+    var candidate = seedNewestFile(folder, sinceMs);
+    if (!candidate) return null;
+
+    var last = -1;
+    for (var check = 0; check < 40; check++) {
+        var probe = new File(candidate.fsName);
+        if (probe.exists && probe.length > 0 && probe.length === last) return probe;
+        last = probe.exists ? probe.length : -1;
+        $.sleep(250);
+    }
+    return new File(candidate.fsName);
+}
+
 /** Newest file in a folder, used to find what an exporter actually wrote. */
 function seedNewestFile(folder, sinceMs) {
     var files = folder.getFiles(function (f) {
@@ -360,7 +381,7 @@ function seedExportViaPreset(sequence, folder, presetPath, seconds, fps, trace) 
 
                 for (var wait = 0; wait < 150 && !written; wait++) {
                     $.sleep(100);
-                    written = seedNewestFile(folder, startedAt);
+                    written = seedNewestSettledFile(folder, startedAt);
                 }
                 trace.push(label + (written ? " wrote a file" : " returned ok but wrote nothing in 15s"));
             }
@@ -418,7 +439,7 @@ function seedExportViaEncoder(sequence, folder, presetPath, seconds, fps, trace)
     var written = null;
     for (var wait = 0; wait < 600 && !written; wait++) {
         $.sleep(100);
-        written = seedNewestFile(folder, startedAt);
+        written = seedNewestSettledFile(folder, startedAt);
     }
     if (!written) trace.push("AME: nothing appeared within 60s");
     return written;

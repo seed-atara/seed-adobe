@@ -61,14 +61,50 @@ function describePartialRender(bytes: Buffer): string | undefined {
   );
 }
 
+/**
+ * Reads a file the host has just written.
+ *
+ * Media Encoder hands back a path while it still holds the file open, so a
+ * straight read fails with EBUSY — and a file that merely exists may still be
+ * growing. This waits for the size to settle, then reads, retrying while the
+ * writer keeps its lock.
+ */
+async function readWhenSettled(filePath: string): Promise<Buffer> {
+  const attempts = 60;
+  const delayMs = 250;
+  let previousSize = -1;
+
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    try {
+      const { size } = await stat(filePath);
+      if (size > 0 && size === previousSize) {
+        return await readFile(filePath);
+      }
+      previousSize = size;
+    } catch (cause) {
+      const code = (cause as NodeJS.ErrnoException).code;
+      // EBUSY/EPERM mean the writer still owns it; ENOENT that it is not there
+      // yet. Neither is fatal this early.
+      if (code !== "EBUSY" && code !== "EPERM" && code !== "ENOENT") throw cause;
+    }
+    await new Promise((resolve) => setTimeout(resolve, delayMs));
+  }
+
+  throw new SeedError(
+    "host_error",
+    `the captured frame at ${filePath} was still locked or growing after ` +
+      `${Math.round((attempts * delayMs) / 1000)}s`,
+  );
+}
+
 async function registerCapturedFrame(
   deps: AppDeps,
   captured: CapturedMedia,
   format: "png" | "exr",
   includesAlpha: boolean,
 ): Promise<RegisteredCapture> {
-  const stats = await stat(captured.path);
-  const bytes = await readFile(captured.path);
+  const bytes = await readWhenSettled(captured.path);
+  const stats = { size: bytes.length };
   const probed = readPngSize(bytes);
 
   const draft: AssetDraft = {
