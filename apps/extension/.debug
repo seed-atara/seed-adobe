@@ -2,17 +2,21 @@
 <!--
   Enables CEF remote debugging for the panel.
 
-  With this file present (and PlayerDebugMode on, which the installer sets),
-  open http://localhost:8088 in Chrome while the panel is loaded in After
-  Effects to get real DevTools: console, network, elements.
+  With this file present (and PlayerDebugMode on, which the installer checks),
+  open the port for whichever application the panel is running in:
 
-  This is how you diagnose "the panel is blank" or "capture did nothing" —
-  ExtendScript errors surface in the panel's console, not in AE.
+    After Effects  http://localhost:8088
+    Premiere Pro   http://localhost:8089
+
+  That gives real DevTools — console, network, elements. It is how you
+  diagnose "the panel is blank" or "capture did nothing": ExtendScript errors
+  surface in the panel's console, not in the host application.
 -->
 <ExtensionList>
   <Extension Id="ai.seedstudios.seedae.panel">
     <HostList>
       <Host Name="AEFT" Port="8088" />
+      <Host Name="PPRO" Port="8089" />
     </HostList>
   </Extension>
 </ExtensionList>

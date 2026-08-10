@@ -128,9 +128,16 @@ Restart After Effects only if the manifest changed.
 
 ## Debugging inside After Effects
 
-`.debug` opens a CEF remote debugging port. With the panel loaded in AE, open
-**http://localhost:8088** in Chrome for real DevTools — console, network,
-elements.
+`.debug` opens a CEF remote debugging port, one per application. With the
+panel loaded, open it in Chrome for real DevTools — console, network, elements:
+
+| Application | Port |
+| --- | --- |
+| After Effects | http://localhost:8088 |
+| Premiere Pro | http://localhost:8089 |
+
+`seedPing()` in that console is the quickest sanity check: it reports which
+host answered and its version.
 
 This is the tool for the common failures:
 
