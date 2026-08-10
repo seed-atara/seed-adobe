@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { Asset, ComposedPlan, GenerationOperation } from "@seed-ae/domain";
 import type { AeRegion } from "../api/cep.ts";
 import {
@@ -94,6 +94,25 @@ export function GenerateView({
 }: Props) {
   const promptRef = useRef<HTMLTextAreaElement>(null);
   const [mentionQuery, setMentionQuery] = useState<string>();
+  const [directingFor, setDirectingFor] = useState(0);
+
+  /*
+   * Composition takes about half a minute and the API reports no progress, so
+   * the bar is honestly indeterminate — its job is to say "still working", and
+   * the elapsed count is what tells the artist whether that is still normal.
+   */
+  useEffect(() => {
+    if (!directing) {
+      setDirectingFor(0);
+      return;
+    }
+    const startedAt = Date.now();
+    const timer = setInterval(
+      () => setDirectingFor(Math.round((Date.now() - startedAt) / 1000)),
+      1000,
+    );
+    return () => clearInterval(timer);
+  }, [directing]);
 
   /** Tracks the `@…` being typed so the library can be offered inline. */
   const syncMentionQuery = (element: HTMLTextAreaElement) => {
@@ -394,11 +413,24 @@ export function GenerateView({
             >
               {directing ? "Directing…" : "◈ Direct this shot"}
             </button>
-            <div className="hint faint" style={{ marginTop: 4 }}>
-              Rewrites the prompt from your description, picks the references,
-              and fills the settings below. Nothing runs until you press
-              Generate.
-            </div>
+            {directing ? (
+              <div style={{ marginTop: 6 }}>
+                <div className="progress indeterminate">
+                  <i />
+                </div>
+                <div className="hint faint" style={{ marginTop: 4 }}>
+                  {directingFor < 45
+                    ? `Reading your references and writing the prompt… ${directingFor}s`
+                    : `Still working — ${directingFor}s. Long descriptions and several references take longer.`}
+                </div>
+              </div>
+            ) : (
+              <div className="hint faint" style={{ marginTop: 4 }}>
+                Rewrites the prompt from your description, picks the references,
+                and fills the settings below. Nothing runs until you press
+                Generate.
+              </div>
+            )}
           </>
         ) : null}
 
