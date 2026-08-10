@@ -63,6 +63,8 @@ export const StartGenerationRequestSchema = z.object({
   seed: z.union([z.number().int(), z.string()]).optional(),
   size: z.string().optional(),
   durationSeconds: z.number().positive().optional(),
+  /** Video soundtrack. Off unless asked for. */
+  generateAudio: z.boolean().optional(),
   aspectRatio: z.string().optional(),
   /**
    * Reference assets, in order. The first is the edit subject for image.edit.

@@ -16,6 +16,20 @@ export interface SeedanceConfig {
   apiKey: string;
   /** Model id from configuration, e.g. dreamina-seedance-2-5-260628. */
   model: string;
+  /** Provider id; derived from the model when not given. */
+  id?: string;
+  /** Shown in the panel; derived from the model when not given. */
+  displayName?: string;
+  /**
+   * Resolutions offered.
+   *
+   * Only 480p, 720p and 1080p are offered by default, because those are the
+   * ones every Seedance model accepted consistently. Probing suggested some
+   * models take 2k or 4k as well, but the API reports only one complaint per
+   * request, so a duration error does not prove the resolution was read —
+   * see docs/research/MODEL_API_NOTES.md.
+   */
+  sizes?: string[];
   /** Ark defaults this on; SEED keeps it explicit. */
   generateAudio?: boolean;
   /**
@@ -71,6 +85,26 @@ export type SeedanceImageRole = "first_frame" | "last_frame" | "reference_image"
  * error. Frame rate is left to the model's default until the accepted range is
  * confirmed.
  */
+/**
+ * A readable name for a model id.
+ *
+ * "dreamina-seedance-2-0-fast-260128" is precise and unreadable; the panel
+ * shows a person "Seedance 2.0 fast (Ark)" and keeps the id in the tooltip.
+ */
+export function seedanceDisplayName(model: string): string {
+  const match = /seedance-(\d+)-(\d+)(-(fast|mini|pro|lite))?/.exec(model);
+  if (!match) return `${model} (Ark)`;
+  const variant = match[4] ? ` ${match[4]}` : "";
+  return `Seedance ${match[1]}.${match[2]}${variant} (Ark)`;
+}
+
+/** A stable provider id for a model, so recipes keep resolving. */
+export function seedanceProviderId(model: string): string {
+  const match = /seedance-(\d+)-(\d+)(-(fast|mini|pro|lite))?/.exec(model);
+  if (!match) return "seedance";
+  return `seedance-${match[1]}-${match[2]}${match[4] ? `-${match[4]}` : ""}`;
+}
+
 /** One image part, with the role the API requires. */
 function seedanceImage(
   input: MaterializedInput,
@@ -80,7 +114,7 @@ function seedanceImage(
 }
 
 export class SeedanceProvider implements GenerationProvider {
-  readonly id = "seedance";
+  readonly id: string;
 
   private readonly config: SeedanceConfig;
   private readonly fetchImpl: typeof fetch;
@@ -97,13 +131,14 @@ export class SeedanceProvider implements GenerationProvider {
       throw new SeedError("bad_request", "Seedance needs a configured model id");
     }
     this.config = config;
+    this.id = config.id ?? "seedance";
     this.fetchImpl = config.fetchImpl ?? fetch;
   }
 
   async capabilities(): Promise<ProviderCapabilities> {
     return {
       id: this.id,
-      displayName: "Seedance 2.5 (Ark)",
+      displayName: this.config.displayName ?? seedanceDisplayName(this.config.model),
       models: [this.config.model],
       operations: ["video.generate"],
       textToImage: false,
@@ -123,6 +158,7 @@ export class SeedanceProvider implements GenerationProvider {
       // either is refused by count.
       startEndFrames: true,
       audioReferences: false,
+      generatesAudio: true,
       seed: true,
       /*
        * Verified against the live API for this model in i2v: 3s is rejected,
@@ -131,7 +167,7 @@ export class SeedanceProvider implements GenerationProvider {
        * accepted set, so they are checked here and re-checked there.
        */
       durationSecondsRange: [4, 30],
-      sizes: ["480p", "720p"],
+      sizes: this.config.sizes ?? ["480p", "720p", "1080p"],
       aspectRatios: ["16:9", "9:16", "1:1", "4:3", "21:9", "adaptive"],
       async: true,
     };
@@ -198,7 +234,9 @@ export class SeedanceProvider implements GenerationProvider {
       model: request.model || this.config.model,
       content,
       output_format: "mp4",
-      generate_audio: this.config.generateAudio ?? false,
+      // Silent unless asked, at every layer: the request decides, the
+      // configured default is the fallback, and that default is off.
+      generate_audio: request.generateAudio ?? this.config.generateAudio ?? false,
     };
     if (request.seed !== undefined) body.seed = request.seed;
     if (request.durationSeconds !== undefined) {

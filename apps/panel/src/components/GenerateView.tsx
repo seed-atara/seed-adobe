@@ -36,6 +36,10 @@ export interface GenerateForm {
   size: string;
   /** Kept as text so the field can be cleared; parsed at submit. */
   durationSeconds: string;
+  /** Off by default: sound is a choice, and it is baked into the clip. */
+  generateAudio: boolean;
+  /** Off by default: sound is a choice, and it is baked into the clip. */
+  generateAudio: boolean;
   inputAssetIds: string[];
   parentAssetId?: string;
   parentGenerationId?: string;
@@ -558,6 +562,36 @@ export function GenerateView({
                 patch({ durationSeconds: event.target.value })
               }
             />
+          </Field>
+        ) : null}
+
+        {provider?.generatesAudio ? (
+          <Field label="Sound" hint="Off by default; the model scores the clip">
+            <label className="check">
+              <input
+                type="checkbox"
+                checked={form.generateAudio}
+                onChange={(event) =>
+                  patch({ generateAudio: event.target.checked })
+                }
+              />
+              Generate audio
+            </label>
+          </Field>
+        ) : null}
+
+        {provider?.generatesAudio ? (
+          <Field label="Sound" hint="Off by default; the model scores the clip">
+            <label className="check">
+              <input
+                type="checkbox"
+                checked={form.generateAudio}
+                onChange={(event) =>
+                  patch({ generateAudio: event.target.checked })
+                }
+              />
+              Generate audio
+            </label>
           </Field>
         ) : null}
 

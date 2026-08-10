@@ -361,13 +361,21 @@ export class GenerationService {
     if (!provider.generateVideo) {
       throw new SeedError("unsupported_capability", `${provider.id} cannot generate video`);
     }
-    const [first, ...rest] = inputs;
+    /*
+     * A single image anchors the opening frame; several are references. The
+     * adapter enforces the distinction because the provider treats the two as
+     * exclusive modes — see docs/research/MODEL_API_NOTES.md.
+     */
+    const [first] = inputs;
+    const anchors = capabilities.startEndFrames && inputs.length === 1 && first;
     const payload: VideoGenerationRequest = {
       ...base,
       ...(request.durationSeconds ? { durationSeconds: request.durationSeconds } : {}),
       ...(request.aspectRatio ? { aspectRatio: request.aspectRatio } : {}),
-      ...(capabilities.startEndFrames && first ? { firstFrame: first } : {}),
-      references: capabilities.startEndFrames ? rest : inputs,
+      // Sound is opt-in, and stays off when nothing asked for it.
+      ...(request.generateAudio ? { generateAudio: true } : {}),
+      ...(anchors ? { firstFrame: first } : {}),
+      references: anchors ? [] : inputs,
     };
     return provider.generateVideo(payload);
   }

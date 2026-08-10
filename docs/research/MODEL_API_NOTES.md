@@ -330,3 +330,36 @@ reference-driven requests have no such anchor and do accept `ratio`.
 
 Still unverified: whether generation quality holds at high reference counts,
 and what `video_url` / `audio_url` parts do.
+
+### Resolutions across the Seedance family (probed 2026-08-11)
+
+Same free technique, `duration: 3` as the poison pill:
+
+| model | 480p | 720p | 1080p | 2k | 4k |
+|---|---|---|---|---|---|
+| `dreamina-seedance-2-5-260628` | ok | ok | ok | refused | refused |
+| `dreamina-seedance-2-0-260128` | ok | ok | ok | refused | ok? |
+| `dreamina-seedance-2-0-fast-260128` | ok | ok | ok | refused | refused |
+| `dreamina-seedance-2-0-mini-260615` | ok | ok | ok | ok? | refused |
+
+**Read the "ok?" cells sceptically.** The API reports one complaint per
+request, so an answer about `duration` does not prove the resolution was read —
+only that it was not the first thing to fail. The inconsistency (2.0 taking 4k
+but not 2k, mini the reverse) is more likely precedence noise than a real
+capability difference, and telling them apart would need a request that is
+valid in every other respect — which creates a billable task.
+
+So only **480p, 720p and 1080p** are offered by default: the set every model
+accepted, every time. `SEEDANCE_SIZES` widens it for anyone who wants to find
+out the expensive way.
+
+Note this supersedes an earlier note that 2.5 refuses 1080p. That was measured
+before roles were understood, so the request was malformed in a way that may
+have masked the resolution.
+
+### Audio
+
+`generate_audio` is a documented body field and SEED has always sent it. It is
+now a per-request switch, defaulting to off at every layer — request, provider
+config, and the panel checkbox. Sound is baked into the returned clip, so it
+is not a thing to leave on by accident.

@@ -99,6 +99,7 @@ export class SeedreamProvider implements GenerationProvider {
       videoReferences: false,
       startEndFrames: false,
       audioReferences: false,
+      generatesAudio: false,
       seed: true,
       sizes: sizesFor(this.config.model),
       aspectRatios: ["1:1", "16:9", "9:16", "21:9"],

@@ -19,6 +19,14 @@ export interface ProviderCapabilities {
   videoReferences: boolean;
   startEndFrames: boolean;
   audioReferences: boolean;
+  /**
+   * Whether the model can generate a soundtrack of its own.
+   *
+   * Distinct from audioReferences, which is about audio going *in*. Off by
+   * default wherever it is offered: sound is a creative decision, and one that
+   * is awkward to undo once it is baked into a clip.
+   */
+  generatesAudio: boolean;
   seed: boolean;
   durationSecondsRange?: [number, number];
   sizes: string[];
@@ -61,6 +69,8 @@ export interface ImageEditRequest extends ProviderRequestBase {
 
 export interface VideoGenerationRequest extends ProviderRequestBase {
   durationSeconds?: number;
+  /** Defaults to off; the provider decides what off means on the wire. */
+  generateAudio?: boolean;
   aspectRatio?: string;
   firstFrame?: MaterializedInput;
   lastFrame?: MaterializedInput;

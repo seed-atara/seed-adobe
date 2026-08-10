@@ -20,6 +20,9 @@ export interface ProviderCapabilitiesDto {
   textToVideo: boolean;
   imageToVideo: boolean;
   seed: boolean;
+  /** Whether the model can score the clip itself. */
+  generatesAudio: boolean;
+  durationSecondsRange?: [number, number];
   sizes: string[];
   aspectRatios: string[];
   async: boolean;

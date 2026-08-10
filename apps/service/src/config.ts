@@ -49,10 +49,17 @@ export interface ProviderConfig {
   arkSkipModeration: boolean;
   /** How local frames reach the model — see ReferencePolicy. */
   arkReferencePolicy: "asset" | "asset-or-inline" | "inline";
-  /** Seedance stays unregistered as a working provider until its API is verified. */
-  seedanceModelId?: string;
+  /**
+   * Seedance models to offer, in panel order.
+   *
+   * A list rather than one id: 2.0 and 2.5 differ in what they accept, and
+   * choosing between them is a creative decision, not a deployment one.
+   */
+  seedanceModelIds: string[];
   /** How many reference images Seedance is offered; see the research notes. */
   seedanceMaxReferences?: number;
+  /** Overrides the offered resolutions for every Seedance model. */
+  seedanceSizes?: string[];
   /** Path to a real video file the mock video provider replays. */
   mockVideoFixture?: string;
   /** Simulated latency for the mock image provider, so demos show job states. */
@@ -126,8 +133,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServiceConfig 
       arkAssetGroup: env.ARK_ASSET_GROUP?.trim() || "seed-ae",
       arkSkipModeration: env.ARK_SKIP_MODERATION?.trim() === "true",
       arkReferencePolicy: parseReferencePolicy(env.ARK_REFERENCE_POLICY),
-      ...(env.SEEDANCE_MODEL_ID?.trim()
-        ? { seedanceModelId: env.SEEDANCE_MODEL_ID.trim() }
+      seedanceModelIds: parseList(env.SEEDANCE_MODEL_ID),
+      ...(parseList(env.SEEDANCE_SIZES).length > 0
+        ? { seedanceSizes: parseList(env.SEEDANCE_SIZES) }
         : {}),
       ...(parsePositiveInt(env.SEEDANCE_MAX_REFERENCES)
         ? { seedanceMaxReferences: parsePositiveInt(env.SEEDANCE_MAX_REFERENCES) }
@@ -178,6 +186,14 @@ function parseReferencePolicy(
     );
   }
   return trimmed as (typeof REFERENCE_POLICIES)[number];
+}
+
+/** A comma-separated setting, trimmed and without blanks. */
+function parseList(value: string | undefined): string[] {
+  return (value ?? "")
+    .split(",")
+    .map((entry) => entry.trim())
+    .filter((entry) => entry.length > 0);
 }
 
 function parsePositiveInt(value: string | undefined): number | undefined {

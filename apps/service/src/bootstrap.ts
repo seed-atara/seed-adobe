@@ -6,6 +6,7 @@ import {
   MockVideoProvider,
   ProviderRegistry,
   SeedanceProvider,
+  seedanceProviderId,
   SeedreamProvider,
 } from "@seed-ae/providers";
 import {
@@ -195,17 +196,27 @@ export function buildRegistry(
   }
 
   // Seedance shares Seedream's Bearer credential; only the model differs.
-  if (config.arkApiKey && config.seedanceModelId) {
-    registry.register(
-      new SeedanceProvider({
-        baseUrl: config.arkBaseUrl,
-        apiKey: config.arkApiKey,
-        model: config.seedanceModelId,
-        ...(config.seedanceMaxReferences
-          ? { maxReferences: config.seedanceMaxReferences }
-          : {}),
-      }),
-    );
+  if (config.arkApiKey && config.seedanceModelIds.length > 0) {
+    /*
+     * One provider per model, rather than one provider listing several.
+     * Capabilities are declared per provider — resolutions, durations, whether
+     * a seed is honoured — and those differ between 2.0 and 2.5, so a single
+     * entry would have to claim the union of them and mislead the panel.
+     */
+    for (const model of config.seedanceModelIds) {
+      registry.register(
+        new SeedanceProvider({
+          baseUrl: config.arkBaseUrl,
+          apiKey: config.arkApiKey,
+          model,
+          id: seedanceProviderId(model),
+          ...(config.seedanceMaxReferences
+            ? { maxReferences: config.seedanceMaxReferences }
+            : {}),
+          ...(config.seedanceSizes ? { sizes: config.seedanceSizes } : {}),
+        }),
+      );
+    }
   } else {
     logger.warn("provider.seedance_unavailable", {
       reason: config.arkApiKey

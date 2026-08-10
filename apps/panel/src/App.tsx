@@ -30,6 +30,7 @@ const EMPTY_FORM: GenerateForm = {
   seed: "",
   size: "",
   durationSeconds: "",
+  generateAudio: false,
   inputAssetIds: [],
 };
 
@@ -430,6 +431,7 @@ export function App() {
         ...(Number(form.durationSeconds) > 0
           ? { durationSeconds: Number(form.durationSeconds) }
           : {}),
+        ...(form.generateAudio ? { generateAudio: true } : {}),
         inputAssetIds: form.inputAssetIds,
         ...(form.parentAssetId ? { parentAssetId: form.parentAssetId } : {}),
         ...(form.parentGenerationId
@@ -469,6 +471,7 @@ export function App() {
             typeof recipe.durationSeconds === "number"
               ? String(recipe.durationSeconds)
               : "",
+          generateAudio: recipe.generateAudio === true,
           inputAssetIds: recipe.inputAssetIds ?? [],
           parentAssetId: recipe.parentAssetId,
           parentGenerationId: recipe.parentGenerationId,
