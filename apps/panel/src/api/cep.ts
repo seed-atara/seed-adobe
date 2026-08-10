@@ -81,7 +81,8 @@ export async function reloadHostScript(): Promise<void> {
   const probe = `(function () {
     try {
       $.evalFile(new File(${JSON.stringify(jsxPath)}));
-      return (typeof seedPing === "function") ? "ok" : "loaded-but-empty";
+      if (typeof seedPing !== "function") return "loaded-but-empty";
+      return seedPing();
     } catch (e) {
       return "error: " + e;
     }
@@ -91,9 +92,24 @@ export async function reloadHostScript(): Promise<void> {
     cep.evalScript(probe, resolve);
   });
 
-  if (raw !== "ok") {
+  let loadedHost: string | undefined;
+  try {
+    loadedHost = (JSON.parse(raw) as { result?: { host?: string } }).result?.host;
+  } catch {
+    throw new Error(`Could not load the host script at ${jsxPath} (${raw})`);
+  }
+
+  /*
+   * Both hosts define the same function names, so "a script loaded" is not
+   * enough — the wrong one loading would fail later with a confusing message
+   * from the other application's vocabulary. Ask the script which host it is.
+   */
+  const expected = hostApp() === "PPRO" ? "premiere-pro" : "after-effects";
+  if (loadedHost !== expected) {
     throw new Error(
-      `Could not load the host script at ${jsxPath} (${raw})`,
+      `Loaded the wrong host script: expected ${expected} but ${jsxPath} reports ` +
+        `${loadedHost ?? "nothing"}. Reopen the panel; if it persists, the CEP ` +
+        `manifest is dispatching to the wrong ScriptPath.`,
     );
   }
 }

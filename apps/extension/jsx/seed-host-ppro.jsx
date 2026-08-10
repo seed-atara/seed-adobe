@@ -112,6 +112,14 @@ function seedPlayheadSeconds(sequence) {
 
 // ------------------------------------------------------------------ context
 
+/** Premiere leaves activeSequence null until a sequence has been focused. */
+function seedNoSequenceMessage() {
+    return (
+        "Premiere reports no active sequence. Click the Timeline or Program " +
+        "Monitor to make one active, then try again."
+    );
+}
+
 function seedGetContext() {
     try {
         if (!app.project) return seedFail("no project is open");
@@ -265,7 +273,7 @@ function seedExportViaPreset(sequence, folder, presetPath, seconds, fps) {
 function seedCaptureFrame(outputDir, basename, presetPath) {
     try {
         var sequence = seedActiveSequence();
-        if (!sequence) return seedFail("no active sequence");
+        if (!sequence) return seedFail(seedNoSequenceMessage());
 
         var folder = seedEnsureFolder(outputDir);
         if (!folder.exists) {
@@ -385,7 +393,7 @@ function seedImport(path) {
 function seedInsertAtPlayhead(projectItemId) {
     try {
         var sequence = seedActiveSequence();
-        if (!sequence) return seedFail("no active sequence");
+        if (!sequence) return seedFail(seedNoSequenceMessage());
 
         var item = seedFindByNodeId(app.project.rootItem, projectItemId);
         if (!item) return seedFail("project item " + projectItemId + " not found");
