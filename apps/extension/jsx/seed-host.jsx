@@ -470,6 +470,30 @@ function seedListRegions() {
 }
 
 /**
+ * Imports a file After Effects has only just written.
+ *
+ * saveFrameToPng returns before the handle is released, so importing the same
+ * path immediately fails with "File exists but couldn't be open for reading" —
+ * the file is there, it is simply still held. Each attempt uses a fresh File
+ * object, because an ExtendScript File caches what it knew at construction.
+ */
+function seedImportWhenReadable(path) {
+    var lastError = null;
+    for (var attempt = 0; attempt < 30; attempt++) {
+        try {
+            return app.project.importFile(new ImportOptions(new File(path)));
+        } catch (error) {
+            lastError = error;
+            $.sleep(100);
+        }
+    }
+    throw new Error(
+        "After Effects wrote " + path + " but would not read it back after 3s: " +
+            lastError
+    );
+}
+
+/**
  * Builds or refreshes the region's sub-comp around a captured still.
  *
  * Re-capturing an existing region reuses its comp rather than making another,
@@ -498,7 +522,7 @@ function seedEnsureRegionComp(comp, region, rect, stillFile) {
         if (sub.layer(i).name.indexOf("SEED plate") === 0) sub.layer(i).remove();
     }
 
-    var imported = app.project.importFile(new ImportOptions(stillFile));
+    var imported = seedImportWhenReadable(stillFile.fsName);
     imported.parentFolder = seedProjectFolder();
     var plate = sub.layers.add(imported);
     plate.name = "SEED plate";

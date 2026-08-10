@@ -64,6 +64,7 @@ interface Props {
   onRegionChange?: (region: RegionSettings) => void;
   onAddRegion?: () => void;
   onCaptureRegion?: () => void;
+  onRefreshRegions?: () => void;
   onInsertRegion?: () => void;
 }
 
@@ -88,6 +89,7 @@ export function GenerateView({
   onRegionChange,
   onAddRegion,
   onCaptureRegion,
+  onRefreshRegions,
   onInsertRegion,
 }: Props) {
   const promptRef = useRef<HTMLTextAreaElement>(null);
@@ -218,9 +220,19 @@ export function GenerateView({
                   </select>
                 </Field>
                 <Field label="&nbsp;">
-                  <button className="btn wide" onClick={onAddRegion} disabled={busy}>
-                    Add another
-                  </button>
+                  <div className="row">
+                    <button
+                      className="btn wide"
+                      onClick={onRefreshRegions}
+                      disabled={busy}
+                      title="Re-read the region from After Effects"
+                    >
+                      Refresh
+                    </button>
+                    <button className="btn wide" onClick={onAddRegion} disabled={busy}>
+                      Add
+                    </button>
+                  </div>
                 </Field>
               </div>
 

@@ -548,6 +548,7 @@ export function App() {
               onRegionChange={setRegion}
               onAddRegion={addRegion}
               onCaptureRegion={captureRegion}
+              onRefreshRegions={refreshRegions}
               onInsertRegion={insertRegion}
               onCapture={captureFrame}
               onGenerate={startGeneration}
