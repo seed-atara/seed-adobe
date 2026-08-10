@@ -196,20 +196,36 @@ function seedAwaitFile(path) {
  * Fast and needs no preset, but Adobe does not document it and it is reported
  * to fail on some builds. Returns a File, or null to let the caller fall back.
  */
-function seedExportViaQE(sequence, targetPath) {
-    if (typeof app.enableQE !== "function") return null;
+function seedExportViaQE(sequence, targetPath, trace) {
+    if (typeof app.enableQE !== "function") {
+        trace.push("QE: app.enableQE is unavailable");
+        return null;
+    }
     app.enableQE();
-    if (typeof qe === "undefined" || !qe.project) return null;
+    if (typeof qe === "undefined" || !qe.project) {
+        trace.push("QE: the DOM did not initialise");
+        return null;
+    }
 
     var qeSequence = qe.project.getActiveSequence();
-    if (!qeSequence || typeof qeSequence.exportFramePNG !== "function") return null;
+    if (!qeSequence) {
+        trace.push("QE: no active sequence");
+        return null;
+    }
+    if (typeof qeSequence.exportFramePNG !== "function") {
+        trace.push("QE: exportFramePNG is not defined on this build");
+        return null;
+    }
 
     try {
         qeSequence.exportFramePNG(qeSequence.CTI.timecode, targetPath);
     } catch (error) {
+        trace.push("QE: exportFramePNG threw: " + error);
         return null;
     }
-    return seedAwaitFile(targetPath);
+    var file = seedAwaitFile(targetPath);
+    if (!file) trace.push("QE: reported no error but wrote no file");
+    return file;
 }
 
 /**
@@ -223,9 +239,16 @@ function seedExportViaQE(sequence, targetPath) {
  * It renders the in-to-out range, so the playhead frame is isolated first and
  * the user's in/out points are restored afterwards.
  */
-function seedExportViaPreset(sequence, folder, presetPath, seconds, fps) {
+function seedExportViaPreset(sequence, folder, presetPath, seconds, fps, trace) {
     var preset = new File(seedNormalizePath(presetPath));
-    if (!preset.exists) return null;
+    if (!preset.exists) {
+        trace.push("preset file not found at " + presetPath);
+        return null;
+    }
+    if (typeof sequence.exportAsMediaDirect !== "function") {
+        trace.push("sequence.exportAsMediaDirect is not available on this build");
+        return null;
+    }
 
     var previousIn = null;
     var previousOut = null;
@@ -233,32 +256,36 @@ function seedExportViaPreset(sequence, folder, presetPath, seconds, fps) {
         previousIn = sequence.getInPoint();
         previousOut = sequence.getOutPoint();
     } catch (error) {
-        // Older builds may not expose these; we simply cannot restore them.
+        trace.push("could not read existing in/out points");
     }
 
-    var startedAt = new Date().getTime() - 1000;
+    var startedAt = new Date().getTime() - 2000;
     var written = null;
     try {
         var frameSeconds = fps > 0 ? 1 / fps : 0.04;
         sequence.setInPoint(seconds);
         sequence.setOutPoint(seconds + frameSeconds);
 
-        // The exporter names the file itself, so scan for what appeared.
-        var stem = seedNormalizePath(folder.fsName) + "/seed_still";
-        sequence.exportAsMediaDirect(stem, preset.fsName, "ENCODE_IN_TO_OUT");
+        // The exporter appends its own extension, and may number the file.
+        var stem = seedNormalizePath(folder.fsName) + "/seed_still_" + startedAt;
+        var returned = sequence.exportAsMediaDirect(stem, preset.fsName, "ENCODE_IN_TO_OUT");
+        trace.push("exportAsMediaDirect returned " + String(returned));
 
-        for (var wait = 0; wait < 60 && !written; wait++) {
+        // Encoding is not always synchronous, so wait for something to land.
+        for (var wait = 0; wait < 150 && !written; wait++) {
             $.sleep(100);
             written = seedNewestFile(folder, startedAt);
         }
+        if (!written) trace.push("no new file appeared in 15s of waiting");
     } catch (error) {
+        trace.push("exportAsMediaDirect threw: " + error);
         written = null;
     } finally {
         try {
             if (previousIn !== null) sequence.setInPoint(previousIn.seconds);
             if (previousOut !== null) sequence.setOutPoint(previousOut.seconds);
         } catch (restoreError) {
-            // Nothing further we can do; the export already happened.
+            trace.push("could not restore in/out points");
         }
     }
     return written;
@@ -302,23 +329,21 @@ function seedCaptureFrame(outputDir, basename, presetPath) {
             attempt++;
         } while (new File(targetPath).exists && attempt < 1000);
 
-        var written = seedExportViaQE(sequence, targetPath);
+        var trace = [];
+        var written = seedExportViaQE(sequence, targetPath, trace);
         var route = "qe";
 
         if (!written && presetPath) {
-            written = seedExportViaPreset(sequence, folder, presetPath, seconds, fps);
+            written = seedExportViaPreset(sequence, folder, presetPath, seconds, fps, trace);
             route = "preset";
         }
 
         if (!written) {
+            // Say what each route actually did, not merely that both failed.
             return seedFail(
-                "Premiere wrote no frame. The QE exporter is undocumented and " +
-                    "unavailable on some builds" +
-                    (presetPath
-                        ? ", and the still preset at " + presetPath + " did not produce a file."
-                        : ". Set SEED_PPRO_STILL_PRESET to a PNG still preset (.epr) " +
-                          "exported from Premiere's Export Settings to enable the " +
-                          "documented fallback.")
+                "Premiere wrote no frame. " +
+                    (presetPath ? "" : "No still preset configured. ") +
+                    "Details: " + trace.join("; ")
             );
         }
 
@@ -386,12 +411,47 @@ function seedImport(path) {
     }
 }
 
+/** Seconds of media a project item represents, when it will say. */
+function seedItemDuration(item) {
+    try {
+        var out = item.getOutPoint();
+        var inn = item.getInPoint();
+        if (out && inn) {
+            var seconds = Number(out.seconds) - Number(inn.seconds);
+            if (seconds > 0) return seconds;
+        }
+    } catch (error) {
+        // Stills and some formats do not answer; fall through.
+    }
+    return 5;
+}
+
+/** True when nothing occupies the track across [from, to). */
+function seedTrackIsFree(track, from, to) {
+    try {
+        for (var i = 0; i < track.clips.numItems; i++) {
+            var clip = track.clips[i];
+            var clipStart = Number(clip.start.seconds);
+            var clipEnd = Number(clip.end.seconds);
+            // Touching end-to-start is fine; genuine overlap is not.
+            if (clipStart < to - 0.0001 && clipEnd > from + 0.0001) return false;
+        }
+    } catch (error) {
+        // If a track will not report its clips, treat it as occupied rather
+        // than risk overwriting an editor's work.
+        return false;
+    }
+    return true;
+}
+
 /**
- * Drops the clip onto the timeline at the playhead.
+ * Places the clip at the playhead without destroying anything.
  *
- * Uses the lowest targeted video track when one is targeted, otherwise the
- * first — and overwrites rather than inserts, so nothing downstream shifts
- * under the editor without them asking for it.
+ * `overwriteClip` does what its name says, so the track is chosen to be free
+ * across the span first: a targeted track if it is clear, otherwise the lowest
+ * clear one. If every track is occupied it refuses and says so — an editor's
+ * existing shot is not ours to replace, and the earlier behaviour of falling
+ * back to V1 overwrote a main track.
  */
 function seedInsertAtPlayhead(projectItemId) {
     try {
@@ -401,22 +461,59 @@ function seedInsertAtPlayhead(projectItemId) {
         var item = seedFindByNodeId(app.project.rootItem, projectItemId);
         if (!item) return seedFail("project item " + projectItemId + " not found");
 
-        var track = null;
+        var from = seedPlayheadSeconds(sequence);
+        var to = from + seedItemDuration(item);
+
+        var chosen = null;
+        var chosenIndex = -1;
+        var targetedButBusy = null;
+
+        // A targeted track is the editor's stated intention: honour it when free.
         for (var i = 0; i < sequence.videoTracks.numTracks; i++) {
-            if (sequence.videoTracks[i].isTargeted()) {
-                track = sequence.videoTracks[i];
-                break;
+            var track = sequence.videoTracks[i];
+            var targeted = false;
+            try {
+                targeted = track.isTargeted();
+            } catch (error) {
+                targeted = false;
+            }
+            if (!targeted) continue;
+            if (seedTrackIsFree(track, from, to)) {
+                chosen = track;
+                chosenIndex = i;
+            } else if (!targetedButBusy) {
+                targetedButBusy = "V" + (i + 1);
+            }
+            if (chosen) break;
+        }
+
+        if (!chosen) {
+            for (var j = 0; j < sequence.videoTracks.numTracks; j++) {
+                if (seedTrackIsFree(sequence.videoTracks[j], from, to)) {
+                    chosen = sequence.videoTracks[j];
+                    chosenIndex = j;
+                    break;
+                }
             }
         }
-        if (!track && sequence.videoTracks.numTracks > 0) {
-            track = sequence.videoTracks[0];
+
+        if (!chosen) {
+            return seedFail(
+                "every video track already has a clip at the playhead. Add a video " +
+                    "track, or move the playhead, so nothing is overwritten."
+            );
         }
-        if (!track) return seedFail("the sequence has no video track");
 
-        var seconds = seedPlayheadSeconds(sequence);
-        track.overwriteClip(item, seconds);
+        chosen.overwriteClip(item, from);
 
-        return seedOk({ trackIndex: track.id, name: item.name, atSeconds: seconds });
+        return seedOk({
+            trackName: "V" + (chosenIndex + 1),
+            trackIndex: chosenIndex,
+            name: item.name,
+            atSeconds: from,
+            durationSeconds: to - from,
+            movedFromTargeted: targetedButBusy
+        });
     } catch (error) {
         return seedFail(error);
     }

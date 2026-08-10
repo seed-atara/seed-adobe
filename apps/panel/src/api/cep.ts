@@ -150,6 +150,13 @@ export interface AeContextResult {
   context: Record<string, unknown>;
 }
 
+export interface InsertResult {
+  /** Which video track took the clip, e.g. "V2". */
+  trackName?: string;
+  /** Set when the targeted track was busy and another was used. */
+  movedFromTargeted?: string;
+}
+
 export interface CaptureResult {
   path: string;
   width: number;
@@ -238,16 +245,31 @@ export class CepAeBridge {
   async importAsset(
     assetId: string,
     insertAtPlayhead: boolean,
-  ): Promise<{ name: string; insertedAtPlayhead: boolean }> {
+  ): Promise<{
+    name: string;
+    insertedAtPlayhead: boolean;
+    trackName?: string;
+    movedFromTargeted?: string;
+  }> {
     await this.ensureHost();
     const { path, filename } = await this.client.assetPath(assetId);
     const imported = await evalHost<{ projectItemId: string; name: string }>(
       `${hostPrefix()}import(${quote(path)})`,
     );
 
+    let placement: InsertResult | undefined;
     if (insertAtPlayhead) {
-      await evalHost(`${hostPrefix()}insertAtPlayhead(${quote(imported.projectItemId)})`);
+      placement = await evalHost<InsertResult>(
+        `${hostPrefix()}insertAtPlayhead(${quote(imported.projectItemId)})`,
+      );
     }
-    return { name: imported.name || filename, insertedAtPlayhead: insertAtPlayhead };
+    return {
+      name: imported.name || filename,
+      insertedAtPlayhead: insertAtPlayhead,
+      ...(placement?.trackName ? { trackName: placement.trackName } : {}),
+      ...(placement?.movedFromTargeted
+        ? { movedFromTargeted: placement.movedFromTargeted }
+        : {}),
+    };
   }
 }

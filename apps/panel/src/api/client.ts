@@ -166,7 +166,13 @@ export class SeedClient {
   importAsset(
     assetId: string,
     insertAtPlayhead: boolean,
-  ): Promise<{ name: string; insertedAtPlayhead: boolean }> {
+  ): Promise<{
+    name: string;
+    insertedAtPlayhead: boolean;
+    /** Present only from the CEP bridge, which knows the timeline. */
+    trackName?: string;
+    movedFromTargeted?: string;
+  }> {
     return this.request("/v1/ae/import", {
       method: "POST",
       body: { assetId, insertAtPlayhead },

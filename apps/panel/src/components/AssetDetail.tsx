@@ -58,11 +58,17 @@ export function AssetDetail({
       const result = bridge
         ? await bridge.importAsset(asset.id, insertAtPlayhead)
         : await client.importAsset(asset.id, insertAtPlayhead);
-      setNote(
-        insertAtPlayhead
-          ? `Inserted ${result.name} at the playhead.`
-          : `Imported ${result.name} into the project.`,
-      );
+      if (!insertAtPlayhead) {
+        setNote(`Imported ${result.name} into the project.`);
+      } else {
+        const where = result.trackName ? ` on ${result.trackName}` : "";
+        // Say when the targeted track was busy, so a surprise placement is
+        // explained rather than merely noticed.
+        const why = result.movedFromTargeted
+          ? ` (${result.movedFromTargeted} already had a clip there)`
+          : "";
+        setNote(`Inserted ${result.name}${where} at the playhead${why}.`);
+      }
     } catch (cause) {
       onError(cause);
     }
