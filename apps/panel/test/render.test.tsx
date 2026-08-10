@@ -191,3 +191,36 @@ describe("host scripts", () => {
     }
   });
 });
+
+describe("ExtendScript reserved words", () => {
+  it("never declares a name that ExtendScript reserves", async () => {
+    /*
+     * ExtendScript is ES3 and keeps the ES3 future-reserved list, so `final`,
+     * `int`, `class` and friends are illegal as identifiers. Node accepts them
+     * happily, which is how `var final` shipped and broke the Premiere host at
+     * load time with "Illegal use of reserved word".
+     */
+    const { readFile } = await import("node:fs/promises");
+    const reserved = [
+      "abstract", "boolean", "byte", "char", "class", "const", "debugger",
+      "double", "enum", "export", "extends", "final", "float", "goto",
+      "implements", "import", "int", "interface", "long", "native", "package",
+      "private", "protected", "public", "short", "static", "super",
+      "synchronized", "throws", "transient", "volatile",
+    ];
+
+    for (const file of [
+      "apps/extension/jsx/seed-host.jsx",
+      "apps/extension/jsx/seed-host-ppro.jsx",
+    ]) {
+      const source = await readFile(file, "utf8");
+      for (const word of reserved) {
+        const declaration = new RegExp(`\b(?:var|function)\s+${word}\b`);
+        expect(
+          declaration.test(source),
+          `${file} declares the reserved word "${word}"`,
+        ).toBe(false);
+      }
+    }
+  });
+});

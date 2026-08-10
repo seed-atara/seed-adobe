@@ -175,8 +175,8 @@ function seedAwaitFile(path) {
         }
         $.sleep(50);
     }
-    var final = new File(path);
-    return final.exists && final.length > 0 ? final : null;
+    var settled = new File(path);
+    return settled.exists && settled.length > 0 ? settled : null;
 }
 
 /**
