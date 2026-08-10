@@ -62,6 +62,8 @@ export function workspaceRoute(deps: AppDeps) {
         generatedDir: deps.workspace.generatedDir,
       },
       aeHost: deps.aeHost.id,
+      // The panel hides direction rather than offering a button that 501s.
+      director: deps.director !== undefined,
       ...(deps.config.pproStillPreset
         ? { pproStillPreset: deps.config.pproStillPreset }
         : {}),

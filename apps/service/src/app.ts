@@ -19,6 +19,7 @@ import type { ServiceConfig } from "./config.js";
 import type { GenerationService } from "./generation/generationService.js";
 import type { MediaIngestor } from "./generation/mediaIngestor.js";
 import { isJsonResult, sendError, sendJson } from "./http/respond.js";
+import { PromptDirector } from "./agent/director.js";
 import { Router, type RequestContext } from "./http/router.js";
 import { createLogger, type Logger } from "./logger.js";
 import {
@@ -46,6 +47,7 @@ import {
   recipeRoute,
   startGenerationRoute,
 } from "./routes/generations.js";
+import { composeRoute } from "./routes/agent.js";
 import { healthRoute } from "./routes/health.js";
 
 export interface AppDeps {
@@ -59,6 +61,8 @@ export interface AppDeps {
   ingestor: MediaIngestor;
   workspace: WorkspaceLayout;
   aeHost: AeHostAdapter;
+  /** Absent when ANTHROPIC_API_KEY is unset — direction is optional. */
+  director?: PromptDirector;
   logger: Logger;
   startedAt: number;
 }
@@ -84,6 +88,7 @@ export function buildRouter(deps: AppDeps): Router {
     .get("/v1/assets/:id/recipe", recipeRoute(deps))
     .get("/v1/workspace", workspaceRoute(deps))
     .get("/v1/providers", listProvidersRoute(deps))
+    .post("/v1/agent/compose", composeRoute(deps))
     .post("/v1/generations", startGenerationRoute(deps))
     .get("/v1/generations", listGenerationsRoute(deps))
     .get("/v1/generations/:id", getGenerationRoute(deps))

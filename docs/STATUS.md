@@ -103,6 +103,25 @@ the service's mock host, so everything stays testable without Adobe.
 - Seedance text-to-video is implemented but only image-to-video has been run
   live; accepted parameter values may differ between the two modes.
 
+## Direction agent (Milestone 5, first slice)
+
+`POST /v1/agent/compose` turns a described shot into a proposed generation:
+Claude reads the description and the actual reference thumbnails, writes the
+prompt, chooses and orders the references, and picks parameters. The panel's
+**Direct this shot** button fills the form from the plan and shows the
+rationale — nothing is queued until the artist presses Generate. See ADR 0007.
+
+- `@name` mentions in the prompt resolve to library assets and come back as
+  positional references ("Image 1"), which is what the providers understand.
+- The model returns a provider-agnostic draft; code maps it onto a real
+  provider from declared capabilities, so a plan can never name a model id that
+  does not exist.
+- Anything clamped or dropped to fit the provider is reported to the artist
+  rather than silently applied.
+- Optional: with no `ANTHROPIC_API_KEY` the service reports `director: false`
+  and the panel does not offer the button.
+- Try it without the panel: `npx tsx scripts/direct.ts "describe the shot"`.
+
 ## Next engineering actions
 
 1. Run the full demo in After Effects: capture a hero frame, generate with
@@ -114,4 +133,6 @@ the service's mock host, so everything stays testable without Adobe.
    and say so in the UI.
 4. Confirm Seedance text-to-video parameters, and whether `video_url` /
    `audio_url` content parts are usable.
-5. Milestone 5 (LLM/agent) — only once the deterministic workflow is excellent.
+5. Milestone 5 continued: the direction agent plans but does not act. Tool use
+   and an execution loop stay gated behind the rule in ADR 0007 — the agent
+   proposes, the user approves anything destructive.

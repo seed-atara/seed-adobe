@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { Asset } from "@seed-ae/domain";
+import type { Asset, ComposedPlan } from "@seed-ae/domain";
 import {
   DEFAULT_BASE_URL,
   SeedClient,
@@ -12,6 +12,7 @@ import { GenerateView, type GenerateForm } from "./components/GenerateView.tsx";
 import { LibraryView } from "./components/LibraryView.tsx";
 import { AssetDetail } from "./components/AssetDetail.tsx";
 import { LineageView } from "./components/LineageView.tsx";
+import { findMentions } from "./mentions.ts";
 
 type Tab = "generate" | "library" | "lineage";
 
@@ -68,6 +69,9 @@ export function App() {
   /** Non-fatal capture feedback, e.g. a partly rendered frame. */
   const [notice, setNotice] = useState<string | undefined>();
   const [busy, setBusy] = useState(false);
+  const [canDirect, setCanDirect] = useState(false);
+  const [directing, setDirecting] = useState(false);
+  const [plan, setPlan] = useState<ComposedPlan | undefined>();
 
   const selected = assets.find((asset) => asset.id === selectedId);
 
@@ -121,6 +125,14 @@ export function App() {
               },
         );
         await refreshAssets();
+
+        // Direction is optional; a service without a key simply never offers it.
+        try {
+          const { director } = await client.workspace();
+          if (!cancelled) setCanDirect(director);
+        } catch {
+          // Not knowing means not offering, which is the safe direction.
+        }
 
         try {
           if (bridge) {
@@ -212,6 +224,57 @@ export function App() {
       setBusy(false);
     }
   }, [client, bridge, refreshAssets, report]);
+
+  /**
+   * Turns the description into a proposed generation.
+   *
+   * The plan only fills the form — the artist still presses Generate. An agent
+   * that queued the job itself would be taking a decision that costs money and
+   * belongs to them.
+   */
+  const directShot = useCallback(async () => {
+    setDirecting(true);
+    setError(undefined);
+    try {
+      const mentions = findMentions(form.prompt, assets);
+      // What the director gets to look at: what is already attached, what was
+      // named, then recent frames — deduplicated, newest last.
+      const candidateIds = [
+        ...new Set([
+          ...form.inputAssetIds,
+          ...mentions.map((mention) => mention.assetId),
+          ...assets.slice(0, 6).map((asset) => asset.id),
+        ]),
+      ].slice(0, 8);
+
+      const { plan: composed } = await client.compose({
+        description: form.prompt,
+        candidateAssetIds: candidateIds,
+        mentions,
+        ...(form.providerId ? { preferredProviderId: form.providerId } : {}),
+        ...(form.parentAssetId ? { parentAssetId: form.parentAssetId } : {}),
+        ...(form.parentGenerationId
+          ? { parentGenerationId: form.parentGenerationId }
+          : {}),
+      });
+
+      setPlan(composed);
+      setForm((current) => ({
+        ...current,
+        providerId: composed.providerId,
+        model: composed.model,
+        operation: composed.operation,
+        prompt: composed.prompt,
+        ...(composed.size ? { size: composed.size } : {}),
+        ...(composed.seed !== undefined ? { seed: String(composed.seed) } : {}),
+        inputAssetIds: composed.references.map((reference) => reference.assetId),
+      }));
+    } catch (cause) {
+      report(cause);
+    } finally {
+      setDirecting(false);
+    }
+  }, [client, form, assets, report]);
 
   const startGeneration = useCallback(async () => {
     setBusy(true);
@@ -348,6 +411,10 @@ export function App() {
               job={job}
               busy={busy}
               onFormChange={setForm}
+              {...(canDirect ? { onDirect: directShot } : {})}
+              directing={directing}
+              {...(plan ? { plan } : {})}
+              onDismissPlan={() => setPlan(undefined)}
               onCapture={captureFrame}
               onGenerate={startGeneration}
               onCancel={cancelJob}

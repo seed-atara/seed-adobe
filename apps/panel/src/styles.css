@@ -916,3 +916,90 @@ pre.raw {
 ::-webkit-scrollbar-corner {
   background: var(--face);
 }
+
+/* --- direction ------------------------------------------------------------
+   The agent proposes; the artist disposes. The plan is drawn as a sunken well
+   rather than a raised control, because it is something to read, not press. */
+
+.mention-host {
+  position: relative;
+}
+
+/* A dropdown, so it sits above the fields below it and closes on blur. */
+.mention-menu {
+  position: absolute;
+  z-index: 20;
+  left: 0;
+  right: 0;
+  margin: 2px 0 0;
+  padding: 2px;
+  list-style: none;
+  max-height: 168px;
+  overflow-y: auto;
+  background: var(--face);
+  border: 2px solid;
+  border-color: var(--white) var(--black) var(--black) var(--white);
+  box-shadow: inset -1px -1px 0 var(--shadow), inset 1px 1px 0 var(--face-light);
+}
+
+.mention-menu button {
+  display: flex;
+  align-items: center;
+  gap: var(--gap-sm);
+  width: 100%;
+  padding: 2px var(--gap-xs);
+  border: none;
+  background: none;
+  font-family: var(--ui);
+  font-size: 11px;
+  text-align: left;
+  cursor: default;
+}
+
+.mention-menu button:hover {
+  background: var(--selection);
+  color: var(--selection-text);
+}
+
+.mention-menu img {
+  width: 32px;
+  height: 20px;
+  object-fit: cover;
+  border: 1px solid var(--black);
+}
+
+.plan {
+  margin-top: var(--gap-lg);
+  padding: var(--gap);
+  background: var(--well);
+  border: 2px solid;
+  border-color: var(--shadow) var(--white) var(--white) var(--shadow);
+  box-shadow: inset 1px 1px 0 var(--black), inset -1px -1px 0 var(--face-light);
+}
+
+.plan-head {
+  display: flex;
+  align-items: center;
+  margin-bottom: var(--gap-xs);
+}
+
+.plan p {
+  margin: 0 0 var(--gap);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.plan-refs {
+  margin: 0 0 var(--gap);
+  padding-left: var(--gap-lg);
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.plan .notice {
+  margin-bottom: var(--gap-xs);
+}
+
+.plan .notice:last-child {
+  margin-bottom: 0;
+}

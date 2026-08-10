@@ -22,6 +22,14 @@ export interface ServiceConfig {
    * undocumented QE exporter alone.
    */
   pproStillPreset?: string;
+  /** Present only when direction is configured; absent disables the feature. */
+  director?: DirectorConfig;
+}
+
+export interface DirectorConfig {
+  apiKey: string;
+  /** Model id from configuration, so it can be changed without a release. */
+  model: string;
 }
 
 export interface ProviderConfig {
@@ -124,6 +132,14 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServiceConfig 
         : {}),
       mockLatencyMs: parsePositiveInt(env.SEED_AE_MOCK_LATENCY_MS) ?? 1500,
     },
+    ...(env.ANTHROPIC_API_KEY?.trim()
+      ? {
+          director: {
+            apiKey: env.ANTHROPIC_API_KEY.trim(),
+            model: env.SEED_AE_DIRECTOR_MODEL?.trim() || "claude-opus-5",
+          },
+        }
+      : {}),
   };
 }
 

@@ -1,5 +1,7 @@
 import type {
   Asset,
+  ComposeRequest,
+  ComposedPlan,
   Generation,
   HealthResponse,
   JobDto,
@@ -90,6 +92,16 @@ export class SeedClient {
     return this.request("/v1/providers");
   }
 
+  /**
+   * Turns a described scene into a proposed generation.
+   *
+   * Returns a plan only — nothing is queued. The panel fills its form from it
+   * and the artist presses Generate.
+   */
+  compose(request: ComposeRequest): Promise<{ plan: ComposedPlan }> {
+    return this.request("/v1/agent/compose", { method: "POST", body: request });
+  }
+
   aeContext(): Promise<{ context: Record<string, unknown>; host: string }> {
     return this.request("/v1/ae/context");
   }
@@ -107,6 +119,7 @@ export class SeedClient {
       generatedDir: string;
     };
     aeHost: string;
+    director: boolean;
     pproStillPreset?: string;
   }> {
     return this.request("/v1/workspace");

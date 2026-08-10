@@ -16,6 +16,7 @@ import {
   openMigratedDatabase,
   resolveWorkspace,
 } from "@seed-ae/storage";
+import { PromptDirector } from "./agent/director.js";
 import type { AppDepsInput } from "./app.js";
 import type { ProviderConfig, ServiceConfig } from "./config.js";
 import { GenerationService } from "./generation/generationService.js";
@@ -117,6 +118,16 @@ export async function bootstrap({
     generation,
     ingestor,
     aeHost: aeHost ?? new MockAeHostAdapter({ outputDir: workspace.originalsDir }),
+    // Direction is optional: without a key the panel simply does not offer it.
+    ...(config.director
+      ? {
+          director: new PromptDirector({
+            apiKey: config.director.apiKey,
+            model: config.director.model,
+            workspace,
+          }),
+        }
+      : {}),
     logger: activeLogger,
   };
 }

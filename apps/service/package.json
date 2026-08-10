@@ -9,11 +9,12 @@
     "start": "tsx src/index.ts"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.116.0",
     "@seed-ae/ae-host": "*",
     "@seed-ae/domain": "*",
-    "@seed-ae/storage": "*",
-    "zod": "^4.0.0",
+    "@seed-ae/media": "*",
     "@seed-ae/providers": "*",
-    "@seed-ae/media": "*"
+    "@seed-ae/storage": "*",
+    "zod": "^4.0.0"
   }
 }

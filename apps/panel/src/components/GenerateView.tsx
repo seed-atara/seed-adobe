@@ -1,4 +1,11 @@
-import type { Asset, GenerationOperation } from "@seed-ae/domain";
+import { useRef, useState } from "react";
+import type { Asset, ComposedPlan, GenerationOperation } from "@seed-ae/domain";
+import {
+  assetToken,
+  completeMention,
+  matchAssets,
+  mentionQueryAt,
+} from "../mentions.ts";
 import type {
   JobView,
   ProviderCapabilitiesDto,
@@ -30,6 +37,11 @@ interface Props {
   onGenerate: () => void;
   onCancel: () => void;
   onOpenLibrary: () => void;
+  /** Absent when the service has no direction key configured. */
+  onDirect?: () => void;
+  directing?: boolean;
+  plan?: ComposedPlan;
+  onDismissPlan?: () => void;
 }
 
 export function GenerateView({
@@ -44,7 +56,39 @@ export function GenerateView({
   onGenerate,
   onCancel,
   onOpenLibrary,
+  onDirect,
+  directing = false,
+  plan,
+  onDismissPlan,
 }: Props) {
+  const promptRef = useRef<HTMLTextAreaElement>(null);
+  const [mentionQuery, setMentionQuery] = useState<string>();
+
+  /** Tracks the `@…` being typed so the library can be offered inline. */
+  const syncMentionQuery = (element: HTMLTextAreaElement) => {
+    const at = mentionQueryAt(element.value, element.selectionStart ?? 0);
+    setMentionQuery(at?.query);
+  };
+
+  const mentionMatches =
+    mentionQuery === undefined ? [] : matchAssets(assets, mentionQuery);
+
+  const insertMention = (asset: Asset) => {
+    const element = promptRef.current;
+    if (!element) return;
+    const next = completeMention(
+      form.prompt,
+      element.selectionStart ?? form.prompt.length,
+      asset,
+    );
+    patch({ prompt: next.text });
+    setMentionQuery(undefined);
+    // The caret has to be restored after React re-renders the value.
+    requestAnimationFrame(() => {
+      element.focus();
+      element.setSelectionRange(next.caret, next.caret);
+    });
+  };
   const provider = providers.find((item) => item.id === form.providerId);
   const references = form.inputAssetIds
     .map((id) => assets.find((asset) => asset.id === id))
@@ -127,16 +171,96 @@ export function GenerateView({
               : undefined
           }
         >
-          <textarea
-            value={form.prompt}
-            placeholder={
-              references.length > 0
-                ? "Image 1 is the reference. Keep the subject; relight as…"
-                : "Describe the image you want…"
-            }
-            onChange={(event) => patch({ prompt: event.target.value })}
-          />
+          <div className="mention-host">
+            <textarea
+              ref={promptRef}
+              value={form.prompt}
+              placeholder={
+                onDirect
+                  ? "Describe the shot — type @ to name a reference…"
+                  : references.length > 0
+                    ? "Image 1 is the reference. Keep the subject; relight as…"
+                    : "Describe the image you want…"
+              }
+              onChange={(event) => {
+                patch({ prompt: event.target.value });
+                syncMentionQuery(event.target);
+              }}
+              onKeyUp={(event) => syncMentionQuery(event.currentTarget)}
+              onClick={(event) => syncMentionQuery(event.currentTarget)}
+              onBlur={() => setMentionQuery(undefined)}
+            />
+            {mentionMatches.length > 0 ? (
+              <ul className="mention-menu">
+                {mentionMatches.map((asset) => (
+                  <li key={asset.id}>
+                    {/* onMouseDown fires before the textarea's blur closes this. */}
+                    <button
+                      onMouseDown={(event) => {
+                        event.preventDefault();
+                        insertMention(asset);
+                      }}
+                    >
+                      <AssetImage
+                        client={client}
+                        asset={asset}
+                        variant="thumbnail"
+                      />
+                      <span className="mono">@{assetToken(asset)}</span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+          </div>
         </Field>
+
+        {onDirect ? (
+          <>
+            <button
+              className="btn wide"
+              onClick={onDirect}
+              disabled={busy || directing || form.prompt.trim().length === 0}
+              title="Read the references and write the prompt"
+            >
+              {directing ? "Directing…" : "◈ Direct this shot"}
+            </button>
+            <div className="hint faint" style={{ marginTop: 4 }}>
+              Rewrites the prompt from your description, picks the references,
+              and fills the settings below. Nothing runs until you press
+              Generate.
+            </div>
+          </>
+        ) : null}
+
+        {plan ? (
+          <div className="plan">
+            <div className="plan-head">
+              <SectionLabel>direction</SectionLabel>
+              <span className="spacer" />
+              {onDismissPlan ? (
+                <button className="btn ghost" onClick={onDismissPlan}>
+                  ×
+                </button>
+              ) : null}
+            </div>
+            <p>{plan.rationale}</p>
+            {plan.references.length > 0 ? (
+              <ul className="plan-refs">
+                {plan.references.map((reference) => (
+                  <li key={reference.assetId}>
+                    <b className="mono">{reference.label}</b> {reference.role}
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+            {plan.warnings.map((warning) => (
+              <div className="notice" key={warning}>
+                {warning}
+              </div>
+            ))}
+          </div>
+        ) : null}
 
         <div className="row">
           <Field label="Provider">
