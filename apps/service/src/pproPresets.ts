@@ -33,15 +33,37 @@ function presetName(xml: string, fallback: string): string {
  * decodes PNG natively for thumbnails — so that is what we look for, in the
  * exporter fields rather than anywhere the word might incidentally appear.
  */
+/**
+ * `ExporterFileType` is a four-character code stored as a 32-bit integer —
+ * 1347307296 is 0x504E4720, "PNG ". Decoding it identifies the output format
+ * from the file itself, with no reliance on what anyone named the preset.
+ */
+function exporterFourCc(xml: string): string | undefined {
+  const raw = /<ExporterFileType>(\d+)<\/ExporterFileType>/.exec(xml)?.[1];
+  if (!raw) return undefined;
+  const value = Number(raw);
+  if (!Number.isSafeInteger(value) || value <= 0) return undefined;
+
+  let code = "";
+  for (let shift = 24; shift >= 0; shift -= 8) {
+    const byte = (value >>> shift) & 0xff;
+    if (byte < 32 || byte > 126) return undefined;
+    code += String.fromCharCode(byte);
+  }
+  return code;
+}
+
 function looksLikeStillPng(xml: string): boolean {
+  // The four-character code is the real answer when it is present.
+  const fourCc = exporterFourCc(xml);
+  if (fourCc) return fourCc.trim().toUpperCase() === "PNG";
+
   const name = /<PresetName>([^<]*)<\/PresetName>/.exec(xml)?.[1] ?? "";
   const exporter = /<ExporterName>([^<]*)<\/ExporterName>/.exec(xml)?.[1] ?? "";
-  // The exporter field is authoritative.
   if (/png/i.test(exporter)) return true;
-  // Fall back to the name only when it says both what and how — "PNG still",
-  // not merely "png_something", which may well be an H.264 preset.
-  if (/png/i.test(name) && /still|frame/i.test(name)) return true;
-  return false;
+  // A name is only trusted when it says both what and how — "PNG still", not
+  // merely "png_something", which may well be an H.264 preset.
+  return /png/i.test(name) && /still|frame/i.test(name);
 }
 
 async function eprFilesUnder(root: string): Promise<string[]> {

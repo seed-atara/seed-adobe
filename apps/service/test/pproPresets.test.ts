@@ -56,3 +56,27 @@ describe("findStillPreset", () => {
     expect(await findStillPreset(home)).toBeUndefined();
   });
 });
+
+describe("ExporterFileType four-character code", () => {
+  const withFourCc = (name: string, fileType: number) =>
+    `<?xml version="1.0" encoding="UTF-8"?><PremiereData Version="3">` +
+    `<PresetName>${name}</PresetName><ExporterName></ExporterName>` +
+    `<ExporterFileType>${fileType}</ExporterFileType></PremiereData>`;
+
+  it("identifies PNG from the code, whatever the preset is called", async () => {
+    // 1347307296 === 0x504E4720 === "PNG " — as written by Premiere itself.
+    const home = await fakeHome([
+      { file: "a.epr", xml: withFourCc("anything at all", 1347307296) },
+    ]);
+    const found = await findStillPreset(home);
+    expect(found?.name).toBe("anything at all");
+  });
+
+  it("rejects a video preset even when its name promises PNG stills", async () => {
+    // 1212503619 is the HEVC exporter on a real install.
+    const home = await fakeHome([
+      { file: "a.epr", xml: withFourCc("PNG still (honest)", 1212503619) },
+    ]);
+    expect(await findStillPreset(home)).toBeUndefined();
+  });
+});
