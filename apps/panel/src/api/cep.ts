@@ -32,7 +32,7 @@ export function isCepHost(): boolean {
  */
 function extensionRoot(): string {
   const cep = window.__adobe_cep__;
-  if (!cep) throw new Error("not running inside After Effects");
+  if (!cep) throw new Error("not running inside an Adobe host");
   return decodeURI(cep.getSystemPath("extension")).replace(/^file:\/{2,3}/, "");
 }
 
@@ -55,90 +55,30 @@ export function hostApp(): "AEFT" | "PPRO" | "unknown" {
 }
 
 /**
- * Re-evaluates the ExtendScript host.
- *
- * The manifest's ScriptPath is loaded once when the extension loads, so
- * reloading the panel (Ctrl+R) refreshes the UI while the host keeps running
- * the *old* script — which makes a host fix look like it did nothing. Loading
- * it here on every boot means one reload resets everything, with no restart.
- *
- * Both hosts expose the same function names, so nothing above this line has to
- * know which application it is talking to.
- */
-export async function reloadHostScript(): Promise<string> {
-  const cep = window.__adobe_cep__;
-  if (!cep) throw new Error("not running inside an Adobe host");
-
-  const script = hostApp() === "PPRO" ? "seed-host-ppro.jsx" : "seed-host.jsx";
-  const jsxPath = `${extensionRoot()}/jsx/${script}`;
-
-  /*
-   * $.evalFile returns the value of the last expression in the file, and
-   * seed-host.jsx is nothing but function declarations — so it returns
-   * undefined even on a perfectly successful load. Prove the load by asking
-   * whether the functions now exist.
-   */
-  const probe = `(function () {
-    try {
-      $.evalFile(new File(${JSON.stringify(jsxPath)}));
-      if (typeof ${hostPrefix()}ping !== "function") return "loaded-but-empty";
-      return ${hostPrefix()}ping();
-    } catch (e) {
-      return "error: " + e;
-    }
-  })()`;
-
-  const raw = await new Promise<string>((resolve) => {
-    cep.evalScript(probe, resolve);
-  });
-
-  let loadedHost: string | undefined;
-  try {
-    loadedHost = (JSON.parse(raw) as { result?: { host?: string } }).result?.host;
-  } catch {
-    throw new Error(`Could not load the host script at ${jsxPath} (${raw})`);
-  }
-
-  /*
-   * Both hosts define the same function names, so "a script loaded" is not
-   * enough — the wrong one loading would fail later with a confusing message
-   * from the other application's vocabulary. Ask the script which host it is.
-   */
-  const expected = hostApp() === "PPRO" ? "premiere-pro" : "after-effects";
-  if (loadedHost !== expected) {
-    throw new Error(
-      `Loaded the wrong host script: expected ${expected} but ${jsxPath} reports ` +
-        `${loadedHost ?? "nothing"}. Restart the host application — CEP caches the ` +
-        `panel, and reopening it is not always enough.`,
-    );
-  }
-  return loadedHost;
-}
-
-/**
  * The host-specific prefix for this application.
  *
- * Both host scripts share one ExtendScript engine and CEP re-evaluates its own
- * ScriptPath whenever it likes, so the generic `seed*` names cannot be trusted
- * to belong to the script we loaded. Each host also exports uniquely prefixed
- * aliases, and those are what the panel calls.
+ * Both scripts run in one shared ExtendScript engine, so uniquely prefixed
+ * entry points are what the panel calls — see the note on evalHost.
  */
 function hostPrefix(): string {
   return hostApp() === "PPRO" ? "seedPpro_" : "seedAeft_";
 }
 
-/** Whether this host's namespaced entry points are defined right now. */
-async function hostIsLoaded(): Promise<boolean> {
-  const cep = window.__adobe_cep__;
-  if (!cep) return false;
+/** The host script this application needs. */
+function hostScriptPath(): string {
+  const file = hostApp() === "PPRO" ? "seed-host-ppro.jsx" : "seed-host.jsx";
+  return `${extensionRoot()}/jsx/${file}`;
+}
 
-  const raw = await new Promise<string>((resolve) => {
-    cep.evalScript(
-      `(function () { return (typeof ${hostPrefix()}ping === "function") ? "yes" : "no"; })()`,
-      resolve,
-    );
-  });
-  return raw === "yes";
+/**
+ * Loads the host script and reports which host answered.
+ *
+ * Kept for the panel's status readout; the real loading happens inside every
+ * call, because CEP does not preserve it between them.
+ */
+export async function reloadHostScript(): Promise<string> {
+  const { host } = await evalHost<{ host: string }>(`${hostPrefix()}ping()`);
+  return host;
 }
 
 interface HostResult<T> {
@@ -151,10 +91,39 @@ function quote(value: string): string {
   return JSON.stringify(String(value));
 }
 
-/** Runs an ExtendScript expression and unwraps the host's JSON envelope. */
-async function evalHost<T>(expression: string): Promise<T> {
+/**
+ * Runs one host call, loading the host script in the same breath.
+ *
+ * CEP evaluates the ScriptPath from its manifest dispatch for *each*
+ * evalScript, so anything loaded by a previous call is gone by the next one:
+ * a separate "load the script" step provably does not survive. In Premiere
+ * that left the generic names belonging to the After Effects script — the
+ * panel called seedPpro_getContext and it simply was not there.
+ *
+ * Loading and calling together is the only arrangement that holds. The file
+ * read is local and happens once per user action, which is nothing next to a
+ * frame export.
+ */
+async function evalHost<T>(call: string): Promise<T> {
   const cep = window.__adobe_cep__;
-  if (!cep) throw new Error("not running inside After Effects");
+  if (!cep) throw new Error("not running inside an Adobe host");
+
+  const jsxPath = hostScriptPath();
+  const expression = `(function () {
+    try {
+      $.evalFile(new File(${JSON.stringify(jsxPath)}));
+    } catch (loadError) {
+      return '{"ok":false,"error":"could not load host script: ' + String(loadError).replace(/"/g, "'") + '"}';
+    }
+    if (typeof ${hostPrefix()}ping !== "function") {
+      return '{"ok":false,"error":"host script loaded but ${hostPrefix()}* is missing"}';
+    }
+    try {
+      return ${call};
+    } catch (callError) {
+      return '{"ok":false,"error":"' + String(callError).replace(/"/g, "'") + '"}';
+    }
+  })()`;
 
   const raw = await new Promise<string>((resolve) => {
     cep.evalScript(expression, resolve);
@@ -162,7 +131,7 @@ async function evalHost<T>(expression: string): Promise<T> {
 
   if (raw === "EvalScript error.") {
     throw new Error(
-      `After Effects could not run ${expression.split("(")[0]} — is the panel's host script loaded?`,
+      `${hostApp()} could not run ${call.split("(")[0]} — the host script failed to evaluate.`,
     );
   }
 
@@ -220,10 +189,12 @@ export class CepAeBridge {
    * So this checks who is actually defined before every call — one cheap
    * evalScript — and reloads only when it finds the wrong one.
    */
+  /**
+   * Records which host answered, for the status readout. Loading is no longer
+   * a separate step — every call carries its own.
+   */
   private async ensureHost(): Promise<void> {
-    // Cheap check; the aliases survive CEP redefining the generic names.
-    if (this.loadedHost && (await hostIsLoaded())) return;
-    this.loadedHost = await reloadHostScript();
+    if (!this.loadedHost) this.loadedHost = await reloadHostScript();
   }
 
   async ping(): Promise<{ version: string; hasProject: boolean }> {
