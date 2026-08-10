@@ -65,7 +65,7 @@ export function hostApp(): "AEFT" | "PPRO" | "unknown" {
  * Both hosts expose the same function names, so nothing above this line has to
  * know which application it is talking to.
  */
-export async function reloadHostScript(): Promise<void> {
+export async function reloadHostScript(): Promise<string> {
   const cep = window.__adobe_cep__;
   if (!cep) throw new Error("not running inside an Adobe host");
 
@@ -108,10 +108,11 @@ export async function reloadHostScript(): Promise<void> {
   if (loadedHost !== expected) {
     throw new Error(
       `Loaded the wrong host script: expected ${expected} but ${jsxPath} reports ` +
-        `${loadedHost ?? "nothing"}. Reopen the panel; if it persists, the CEP ` +
-        `manifest is dispatching to the wrong ScriptPath.`,
+        `${loadedHost ?? "nothing"}. Restart the host application — CEP caches the ` +
+        `panel, and reopening it is not always enough.`,
     );
   }
+  return loadedHost;
 }
 
 interface HostResult<T> {
@@ -175,16 +176,22 @@ export class CepAeBridge {
 
   /** Loaded lazily once per panel session; see reloadHostScript. */
   private hostReady: Promise<void> | undefined;
+  /** Which host script answered — shown in the panel so it is never a guess. */
+  loadedHost: string | undefined;
 
   constructor(private readonly client: SeedClient) {}
 
   private ensureHost(): Promise<void> {
     if (!this.hostReady) {
-      this.hostReady = reloadHostScript().catch((error: unknown) => {
-        // Let the next call retry rather than caching the failure forever.
-        this.hostReady = undefined;
-        throw error;
-      });
+      this.hostReady = reloadHostScript()
+        .then((host) => {
+          this.loadedHost = host;
+        })
+        .catch((error: unknown) => {
+          // Let the next call retry rather than caching the failure forever.
+          this.hostReady = undefined;
+          throw error;
+        });
     }
     return this.hostReady;
   }

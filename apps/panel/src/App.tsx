@@ -59,6 +59,8 @@ export function App() {
   const [providers, setProviders] = useState<ProviderCapabilitiesDto[]>([]);
   const [aeContext, setAeContext] = useState<Record<string, unknown>>({});
   const [hostId, setHostId] = useState("mock");
+  /** Which ExtendScript host answered, so a stale panel is visible not guessed. */
+  const [loadedHost, setLoadedHost] = useState<string | undefined>();
   const [selectedId, setSelectedId] = useState<string | undefined>();
   const [form, setForm] = useState<GenerateForm>(EMPTY_FORM);
   const [job, setJob] = useState<JobView | undefined>();
@@ -124,6 +126,7 @@ export function App() {
           if (bridge) {
             setAeContext(await bridge.getContext());
             setHostId(hostApp());
+            setLoadedHost(bridge.loadedHost);
           } else {
             const { context, host } = await client.aeContext();
             setAeContext(context);
@@ -311,7 +314,7 @@ export function App() {
 
       <div className="statusbar">
         <span className={`led ${connection === "live" ? "live" : ""}`} />
-        <ContextStrip context={aeContext} host={hostId} />
+        <ContextStrip context={aeContext} host={hostId} loadedHost={loadedHost} />
       </div>
 
       <nav className="tabs" role="tablist">
@@ -391,13 +394,21 @@ export function App() {
 function ContextStrip({
   context,
   host,
+  loadedHost,
 }: {
   context: Record<string, unknown>;
   host: string;
+  loadedHost?: string | undefined;
 }) {
   const comp = typeof context.compName === "string" ? context.compName : undefined;
   const hostLabel =
     host === "AEFT" ? "AE" : host === "PPRO" ? "PPRO" : host === "unknown" ? "CEP" : "MOCK";
+  // A script from the other application means the panel bundle is stale.
+  const scriptLabel =
+    loadedHost === "premiere-pro" ? "pp" : loadedHost === "after-effects" ? "ae" : "?";
+  const mismatch =
+    (host === "PPRO" && loadedHost === "after-effects") ||
+    (host === "AEFT" && loadedHost === "premiere-pro");
 
   if (!comp) {
     return (
@@ -409,7 +420,14 @@ function ContextStrip({
               ? "No active sequence"
               : "No active composition"}
         </span>
-        <span className="status-cell">{hostLabel}</span>
+        <span
+          className="status-cell"
+          title={`host script: ${loadedHost ?? "not loaded"}`}
+        >
+          {hostLabel}
+          {host !== "mock" ? `·${scriptLabel}` : ""}
+          {mismatch ? " STALE" : ""}
+        </span>
       </>
     );
   }
@@ -431,7 +449,10 @@ function ContextStrip({
       </span>
       <span className="status-cell">{fps ? `${fps}fps` : "-"}</span>
       <span className="status-cell">f{frameNumber ?? "-"}</span>
-      <span className="status-cell">{hostLabel}</span>
+      <span className="status-cell" title={`host script: ${loadedHost ?? "not loaded"}`}>
+        {hostLabel}
+        {host !== "mock" ? `·${scriptLabel}` : ""}
+      </span>
     </>
   );
 }
