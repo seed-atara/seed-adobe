@@ -262,10 +262,9 @@ function seedExportViaQE(sequence, targetPath, trace) {
 /**
  * Premiere's work-area constants for exportAsMediaDirect.
  *
- * The parameter is an integer, not a name: passing "ENCODE_IN_TO_OUT" is
- * rejected with "Illegal Parameter type". The values are tried in order of
- * preference, because which one a given build accepts is not documented
- * anywhere we could verify.
+ * The parameter is an integer, not a name: "ENCODE_IN_TO_OUT" is rejected with
+ * "Illegal Parameter type". Which integer a build accepts is undocumented, so
+ * the candidates are tried in order.
  */
 var SEED_WORK_AREA_TYPES = [1, 0, 2];
 
@@ -287,12 +286,23 @@ function seedSetInOut(sequence, inSeconds, outSeconds, trace) {
     }
 }
 
+/** Premiere reports failure by returning an error object, not by throwing. */
+function seedExportRefused(returned) {
+    if (returned === true) return null;
+    var text = String(returned);
+    return /error/i.test(text) ? text : null;
+}
+
 /**
  * Route 2: exportAsMediaDirect with a still-image preset.
  *
  * The documented path — the machinery behind the Program Monitor's camera
  * button. It renders in-to-out, so the playhead frame is isolated first and
  * the editor's own in/out points are put back afterwards.
+ *
+ * Both the output path form and the work-area constant are tried in
+ * combination: "Unable to initialize export!" is Premiere's answer to a great
+ * many different objections, and it does not say which one.
  */
 function seedExportViaPreset(sequence, folder, presetPath, seconds, fps, trace) {
     var preset = new File(seedNormalizePath(presetPath));
@@ -315,34 +325,44 @@ function seedExportViaPreset(sequence, folder, presetPath, seconds, fps, trace) 
     }
 
     var startedAt = new Date().getTime() - 2000;
+    var base = seedNormalizePath(folder.fsName) + "/seed_still_" + startedAt;
     var written = null;
+
     try {
         var frameSeconds = fps > 0 ? 1 / fps : 0.04;
         seedSetInOut(sequence, seconds, seconds + frameSeconds, trace);
 
-        var stem = seedNormalizePath(folder.fsName) + "/seed_still_" + startedAt;
+        // An exporter usually wants the extension; some builds add it itself.
+        var paths = [base + ".png", base];
 
-        for (var t = 0; t < SEED_WORK_AREA_TYPES.length && !written; t++) {
-            var workAreaType = SEED_WORK_AREA_TYPES[t];
-            try {
-                var returned = sequence.exportAsMediaDirect(
-                    stem,
-                    preset.fsName,
-                    workAreaType
-                );
-                trace.push("exportAsMediaDirect(type " + workAreaType + ") returned " + String(returned));
-            } catch (callError) {
-                trace.push("exportAsMediaDirect(type " + workAreaType + ") threw: " + callError);
-                continue;
-            }
+        for (var pi = 0; pi < paths.length && !written; pi++) {
+            for (var ti = 0; ti < SEED_WORK_AREA_TYPES.length && !written; ti++) {
+                var workAreaType = SEED_WORK_AREA_TYPES[ti];
+                var label = "type " + workAreaType + (pi === 0 ? " +.png" : " no ext");
+                var returned;
+                try {
+                    returned = sequence.exportAsMediaDirect(
+                        paths[pi],
+                        preset.fsName,
+                        workAreaType
+                    );
+                } catch (callError) {
+                    trace.push(label + " threw: " + callError);
+                    continue;
+                }
 
-            // Encoding is not always synchronous, so wait for the file.
-            for (var wait = 0; wait < 150 && !written; wait++) {
-                $.sleep(100);
-                written = seedNewestFile(folder, startedAt);
-            }
-            if (!written) {
-                trace.push("type " + workAreaType + ": nothing appeared within 15s");
+                var refused = seedExportRefused(returned);
+                if (refused) {
+                    // Refused outright, so there is nothing to wait for.
+                    trace.push(label + ": " + refused);
+                    continue;
+                }
+
+                for (var wait = 0; wait < 150 && !written; wait++) {
+                    $.sleep(100);
+                    written = seedNewestFile(folder, startedAt);
+                }
+                trace.push(label + (written ? " wrote a file" : " returned ok but wrote nothing in 15s"));
             }
         }
     } catch (error) {
@@ -362,6 +382,45 @@ function seedExportViaPreset(sequence, folder, presetPath, seconds, fps, trace) 
             trace.push("could not restore in/out points: " + restoreError);
         }
     }
+    return written;
+}
+
+/**
+ * Route 3: hand the job to Media Encoder.
+ *
+ * Slower and it launches AME, but it is a different code path from the direct
+ * exporter and can succeed where that one refuses to initialise.
+ */
+function seedExportViaEncoder(sequence, folder, presetPath, seconds, fps, trace) {
+    if (!app.encoder || typeof app.encoder.encodeSequence !== "function") {
+        trace.push("AME: app.encoder.encodeSequence is unavailable");
+        return null;
+    }
+
+    var startedAt = new Date().getTime() - 2000;
+    var target = seedNormalizePath(folder.fsName) + "/seed_ame_" + startedAt + ".png";
+
+    try {
+        if (typeof app.encoder.launchEncoder === "function") app.encoder.launchEncoder();
+        var frameSeconds = fps > 0 ? 1 / fps : 0.04;
+        seedSetInOut(sequence, seconds, seconds + frameSeconds, trace);
+
+        // (sequence, outputPath, presetPath, workAreaType, removeOnCompletion)
+        var jobId = app.encoder.encodeSequence(sequence, target, presetPath, 1, 0);
+        trace.push("AME: encodeSequence returned " + String(jobId));
+        if (typeof app.encoder.startBatch === "function") app.encoder.startBatch();
+    } catch (error) {
+        trace.push("AME: encodeSequence threw: " + error);
+        return null;
+    }
+
+    // AME is a separate application; give it longer than the direct exporter.
+    var written = null;
+    for (var wait = 0; wait < 600 && !written; wait++) {
+        $.sleep(100);
+        written = seedNewestFile(folder, startedAt);
+    }
+    if (!written) trace.push("AME: nothing appeared within 60s");
     return written;
 }
 
@@ -410,6 +469,11 @@ function seedCaptureFrame(outputDir, basename, presetPath) {
         if (!written && presetPath) {
             written = seedExportViaPreset(sequence, folder, presetPath, seconds, fps, trace);
             route = "preset";
+        }
+
+        if (!written && presetPath) {
+            written = seedExportViaEncoder(sequence, folder, presetPath, seconds, fps, trace);
+            route = "ame";
         }
 
         if (!written) {
