@@ -20,15 +20,7 @@ export interface SeedanceConfig {
   id?: string;
   /** Shown in the panel; derived from the model when not given. */
   displayName?: string;
-  /**
-   * Resolutions offered.
-   *
-   * Only 480p, 720p and 1080p are offered by default, because those are the
-   * ones every Seedance model accepted consistently. Probing suggested some
-   * models take 2k or 4k as well, but the API reports only one complaint per
-   * request, so a duration error does not prove the resolution was read —
-   * see docs/research/MODEL_API_NOTES.md.
-   */
+/** Overrides the resolutions offered; defaults come from seedanceSizesFor. */
   sizes?: string[];
   /** Ark defaults this on; SEED keeps it explicit. */
   generateAudio?: boolean;
@@ -85,6 +77,26 @@ export type SeedanceImageRole = "first_frame" | "last_frame" | "reference_image"
  * error. Frame rate is left to the model's default until the accepted range is
  * confirmed.
  */
+/**
+ * The resolutions a model accepts.
+ *
+ * Measured against the live API rather than assumed — and measured
+ * repeatedly, because when two parameters are invalid the API names only one
+ * of them and which one varies between identical requests. A resolution the
+ * model refuses is named sooner or later; one never named across eight tries
+ * is accepted. See docs/research/MODEL_API_NOTES.md and the probe in
+ * scripts/seedance-resolutions.ts.
+ *
+ * The families genuinely differ, which is why this is a table and not a
+ * constant: 2.0 reaches 4K where 2.5 stops at 1080p, and the fast and mini
+ * variants stop at 720p. Neither family accepts a 2K tier at all.
+ */
+export function seedanceSizesFor(model: string): string[] {
+  if (/seedance-2-0-(fast|mini)/.test(model)) return ["480p", "720p"];
+  if (/seedance-2-0/.test(model)) return ["480p", "720p", "1080p", "4K"];
+  return ["480p", "720p", "1080p"];
+}
+
 /**
  * A readable name for a model id.
  *
@@ -167,7 +179,7 @@ export class SeedanceProvider implements GenerationProvider {
        * accepted set, so they are checked here and re-checked there.
        */
       durationSecondsRange: [4, 30],
-      sizes: this.config.sizes ?? ["480p", "720p", "1080p"],
+      sizes: this.config.sizes ?? seedanceSizesFor(this.config.model),
       aspectRatios: ["16:9", "9:16", "1:1", "4:3", "21:9", "adaptive"],
       async: true,
     };

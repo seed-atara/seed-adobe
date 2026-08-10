@@ -331,31 +331,33 @@ reference-driven requests have no such anchor and do accept `ratio`.
 Still unverified: whether generation quality holds at high reference counts,
 and what `video_url` / `audio_url` parts do.
 
-### Resolutions across the Seedance family (probed 2026-08-11)
+### Resolutions across the Seedance family (measured 2026-08-11)
 
-Same free technique, `duration: 3` as the poison pill:
+**The probe has to be repeated to mean anything.** When two parameters are
+invalid the API names only one of them, and which one varies between identical
+requests: a nonsense resolution (`banana`) came back as a *duration* complaint
+3 times in 10. A single probe therefore cannot tell an accepted resolution from
+an unread one — which is why an earlier pass here reported nonsense.
 
-| model | 480p | 720p | 1080p | 2k | 4k |
-|---|---|---|---|---|---|
-| `dreamina-seedance-2-5-260628` | ok | ok | ok | refused | refused |
-| `dreamina-seedance-2-0-260128` | ok | ok | ok | refused | ok? |
-| `dreamina-seedance-2-0-fast-260128` | ok | ok | ok | refused | refused |
-| `dreamina-seedance-2-0-mini-260615` | ok | ok | ok | ok? | refused |
+Asking repeatedly does work. A resolution the model refuses is named sooner or
+later; one never named across eight tries is accepted. With a ~30% naming rate,
+eight silent tries put a false accept near 1 in 15,000.
 
-**Read the "ok?" cells sceptically.** The API reports one complaint per
-request, so an answer about `duration` does not prove the resolution was read —
-only that it was not the first thing to fail. The inconsistency (2.0 taking 4k
-but not 2k, mini the reverse) is more likely precedence noise than a real
-capability difference, and telling them apart would need a request that is
-valid in every other respect — which creates a billable task.
+| model | accepted | refused |
+|---|---|---|
+| `dreamina-seedance-2-5-260628` | 480p, 720p, 1080p | 1440p, 2160p, 2k, 2K, 4k, 4K |
+| `dreamina-seedance-2-0-260128` | 480p, 720p, 1080p, 4k, 4K | 1440p, 2160p, 2k, 2K |
+| `dreamina-seedance-2-0-fast-260128` | 480p, 720p | everything above |
+| `dreamina-seedance-2-0-mini-260615` | 480p, 720p | everything above |
 
-So only **480p, 720p and 1080p** are offered by default: the set every model
-accepted, every time. `SEEDANCE_SIZES` widens it for anyone who wants to find
-out the expensive way.
+So **2.0 reaches 4K where 2.5 stops at 1080p**, and the fast and mini variants
+stop at 720p. No model accepts a 2K tier, in either spelling, while 4K is
+accepted in both — so the tiers are not a simple ladder and cannot be guessed.
 
-Note this supersedes an earlier note that 2.5 refuses 1080p. That was measured
-before roles were understood, so the request was malformed in a way that may
-have masked the resolution.
+The probe is `scripts/seedance-resolutions.ts`; raise ATTEMPTS to tighten it.
+Still unmeasured: whether duration ranges differ per model, which cannot be
+probed this way without a request valid in every other respect — and that
+creates a billable task.
 
 ### Audio
 

@@ -6,6 +6,9 @@ import {
   ProviderRegistry,
   SeedanceProvider,
   SeedreamProvider,
+  seedanceDisplayName,
+  seedanceProviderId,
+  seedanceSizesFor,
 } from "../src/index.js";
 
 const request = (overrides: Record<string, unknown> = {}) => ({
@@ -684,5 +687,44 @@ describe("SeedanceProvider ratio semantics", () => {
       }),
     ).rejects.toThrow(/4 to 30 seconds/);
     expect(called).toBe(false);
+  });
+});
+
+describe("seedanceSizesFor", () => {
+  // Measured against the live API; see docs/research/MODEL_API_NOTES.md.
+  it("offers 4K on 2.0, which 2.5 does not reach", () => {
+    expect(seedanceSizesFor("dreamina-seedance-2-0-260128")).toContain("4K");
+    expect(seedanceSizesFor("dreamina-seedance-2-5-260628")).not.toContain("4K");
+  });
+
+  it("stops the fast and mini variants at 720p", () => {
+    expect(seedanceSizesFor("dreamina-seedance-2-0-fast-260128")).toEqual([
+      "480p",
+      "720p",
+    ]);
+    expect(seedanceSizesFor("dreamina-seedance-2-0-mini-260615")).toEqual([
+      "480p",
+      "720p",
+    ]);
+  });
+
+  it("offers no 2K tier, which no model accepted", () => {
+    for (const model of [
+      "dreamina-seedance-2-5-260628",
+      "dreamina-seedance-2-0-260128",
+      "dreamina-seedance-2-0-mini-260615",
+    ]) {
+      expect(seedanceSizesFor(model)).not.toContain("2K");
+      expect(seedanceSizesFor(model)).not.toContain("2k");
+    }
+  });
+
+  it("names each model readably, keeping the variant", () => {
+    expect(seedanceDisplayName("dreamina-seedance-2-0-fast-260128")).toBe(
+      "Seedance 2.0 fast (Ark)",
+    );
+    expect(seedanceProviderId("dreamina-seedance-2-0-fast-260128")).toBe(
+      "seedance-2-0-fast",
+    );
   });
 });
