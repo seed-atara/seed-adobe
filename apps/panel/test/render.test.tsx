@@ -163,3 +163,31 @@ describe("media loading", () => {
     ).toBe("Bearer secret-token");
   });
 });
+
+describe("host scripts", () => {
+  it("expose the same functions in After Effects and Premiere", async () => {
+    // The panel calls the same names in both applications; if these drift,
+    // one host silently loses a feature.
+    const { readFile } = await import("node:fs/promises");
+    const required = [
+      "seedPing",
+      "seedGetContext",
+      "seedCaptureFrame",
+      "seedImport",
+      "seedInsertAtPlayhead",
+    ];
+
+    for (const file of [
+      "apps/extension/jsx/seed-host.jsx",
+      "apps/extension/jsx/seed-host-ppro.jsx",
+    ]) {
+      const source = await readFile(file, "utf8");
+      for (const name of required) {
+        expect(source, `${file} is missing ${name}`).toContain(`function ${name}(`);
+      }
+      // Every host function must answer in the {ok,...} envelope.
+      expect(source).toContain("function seedOk(");
+      expect(source).toContain("function seedFail(");
+    }
+  });
+});

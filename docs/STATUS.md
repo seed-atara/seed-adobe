@@ -80,7 +80,7 @@ Lineage views, asset detail with recipe, provenance, raw payload, and Import /
 Insert at playhead / Variation / Use as reference actions. Controls are driven
 by declared provider capabilities.
 
-Ships as a CEP extension that docks in After Effects:
+Ships as a CEP extension that docks in After Effects **and Premiere Pro**:
 `npm run install:extension`, then Window → Extensions → SEED / AE.
 In CEP the panel drives AE itself through `jsx/seed-host.jsx` (capture via
 `saveFrameToPng`, import into a SEED folder, insert at playhead inside an undo

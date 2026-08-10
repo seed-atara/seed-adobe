@@ -37,19 +37,40 @@ function extensionRoot(): string {
 }
 
 /**
+ * Which Adobe application the panel is docked in.
+ *
+ * `getHostEnvironment()` returns JSON; `appName` is a four-letter code —
+ * `AEFT` for After Effects, `PPRO` for Premiere Pro.
+ */
+export function hostApp(): "AEFT" | "PPRO" | "unknown" {
+  const cep = window.__adobe_cep__;
+  if (!cep) return "unknown";
+  try {
+    const { appName } = JSON.parse(cep.getHostEnvironment()) as { appName?: string };
+    if (appName === "AEFT" || appName === "PPRO") return appName;
+  } catch {
+    // fall through
+  }
+  return "unknown";
+}
+
+/**
  * Re-evaluates the ExtendScript host.
  *
  * The manifest's ScriptPath is loaded once when the extension loads, so
- * reloading the panel (Ctrl+R) refreshes the UI while After Effects keeps
- * running the *old* host script — which makes a host fix look like it did
- * nothing. Loading it ourselves on every boot means one reload resets
- * everything, with no need to restart AE.
+ * reloading the panel (Ctrl+R) refreshes the UI while the host keeps running
+ * the *old* script — which makes a host fix look like it did nothing. Loading
+ * it here on every boot means one reload resets everything, with no restart.
+ *
+ * Both hosts expose the same function names, so nothing above this line has to
+ * know which application it is talking to.
  */
 export async function reloadHostScript(): Promise<void> {
   const cep = window.__adobe_cep__;
-  if (!cep) throw new Error("not running inside After Effects");
+  if (!cep) throw new Error("not running inside an Adobe host");
 
-  const jsxPath = `${extensionRoot()}/jsx/seed-host.jsx`;
+  const script = hostApp() === "PPRO" ? "seed-host-ppro.jsx" : "seed-host.jsx";
+  const jsxPath = `${extensionRoot()}/jsx/${script}`;
 
   /*
    * $.evalFile returns the value of the last expression in the file, and
@@ -126,11 +147,12 @@ export interface CaptureResult {
 }
 
 /**
- * Drives After Effects from inside the panel.
+ * Drives the host application from inside the panel.
  *
- * In CEP the panel — not the service — is the process with AE scripting
- * access, so capture and import happen here and the service is told about the
- * result. The service stays host-agnostic.
+ * In CEP the panel — not the service — is the process with scripting access,
+ * so capture and import happen here and the service is told about the result.
+ * The service stays host-agnostic, and so does this class: After Effects and
+ * Premiere expose the same host functions under the same names.
  */
 export class CepAeBridge {
   readonly id = "cep";

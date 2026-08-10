@@ -20,6 +20,37 @@ Then:
 
 `npm run uninstall:extension` removes it.
 
+## Premiere Pro
+
+The same bundle installs into Premiere. The panel, the service and both
+providers are identical; only the ExtendScript host differs, and the manifest
+picks it per application via `DispatchInfo host=`.
+
+| | After Effects | Premiere Pro |
+| --- | --- | --- |
+| Host script | `jsx/seed-host.jsx` | `jsx/seed-host-ppro.jsx` |
+| "What am I looking at" | active `CompItem` | `app.project.activeSequence` |
+| Frame export | `CompItem.saveFrameToPng` (documented) | QE DOM `exportFramePNG` (**undocumented**) |
+| Import | `app.project.importFile` | `app.project.importFiles([...], true, bin, false)` |
+| Place at playhead | `comp.layers.add`, `startTime` | `videoTracks[n].overwriteClip(item, seconds)` |
+
+Both scripts expose the same function names, so nothing above the host layer
+knows which application it is in. A test asserts that parity, because a drift
+would silently remove a feature from one host.
+
+**Caveat worth knowing before you rely on it:** Premiere has no documented
+equivalent of `saveFrameToPng`. Frame export goes through the QE DOM, which
+Adobe does not document and which is reported to fail on some builds. The host
+script checks hard for the file afterwards and reports exactly what happened
+rather than assuming success — but if QE export is unavailable in your build,
+capture will not work and the panel will tell you so.
+
+Placement uses `overwriteClip` onto the targeted video track (or the first),
+so nothing downstream shifts under the editor unasked.
+
+Premiere also has UXP as of 25.6, which is where a Premiere-only panel would
+eventually want to live. CEP keeps one codebase across both applications today.
+
 ## Why CEP
 
 UXP is not available for After Effects, and CEP 12 shipped with AE 25.0 as the

@@ -7,7 +7,7 @@ import {
   type JobView,
   type ProviderCapabilitiesDto,
 } from "./api/client.ts";
-import { CepAeBridge, isCepHost } from "./api/cep.ts";
+import { CepAeBridge, hostApp, isCepHost } from "./api/cep.ts";
 import { GenerateView, type GenerateForm } from "./components/GenerateView.tsx";
 import { LibraryView } from "./components/LibraryView.tsx";
 import { AssetDetail } from "./components/AssetDetail.tsx";
@@ -123,7 +123,7 @@ export function App() {
         try {
           if (bridge) {
             setAeContext(await bridge.getContext());
-            setHostId("after-effects");
+            setHostId(hostApp());
           } else {
             const { context, host } = await client.aeContext();
             setAeContext(context);
@@ -396,13 +396,18 @@ function ContextStrip({
   host: string;
 }) {
   const comp = typeof context.compName === "string" ? context.compName : undefined;
-  const hostLabel = host === "cep" || host === "after-effects" ? "AE" : "MOCK";
+  const hostLabel =
+    host === "AEFT" ? "AE" : host === "PPRO" ? "PPRO" : host === "unknown" ? "CEP" : "MOCK";
 
   if (!comp) {
     return (
       <>
         <span className="status-cell grow">
-          {host === "mock" ? "Mock host - no After Effects" : "No active composition"}
+          {host === "mock"
+            ? "Mock host - no Adobe application"
+            : host === "PPRO"
+              ? "No active sequence"
+              : "No active composition"}
         </span>
         <span className="status-cell">{hostLabel}</span>
       </>

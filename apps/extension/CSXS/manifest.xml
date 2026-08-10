@@ -6,19 +6,22 @@
   shipped with AE 25.0 as the last major CEP version. See
   docs/research/ADOBE_INTEGRATION_NOTES.md.
 
-  The host range starts at AEFT 22.0 (CC 2022) — the oldest release worth
-  supporting — and is left open-ended so a new AE does not lock the panel out.
+  Premiere Pro is supported from the same bundle. Both hosts load the same
+  panel; only the ExtendScript host differs, selected per host by DispatchInfo.
+  (Premiere also has UXP as of 25.6, which is where a Premiere-only panel would
+  eventually want to go — see the notes.)
 -->
 <ExtensionManifest Version="7.0" ExtensionBundleId="ai.seedstudios.seedae"
-    ExtensionBundleVersion="0.1.0" ExtensionBundleName="SEED / AE"
+    ExtensionBundleVersion="0.2.0" ExtensionBundleName="SEED / AE"
     xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
   <ExtensionList>
-    <Extension Id="ai.seedstudios.seedae.panel" Version="0.1.0" />
+    <Extension Id="ai.seedstudios.seedae.panel" Version="0.2.0" />
   </ExtensionList>
 
   <ExecutionEnvironment>
     <HostList>
       <Host Name="AEFT" Version="[22.0,99.9]" />
+      <Host Name="PPRO" Version="[22.0,99.9]" />
     </HostList>
     <LocaleList>
       <Locale Code="All" />
@@ -30,12 +33,36 @@
 
   <DispatchInfoList>
     <Extension Id="ai.seedstudios.seedae.panel">
-      <DispatchInfo>
+      <!-- After Effects -->
+      <DispatchInfo host="AEFT">
         <Resources>
           <MainPath>./panel/index.html</MainPath>
           <ScriptPath>./jsx/seed-host.jsx</ScriptPath>
           <CEFCommandLine>
             <!-- The panel talks to the local SEED service on loopback. -->
+            <Parameter>--allow-file-access-from-files</Parameter>
+            <Parameter>--allow-file-access</Parameter>
+          </CEFCommandLine>
+        </Resources>
+        <Lifecycle>
+          <AutoVisible>true</AutoVisible>
+        </Lifecycle>
+        <UI>
+          <Type>Panel</Type>
+          <Menu>SEED / AE</Menu>
+          <Geometry>
+            <Size><Height>620</Height><Width>420</Width></Size>
+            <MinSize><Height>360</Height><Width>320</Width></MinSize>
+          </Geometry>
+        </UI>
+      </DispatchInfo>
+
+      <!-- Premiere Pro: same panel, sequence-aware host script. -->
+      <DispatchInfo host="PPRO">
+        <Resources>
+          <MainPath>./panel/index.html</MainPath>
+          <ScriptPath>./jsx/seed-host-ppro.jsx</ScriptPath>
+          <CEFCommandLine>
             <Parameter>--allow-file-access-from-files</Parameter>
             <Parameter>--allow-file-access</Parameter>
           </CEFCommandLine>
