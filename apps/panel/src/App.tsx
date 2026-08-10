@@ -217,6 +217,31 @@ export function App() {
     return () => window.clearTimeout(pollRef.current);
   }, [client, job, refreshAssets, report]);
 
+  /**
+   * Attaches a fresh capture, keeping only as many references as the provider
+   * takes.
+   *
+   * The alternative — refusing to capture once the references are full — makes
+   * a multi-region plate impossible to work through, and the assets belong in
+   * the library either way.
+   */
+  const attachReference = useCallback(
+    (assetId: string) =>
+      setForm((current) => {
+        const limit = Math.max(
+          1,
+          providers.find((item) => item.id === current.providerId)
+            ?.maxImageReferences ?? 1,
+        );
+        const next = [
+          ...current.inputAssetIds.filter((id) => id !== assetId),
+          assetId,
+        ];
+        return { ...current, inputAssetIds: next.slice(-limit) };
+      }),
+    [providers],
+  );
+
   const captureFrame = useCallback(async () => {
     setBusy(true);
     setError(undefined);
@@ -228,17 +253,14 @@ export function App() {
       await refreshAssets();
       setSelectedId(asset.id);
       // A fresh capture is almost always the next reference.
-      setForm((current) => ({
-        ...current,
-        inputAssetIds: [...current.inputAssetIds, asset.id],
-        operation: "image.edit",
-      }));
+      attachReference(asset.id);
+      setForm((current) => ({ ...current, operation: "image.edit" }));
     } catch (cause) {
       report(cause);
     } finally {
       setBusy(false);
     }
-  }, [client, bridge, refreshAssets, report]);
+  }, [client, bridge, refreshAssets, attachReference, report]);
 
   /**
    * Reads the comp's region guides back.
@@ -295,16 +317,13 @@ export function App() {
       await refreshRegions();
       await refreshAssets();
       setSelectedId(asset.id);
-      setForm((current) => ({
-        ...current,
-        inputAssetIds: [...current.inputAssetIds, asset.id],
-      }));
+      attachReference(asset.id);
     } catch (cause) {
       report(cause);
     } finally {
       setBusy(false);
     }
-  }, [bridge, region.name, refreshRegions, refreshAssets, report]);
+  }, [bridge, region.name, refreshRegions, refreshAssets, attachReference, report]);
 
   /** Composites the finished clip back onto the region it came from. */
   const insertRegion = useCallback(async () => {

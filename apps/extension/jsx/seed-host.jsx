@@ -407,6 +407,23 @@ function seedDescribeRegion(comp, layer) {
     };
 }
 
+/**
+ * The next free region name.
+ *
+ * Counting the existing guides is not enough: deleting region 2 of three would
+ * hand the next one the name "SEED Region 3", which already exists — and since
+ * a region finds its sub-comp by name, the two would silently share one.
+ */
+function seedNextRegionName(comp) {
+    for (var n = 1; n < 1000; n++) {
+        var candidate = SEED_REGION_PREFIX + " " + n;
+        if (seedRegionByName(comp, candidate)) continue;
+        if (seedFindRegionComp(candidate)) continue;
+        return candidate;
+    }
+    return SEED_REGION_PREFIX + " " + new Date().getTime();
+}
+
 /** Creates a region guide, centred, sized to fit the plate. */
 function seedCreateRegion(size) {
     try {
@@ -420,9 +437,8 @@ function seedCreateRegion(size) {
         var limit = Math.min(comp.width, comp.height);
         if (edge > limit) edge = limit;
 
-        var existing = seedFindRegions(comp).length;
         var layer = comp.layers.addShape();
-        layer.name = SEED_REGION_PREFIX + " " + (existing + 1);
+        layer.name = seedNextRegionName(comp);
 
         var group = layer.property("Contents").addProperty("ADBE Vector Group");
         var contents = group.property("Contents");
@@ -627,10 +643,19 @@ function seedCaptureRegion(regionName, outputDir, basename, featherPixels) {
                 hidden.push(regions[r]);
             }
         }
-        var existingComposite = seedFindComposite(comp, region.name);
-        if (existingComposite && existingComposite.enabled) {
-            existingComposite.enabled = false;
-            hidden.push(existingComposite);
+        // Every composite, not just this region's: with several regions on one
+        // plate, an overlapping neighbour would otherwise be captured as if it
+        // were part of the plate, and a re-capture would compound its own result.
+        for (var c = 1; c <= comp.numLayers; c++) {
+            var candidate = comp.layer(c);
+            var isComposite =
+                candidate.name.indexOf(SEED_REGION_PREFIX) === 0 &&
+                candidate.name.indexOf(SEED_COMPOSITE_SUFFIX) ===
+                    candidate.name.length - SEED_COMPOSITE_SUFFIX.length;
+            if (isComposite && candidate.enabled) {
+                candidate.enabled = false;
+                hidden.push(candidate);
+            }
         }
 
         temp = app.project.items.addComp(

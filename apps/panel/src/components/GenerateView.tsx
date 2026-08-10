@@ -173,17 +173,14 @@ export function GenerateView({
     <>
       <section className="section">
         <SectionLabel>source</SectionLabel>
-        <button
-          className="btn primary wide"
-          onClick={onCapture}
-          disabled={busy || referencesFull}
-        >
+        <button className="btn primary wide" onClick={onCapture} disabled={busy}>
           Capture current frame
         </button>
         {referencesFull ? (
           <div className="hint faint" style={{ marginTop: 6 }}>
             {provider?.displayName} accepts {provider?.maxImageReferences}{" "}
-            references. Remove one to capture another.
+            reference{provider?.maxImageReferences === 1 ? "" : "s"}, so a new
+            capture replaces the oldest. Everything stays in the library.
           </div>
         ) : null}
       </section>
@@ -258,7 +255,7 @@ export function GenerateView({
               <button
                 className="btn primary wide"
                 onClick={onCaptureRegion}
-                disabled={busy || referencesFull || !selected}
+                disabled={busy || !selected}
               >
                 Capture region
               </button>
