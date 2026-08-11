@@ -84,6 +84,7 @@ interface Props {
   onCaptureRegion?: () => void;
   onRefreshRegions?: () => void;
   onRegionAspect?: (aspect: string) => void;
+  onRegionContain?: (contained: boolean) => void;
   onInsertRegion?: () => void;
 }
 
@@ -122,6 +123,7 @@ export function GenerateView({
   onCaptureRegion,
   onRefreshRegions,
   onRegionAspect,
+  onRegionContain,
   onInsertRegion,
 }: Props) {
   const [directingFor, setDirectingFor] = useState(0);
@@ -361,6 +363,17 @@ export function GenerateView({
                     </option>
                   ))}
                 </select>
+              </Field>
+
+              <Field label="Bounds" hint="Stops the region at the comp edges">
+                <label className="check">
+                  <input
+                    type="checkbox"
+                    checked={selected?.contained ?? false}
+                    onChange={(event) => onRegionContain?.(event.target.checked)}
+                  />
+                  Keep inside the comp
+                </label>
               </Field>
 
               <button

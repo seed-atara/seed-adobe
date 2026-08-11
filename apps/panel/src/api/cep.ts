@@ -184,6 +184,8 @@ export interface AeRegion {
   aspect: number;
   /** True while the region's scale is locked to that aspect. */
   locked: boolean;
+  /** True while the region is held inside the composition. */
+  contained: boolean;
   /** True once the region has a sub-comp, which capture creates. */
   hasComp: boolean;
   /** True once that sub-comp is placed back over the plate. */
@@ -295,6 +297,21 @@ export class CepAeBridge {
    * An empty aspect frees it again. The hold is an expression on the layer's
    * scale, so it survives a corner drag rather than being corrected after one.
    */
+  /**
+   * Keeps a region inside the composition, or lets it roam.
+   *
+   * A modifier key cannot be intercepted mid-drag — After Effects owns the
+   * mouse — so this is a state the region is in, enforced by an expression on
+   * its Position that stops it at the edge as it is dragged.
+   */
+  async setRegionContain(name: string, contained: boolean): Promise<AeRegion> {
+    await this.ensureHost();
+    const { region } = await evalHost<{ region: AeRegion }>(
+      `${hostPrefix()}setRegionContain(${quote(name)}, ${contained})`,
+    );
+    return region;
+  }
+
   async setRegionAspect(name: string, aspect: string): Promise<AeRegion> {
     await this.ensureHost();
     const { region } = await evalHost<{ region: AeRegion }>(

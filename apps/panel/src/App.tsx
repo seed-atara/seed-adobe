@@ -386,6 +386,25 @@ export function App() {
     }
   }, [bridge, region.newSize, region.aspect, refreshRegions, report]);
 
+  /** Keeps the selected region inside the comp, or lets it roam. */
+  const setRegionContain = useCallback(
+    async (contained: boolean) => {
+      if (!bridge || !region.name) return;
+      try {
+        const updated = await bridge.setRegionContain(region.name, contained);
+        await refreshRegions();
+        setNotice(
+          contained
+            ? `${updated.name} now stops at the comp edges.`
+            : `${updated.name} can move outside the comp again.`,
+        );
+      } catch (cause) {
+        report(cause);
+      }
+    },
+    [bridge, region.name, refreshRegions, report],
+  );
+
   /**
    * Holds a region to a shape, or frees it.
    *
@@ -726,6 +745,7 @@ export function App() {
               onCaptureRegion={captureRegion}
               onRefreshRegions={refreshRegions}
               onRegionAspect={setRegionAspect}
+              onRegionContain={setRegionContain}
               onInsertRegion={insertRegion}
               onCapture={captureFrame}
               onGenerate={startGeneration}

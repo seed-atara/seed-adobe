@@ -366,6 +366,54 @@ function seedApplyAspectLock(layer, locked) {
     }
 }
 
+/**
+ * Keeps the region inside the composition.
+ *
+ * An expression on Position rather than a correction after the fact, so the
+ * region stops at the edge *during* the drag — the same reason the aspect lock
+ * is an expression. After Effects owns the mouse; a modifier key cannot be
+ * intercepted from a script, so this is a state the region is in rather than
+ * something held down.
+ *
+ * The rectangle is read live where possible so the clamp keeps up with a
+ * reshape, with the size at the time of writing as a fallback. A region larger
+ * than the comp in an axis is centred on that axis: there is no position that
+ * satisfies containment, and pinning it to one edge would be a silent lie
+ * about which part of the plate is being captured.
+ */
+function seedApplyContain(layer, contained, base) {
+    var position = layer.property("Transform").property("Position");
+    try {
+        if (!contained) {
+            position.expression = "";
+            return;
+        }
+        position.expression =
+            'var base = [' + base[0] + ', ' + base[1] + '];\n' +
+            'try { base = content("Group 1").content("Rectangle Path 1").size; } catch (err) {}\n' +
+            'var s = transform.scale / 100;\n' +
+            'var hw = base[0] * s[0] / 2;\n' +
+            'var hh = base[1] * s[1] / 2;\n' +
+            'var cw = thisComp.width;\n' +
+            'var ch = thisComp.height;\n' +
+            'var x = (hw * 2 >= cw) ? cw / 2 : clamp(value[0], hw, cw - hw);\n' +
+            'var y = (hh * 2 >= ch) ? ch / 2 : clamp(value[1], hh, ch - hh);\n' +
+            '[x, y]';
+    } catch (error) {
+        // An expression-disabled project simply moves freely.
+    }
+}
+
+/** Whether this region is currently held inside the comp. */
+function seedContained(layer) {
+    try {
+        var expression = layer.property("Transform").property("Position").expression;
+        return expression !== null && expression !== "";
+    } catch (error) {
+        return false;
+    }
+}
+
 /** Whether this region is currently holding an aspect. */
 function seedAspectLocked(layer) {
     try {
@@ -459,6 +507,7 @@ function seedDescribeRegion(comp, layer) {
         height: rect.height,
         aspect: base[1] > 0 ? base[0] / base[1] : 1,
         locked: seedAspectLocked(layer),
+        contained: seedContained(layer),
         hasComp: sub !== null,
         composited: seedFindComposite(comp, layer.name) !== null
     };
@@ -557,13 +606,39 @@ function seedSetRegionAspect(regionName, aspect) {
             // rather than leave the old one distorting it.
             region.property("Transform").property("Scale").setValue([100, 100]);
             seedApplyAspectLock(region, true);
+            if (seedContained(region)) {
+                seedApplyContain(region, true, [rect.width, height]);
+            }
         } else {
             shape.property("Size").setValue([rect.width, rect.height]);
             region.property("Transform").property("Scale").setValue([100, 100]);
             seedApplyAspectLock(region, false);
+            if (seedContained(region)) {
+                seedApplyContain(region, true, [rect.width, rect.height]);
+            }
         }
 
         app.endUndoGroup();
+        return seedOk({ region: seedDescribeRegion(comp, region) });
+    } catch (error) {
+        try { app.endUndoGroup(); } catch (ignored) {}
+        return seedFail(error);
+    }
+}
+
+/** Holds a region inside the comp, or lets it roam. */
+function seedSetRegionContain(regionName, contained) {
+    try {
+        var comp = seedActiveComp();
+        if (!comp) return seedFail("no active composition");
+
+        var region = seedRegionByName(comp, regionName);
+        if (!region) return seedFail("no region named " + regionName);
+
+        app.beginUndoGroup("SEED: region containment");
+        seedApplyContain(region, contained === true, seedRegionBaseSize(region));
+        app.endUndoGroup();
+
         return seedOk({ region: seedDescribeRegion(comp, region) });
     } catch (error) {
         try { app.endUndoGroup(); } catch (ignored) {}
@@ -951,6 +1026,7 @@ var seedAeft_import = seedImport;
 var seedAeft_insertAtPlayhead = seedInsertAtPlayhead;
 var seedAeft_createRegion = seedCreateRegion;
 var seedAeft_setRegionAspect = seedSetRegionAspect;
+var seedAeft_setRegionContain = seedSetRegionContain;
 var seedAeft_listRegions = seedListRegions;
 var seedAeft_captureRegion = seedCaptureRegion;
 var seedAeft_insertRegion = seedInsertRegion;
