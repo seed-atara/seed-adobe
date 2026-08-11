@@ -62,7 +62,62 @@ in until then, and every product feature is already testable against it.
 - Adobe Community — CEP / UXP roadmap discussions:
   https://community.adobe.com/t5/after-effects-discussions/uxp-for-after-effects/td-p/13360660
 
-## Premiere frame capture: four routes, all wrong, none complaining
+## Premiere frame capture: the answer is PProPanel
+
+Adobe's own CEP sample has a working single-frame export,
+`exportCurrentFrameAsPNG` in `PProPanel/jsx/PPRO/Premiere.jsx`, and it is the
+implementation the Adobe forums point people at. It uses Media Encoder rather
+than the QE DOM.
+
+```js
+var currentTime = seq.getPlayerPosition();
+var oldInPoint  = seq.getInPointAsTime();
+var oldOutPoint = seq.getOutPointAsTime();
+
+seq.setInPoint(currentTime.seconds);          // seconds, not ticks
+seq.setOutPoint(currentTime.seconds + 0.033); // one frame
+
+var jobID = app.encoder.encodeSequence(
+    seq, outputFileName, presetPath,
+    app.encoder.ENCODE_IN_TO_OUT,
+    removeUponCompletion,      // 1
+    startQueueImmediately);    // the sixth argument
+
+seq.setInPoint(oldInPoint.seconds);
+seq.setOutPoint(oldOutPoint.seconds);
+```
+
+SEED differed from this in three ways, each enough on its own to produce a
+first-frame export that reported success:
+
+1. **In/out were set in ticks.** A guess, and wrong — the sample passes
+   seconds. (The guess was made *because* seconds appeared not to work, which
+   it did not, for reason 2.)
+2. **`encodeSequence` was called with five arguments.** It takes six. The
+   missing one says whether to start the queue.
+3. **The range was restored in a `finally`**, which on the direct route ran
+   before the encoder had read the sequence. The sample restores immediately
+   after the call, which is safe.
+
+Also worth knowing, from the same research: on Premiere 25.3+ the QE
+`exportFramePNG` appends a **second `.png`** to the filename, so code that looks
+for the path it asked for finds nothing and concludes the call silently failed.
+Watching the folder rather than one exact path avoids this.
+
+### The routes that do not work
+
+Kept because knowing what fails is worth as much as knowing what works:
+
+| route | result |
+|---|---|
+| `qe…exportFramePNG(timecode, path)` | "Unknown error exception" |
+| `qe…exportFramePNG(path)` | no error, no file at the path asked for (see the double-extension bug) |
+| `sequence.exportAsMediaDirect(path, preset, n)` | "Unable to initialize export!" for every work-area constant and both path forms |
+
+After Effects capture is unaffected: `CompItem.saveFrameToPng` is documented,
+synchronous, and correct.
+
+## Superseded: four routes, all wrong, none complaining
 
 Frame capture is disabled in Premiere. Every route returns the **first frame of
 the sequence** regardless of the playhead, and every one reports success.

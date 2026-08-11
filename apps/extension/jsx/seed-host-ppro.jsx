@@ -372,71 +372,24 @@ function seedExportViaQE(sequence, targetPath, trace) {
 var SEED_WORK_AREA_TYPES = [1, 0, 2];
 
 /** Sets in/out defensively — builds differ on whether they want a number. */
+/**
+ * Sets the sequence in/out, in seconds.
+ *
+ * Seconds is what the API wants, on the authority of Adobe's own PProPanel
+ * sample, which writes `seq.setInPoint(currentTime.seconds)`. An earlier guess
+ * here that the call took ticks was wrong and made things worse.
+ */
 function seedSetInOut(sequence, inSeconds, outSeconds, trace) {
-    /*
-     * Premiere measures in ticks, not seconds — and setInPoint accepts a
-     * number of seconds without complaint, treating it as ticks. Ten seconds
-     * becomes ten ticks, which is 0.00000004s, which is frame zero. Every
-     * capture came back as the first frame of the sequence and nothing ever
-     * reported an error.
-     *
-     * So the value is written and then read back. Whichever form the build
-     * actually wants is the one that survives the round trip; guessing is what
-     * produced the silent failure in the first place.
-     */
-    // Some builds expose setters that name their unit; prefer those.
-    if (typeof sequence.setInPointAsTicks === "function") {
-        try {
-            sequence.setInPointAsTicks(String(Math.round(inSeconds * SEED_TICKS_PER_SECOND)));
-            sequence.setOutPointAsTicks(String(Math.round(outSeconds * SEED_TICKS_PER_SECOND)));
-            trace.push("in/out set via setInPointAsTicks");
-            return true;
-        } catch (tickError) {
-            trace.push("setInPointAsTicks threw: " + tickError);
-        }
+    try {
+        sequence.setInPoint(inSeconds);
+        sequence.setOutPoint(outSeconds);
+        return true;
+    } catch (error) {
+        trace.push("could not set in/out: " + error);
+        return false;
     }
-
-    var forms = [
-        ["ticks (string)", function (seconds) {
-            return String(Math.round(seconds * SEED_TICKS_PER_SECOND));
-        }],
-        ["ticks (number)", function (seconds) {
-            return Math.round(seconds * SEED_TICKS_PER_SECOND);
-        }],
-        ["seconds", function (seconds) { return seconds; }],
-        ["seconds (string)", function (seconds) { return String(seconds); }]
-    ];
-
-    for (var i = 0; i < forms.length; i++) {
-        var label = forms[i][0];
-        var encode = forms[i][1];
-        try {
-            sequence.setInPoint(encode(inSeconds));
-            sequence.setOutPoint(encode(outSeconds));
-        } catch (error) {
-            continue;
-        }
-
-        // Believe the sequence, not the call.
-        try {
-            var landed = Number(sequence.getInPoint().seconds);
-            if (Math.abs(landed - inSeconds) < 0.05) {
-                if (i > 0) trace.push("in/out set as " + label);
-                return true;
-            }
-        } catch (readError) {
-            // Cannot verify; assume the first form that did not throw.
-            trace.push("in/out set as " + label + ", unverified");
-            return true;
-        }
-    }
-
-    trace.push(
-        "could not set the in point to " + inSeconds.toFixed(2) + "s — the " +
-            "export will cover the whole sequence rather than that frame"
-    );
-    return false;
 }
+
 
 
 /** Premiere reports failure by returning an error object, not by throwing. */
@@ -544,6 +497,25 @@ function seedExportViaPreset(sequence, folder, presetPath, seconds, fps, trace) 
  * Slower and it launches AME, but it is a different code path from the direct
  * exporter and can succeed where that one refuses to initialise.
  */
+/**
+ * Route 1: Media Encoder, the way Adobe's own panel does it.
+ *
+ * This mirrors `exportCurrentFrameAsPNG` in the PProPanel sample, which is the
+ * sanctioned way to get one frame out of a sequence and the reference the
+ * Adobe forums point at. Earlier attempts here differed from it in three ways,
+ * each enough on its own to produce a first-frame export that reported
+ * success:
+ *
+ *   - in/out were set in ticks after a wrong guess about the units. The sample
+ *     passes seconds.
+ *   - encodeSequence was called with five arguments. It takes six; the missing
+ *     one says whether to start the queue.
+ *   - the in/out were restored in a `finally`, which on the direct route runs
+ *     before Media Encoder has read the sequence.
+ *
+ * The range is restored immediately after the call, exactly as the sample
+ * does — the encoder has taken what it needs by then.
+ */
 function seedExportViaEncoder(sequence, folder, presetPath, seconds, fps, trace) {
     if (!app.encoder || typeof app.encoder.encodeSequence !== "function") {
         trace.push("AME: app.encoder.encodeSequence is unavailable");
@@ -553,44 +525,63 @@ function seedExportViaEncoder(sequence, folder, presetPath, seconds, fps, trace)
     var startedAt = new Date().getTime() - 2000;
     var target = seedNormalizePath(folder.fsName) + "/seed_ame_" + startedAt + ".png";
 
+    var previousIn = null;
+    var previousOut = null;
+    try {
+        previousIn = sequence.getInPointAsTime();
+        previousOut = sequence.getOutPointAsTime();
+    } catch (error) {
+        trace.push("AME: could not read the existing in/out");
+    }
+
     try {
         if (typeof app.encoder.launchEncoder === "function") app.encoder.launchEncoder();
-        var frameSeconds = fps > 0 ? 1 / fps : 0.04;
+
+        // One frame long. The sample uses a flat 0.033s; the sequence's own
+        // frame duration is the same idea without assuming 30fps.
+        var frameSeconds = fps > 0 ? 1 / fps : 0.033;
         seedSetInOut(sequence, seconds, seconds + frameSeconds, trace);
 
-        /*
-         * The work-area constant is read from app.encoder where the build
-         * exposes it. Assuming 1 means in-to-out is exactly the sort of guess
-         * that produced a first-frame capture: if the constant is wrong, AME
-         * encodes the whole sequence and a still exporter writes frame zero,
-         * with nothing anywhere reporting a problem.
-         */
-        var inToOut = 1;
-        if (typeof app.encoder.ENCODE_IN_TO_OUT === "number") {
-            inToOut = app.encoder.ENCODE_IN_TO_OUT;
-        }
-        trace.push("AME: work area constant " + inToOut +
-            (typeof app.encoder.ENCODE_IN_TO_OUT === "number" ? " (from app.encoder)" : " (assumed)"));
+        var inToOut = typeof app.encoder.ENCODE_IN_TO_OUT === "number"
+            ? app.encoder.ENCODE_IN_TO_OUT
+            : 1;
 
-        // What the sequence is actually holding, as opposed to what we asked for.
         try {
-            trace.push("AME: sequence in=" + Number(sequence.getInPoint().seconds).toFixed(3) +
-                "s out=" + Number(sequence.getOutPoint().seconds).toFixed(3) +
-                "s, wanted " + seconds.toFixed(3) + "s");
+            trace.push("AME: in=" + Number(sequence.getInPointAsTime().seconds).toFixed(3) +
+                "s out=" + Number(sequence.getOutPointAsTime().seconds).toFixed(3) +
+                "s (wanted " + seconds.toFixed(3) + "s), mode " + inToOut);
         } catch (readError) {
-            trace.push("AME: could not read back in/out");
+            trace.push("AME: could not read back the range");
         }
 
-        // (sequence, outputPath, presetPath, workAreaType, removeOnCompletion)
-        var jobId = app.encoder.encodeSequence(sequence, target, presetPath, inToOut, 0);
+        // (sequence, outputPath, preset, workAreaType, removeUponCompletion,
+        //  startQueueImmediately) — six, not five.
+        var jobId = app.encoder.encodeSequence(
+            sequence,
+            target,
+            presetPath,
+            inToOut,
+            1,
+            true
+        );
         trace.push("AME: encodeSequence returned " + String(jobId));
-        if (typeof app.encoder.startBatch === "function") app.encoder.startBatch();
     } catch (error) {
         trace.push("AME: encodeSequence threw: " + error);
         return null;
+    } finally {
+        // Put the editor's own range back straight away, as the sample does.
+        if (previousIn !== null && previousOut !== null) {
+            try {
+                sequence.setInPoint(Number(previousIn.seconds));
+                sequence.setOutPoint(Number(previousOut.seconds));
+            } catch (restoreError) {
+                trace.push("AME: could not restore the in/out");
+            }
+        }
     }
 
-    // AME is a separate application; give it longer than the direct exporter.
+    // Media Encoder is a separate application, and it may add its own
+    // extension, so the folder is watched rather than one exact path.
     var written = null;
     for (var wait = 0; wait < 600 && !written; wait++) {
         $.sleep(100);
@@ -599,6 +590,7 @@ function seedExportViaEncoder(sequence, folder, presetPath, seconds, fps, trace)
     if (!written) trace.push("AME: nothing appeared within 60s");
     return written;
 }
+
 
 /**
  * Exports the frame under the playhead.
@@ -656,17 +648,27 @@ function seedCaptureFrame(outputDir, basename, presetPath) {
             trace.push("could not move the playhead: " + moveError);
         }
 
-        var written = seedExportViaQE(sequence, targetPath, trace);
-        var route = "qe";
+        /*
+         * Media Encoder first: it is what Adobe's own panel uses, so it is the
+         * route most likely to be right. The others are fallbacks for builds
+         * where it is unavailable, and both were arrived at by guesswork.
+         */
+        var written = null;
+        var route = "ame";
+        if (presetPath) {
+            written = seedExportViaEncoder(sequence, folder, presetPath, seconds, fps, trace);
+        } else {
+            trace.push("no still preset configured, so Media Encoder cannot be used");
+        }
+
+        if (!written) {
+            written = seedExportViaQE(sequence, targetPath, trace);
+            route = "qe";
+        }
 
         if (!written && presetPath) {
             written = seedExportViaPreset(sequence, folder, presetPath, seconds, fps, trace);
             route = "preset";
-        }
-
-        if (!written && presetPath) {
-            written = seedExportViaEncoder(sequence, folder, presetPath, seconds, fps, trace);
-            route = "ame";
         }
 
         if (!written) {

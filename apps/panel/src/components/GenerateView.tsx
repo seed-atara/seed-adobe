@@ -321,38 +321,16 @@ export function GenerateView({
     <>
       <section className="section">
         <SectionLabel>source</SectionLabel>
+        <button className="btn primary wide" onClick={onCapture} disabled={busy}>
+          Capture current frame
+        </button>
         {host === "PPRO" ? (
-          /*
-           * Premiere's frame export is disabled rather than left to fail
-           * quietly. Four routes were tried and every one returned the first
-           * frame of the sequence while reporting success — a button that
-           * hands back the wrong frame and calls it done is worse than no
-           * button, because the mistake is only visible much later.
-           */
-          <>
-            <div className="hint faint" style={{ marginBottom: 6 }}>
-              Premiere's own <b>Export Frame</b> (Ctrl+Shift+E) gets the right
-              frame where every scripted route gets the first one. Export into
-              the SEED folder, then pick it up here.
-            </div>
-            <button
-              className="btn primary wide"
-              onClick={onPickupFrame}
-              disabled={busy}
-            >
-              Pick up exported frame
-            </button>
-            {originalsDir ? (
-              <div className="hint faint mono" style={{ marginTop: 4, wordBreak: "break-all" }}>
-                {originalsDir}
-              </div>
-            ) : null}
-          </>
-        ) : (
-          <button className="btn primary wide" onClick={onCapture} disabled={busy}>
-            Capture current frame
-          </button>
-        )}
+          <div className="hint faint" style={{ marginTop: 6 }}>
+            Premiere renders the frame through Media Encoder, so give it a few
+            seconds. Export Frame (Ctrl+Shift+E) plus Pick up is still there if
+            this build refuses.
+          </div>
+        ) : null}
         {referencesFull ? (
           <div className="hint faint" style={{ marginTop: 6 }}>
             {provider?.displayName} accepts {provider?.maxImageReferences}{" "}
