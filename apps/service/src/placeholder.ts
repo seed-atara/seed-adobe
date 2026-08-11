@@ -61,13 +61,26 @@ export async function ensurePlaceholder(
   workspace: WorkspaceLayout,
   width = 1920,
   height = 1080,
+  tag?: string,
 ): Promise<string> {
   // Bounded: this is a card, not a deliverable, and an absurd request for one
   // should not become an absurd allocation.
   const w = Math.min(Math.max(Math.round(width) || 1920, 16), 4096);
   const h = Math.min(Math.max(Math.round(height) || 1080, 16), 4096);
 
-  const target = path.join(workspace.root, `seed-pending-${w}x${h}.png`);
+  /*
+   * A tag gives each reservation its own file, and that matters more than it
+   * looks: importing one path twice can hand back the same project item, and
+   * Premiere swaps media by pointing an item at a new file — so two
+   * placeholders sharing an item would fill together, the second render
+   * replacing the first.
+   */
+  const safe = (tag ?? "").replace(/[^A-Za-z0-9_-]+/g, "").slice(0, 24);
+  const name = safe
+    ? `seed-pending-${w}x${h}-${safe}.png`
+    : `seed-pending-${w}x${h}.png`;
+
+  const target = path.join(workspace.root, name);
   if (!existsSync(target)) await writeFile(target, paint(w, h));
   return target;
 }

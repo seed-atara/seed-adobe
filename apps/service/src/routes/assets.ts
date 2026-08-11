@@ -103,7 +103,10 @@ export function placeholderRoute(deps: AppDeps) {
   return async ({ url }: RequestContext) => {
     const width = Number(url.searchParams.get("width")) || 1920;
     const height = Number(url.searchParams.get("height")) || 1080;
-    return json({ path: await ensurePlaceholder(deps.workspace, width, height) });
+    const tag = url.searchParams.get("tag") ?? undefined;
+    return json({
+      path: await ensurePlaceholder(deps.workspace, width, height, tag),
+    });
   };
 }
 

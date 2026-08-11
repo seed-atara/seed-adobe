@@ -490,7 +490,8 @@ export class CepAeBridge {
   ): Promise<PlaceholderHandle> {
     await this.ensureHost();
     // Shaped like the render, so the artist frames against the real thing.
-    const { path } = await this.client.placeholder(width, height);
+    // Its own file, so two reservations cannot end up sharing a project item.
+    const { path } = await this.client.placeholder(width, height, label);
     const reserved = await evalHost<PlaceholderHandle>(
       `${hostPrefix()}reservePlaceholder(${quote(path)}, ${durationSeconds}, ${quote(label)})`,
     );

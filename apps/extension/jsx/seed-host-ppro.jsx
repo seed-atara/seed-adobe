@@ -997,7 +997,7 @@ function seedInsertAtPlayhead(projectItemId, insertedWidth) {
          * clip is rarely the sequence's exact size, and left alone it sits in
          * the middle of it with black around the edges.
          */
-        var placed = seedFindPlaceholderClip(sequence, chosenIndex, from);
+        var placed = seedFindPlaceholderClip(sequence, chosenIndex, from, null);
         if (placed) {
             var frameWidth = Number(sequence.frameSizeHorizontal) || 0;
             var mediaWidth = Number(insertedWidth) || 0;
@@ -1142,8 +1142,37 @@ function seedSetClipScale(clip, percent) {
     return false;
 }
 
-/** The clip a placeholder was reserved as, found by where it sits. */
-function seedFindPlaceholderClip(sequence, trackIndex, startSeconds) {
+/**
+ * The clip a placeholder was reserved as.
+ *
+ * Found by name first, across every track. Reserved space is there to be
+ * worked with — moved, trimmed, slid against the shot before it — and a
+ * placeholder identified by where it was originally put stops being findable
+ * the moment the artist does any of that. The project item carries the label,
+ * and dragging a clip does not rename it.
+ *
+ * Position is the fallback, for a placeholder made before this and for anything
+ * that has lost its name.
+ */
+function seedFindPlaceholderClip(sequence, trackIndex, startSeconds, label) {
+    if (label) {
+        for (var t = 0; t < sequence.videoTracks.numTracks; t++) {
+            var searched = sequence.videoTracks[t];
+            for (var c = 0; c < searched.clips.numItems; c++) {
+                var candidate = searched.clips[c];
+                try {
+                    var name = String(candidate.projectItem.name);
+                    if (name.indexOf(SEED_PENDING_PREFIX) === 0 &&
+                        name.indexOf(label) !== -1) {
+                        return candidate;
+                    }
+                } catch (error) {
+                    // A clip without a readable item is not the one.
+                }
+            }
+        }
+    }
+
     if (trackIndex < 0 || trackIndex >= sequence.videoTracks.numTracks) return null;
     var track = sequence.videoTracks[trackIndex];
     for (var i = 0; i < track.clips.numItems; i++) {
@@ -1194,7 +1223,7 @@ function seedReservePlaceholder(placeholderPath, durationSeconds, label) {
         }
 
         chosen.overwriteClip(item, from);
-        var clip = seedFindPlaceholderClip(sequence, chosenIndex, from);
+        var clip = seedFindPlaceholderClip(sequence, chosenIndex, from, null);
         if (clip) {
             try {
                 // Clip ends are Time objects; ticks is the durable unit.
@@ -1234,9 +1263,14 @@ function seedFillPlaceholder(trackIndex, startSeconds, mediaPath, label, cardWid
         var file = new File(seedNormalizePath(mediaPath));
         if (!file.exists) return seedFail("file not found: " + mediaPath);
 
-        var clip = seedFindPlaceholderClip(sequence, trackIndex, Number(startSeconds));
+        var clip = seedFindPlaceholderClip(
+            sequence, trackIndex, Number(startSeconds), label
+        );
         if (!clip) {
-            return seedFail("the placeholder for " + label + " is no longer there");
+            return seedFail(
+                "could not find the placeholder for " + label + " — it may have " +
+                    "been deleted, or its clip renamed"
+            );
         }
 
         var swapped = false;
@@ -1318,7 +1352,9 @@ function seedFailPlaceholder(trackIndex, startSeconds, message, label) {
         var sequence = seedActiveSequence();
         if (!sequence) return seedFail(seedNoSequenceMessage());
 
-        var clip = seedFindPlaceholderClip(sequence, trackIndex, Number(startSeconds));
+        var clip = seedFindPlaceholderClip(
+            sequence, trackIndex, Number(startSeconds), label
+        );
         if (!clip) return seedOk({ name: null });
 
         try {

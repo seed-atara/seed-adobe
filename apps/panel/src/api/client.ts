@@ -216,10 +216,14 @@ export class SeedClient {
   }
 
   /** The stand-in card, in the shape the render will be. */
-  placeholder(width: number, height: number): Promise<{ path: string }> {
-    return this.request(
-      `/v1/placeholder?width=${Math.round(width)}&height=${Math.round(height)}`,
-    );
+  placeholder(
+    width: number,
+    height: number,
+    tag?: string,
+  ): Promise<{ path: string }> {
+    const query = `width=${Math.round(width)}&height=${Math.round(height)}` +
+      (tag ? `&tag=${encodeURIComponent(tag)}` : "");
+    return this.request(`/v1/placeholder?${query}`);
   }
 
   private async request<T>(
