@@ -391,8 +391,26 @@ is not a thing to leave on by accident.
 
 ## Why a generated frame does not match its plate (2026-08-11)
 
-**The returned MP4 carries no colour signalling at all.** Two Seedance 2.0
-results were checked and neither has a `colr` box:
+**The returned MP4 carries no colour signalling at all** — not in the container,
+and not in the bitstream either. Measured with `scripts/inspect-video-color.ts`,
+which parses the H.264 SPS as well as the MP4 boxes, because a file can be
+silent in one and explicit in the other and decoders read the bitstream:
+
+```
+seedance-2-0_5c9dd95c_00.mp4   container: no colr box
+                               bitstream: profile 100, level 3.1, 4:2:0 8-bit
+                                          no video_signal_type — range and
+                                          colour both unstated
+```
+
+Identical across three clips. ByteDance publishes no specification for any of
+it; the only stated fact is H.264 at 24fps.
+
+So **the answer to "what colour space does Seedance return" is: it does not
+say.** Which means every consumer assumes, and for 8-bit HD H.264 they all
+assume the same thing — BT.709 primaries and transfer, limited range 16–235.
+
+The original observation, kept because it is the shorter version:
 
 ```
 seedance-2-0_15ba53a5_00.mp4  — no colr box
