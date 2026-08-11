@@ -1270,3 +1270,38 @@ pre.raw {
   height: 100%;
   background: var(--title-2);
 }
+
+/* --- context menu ---------------------------------------------------------
+   Positioned at the pointer, so it reads as belonging to what was clicked. */
+
+.ctx-menu {
+  position: fixed;
+  z-index: 60;
+  margin: 0;
+  padding: 2px;
+  list-style: none;
+  min-width: 180px;
+  background: var(--face);
+  border: 2px solid;
+  border-color: var(--white) var(--black) var(--black) var(--white);
+  box-shadow: inset -1px -1px 0 var(--shadow), inset 1px 1px 0 var(--face-light),
+    2px 2px 0 rgba(0, 0, 0, 0.35);
+}
+
+.ctx-menu button {
+  display: block;
+  width: 100%;
+  padding: 3px var(--gap-sm);
+  border: none;
+  background: none;
+  font-family: var(--ui);
+  font-size: 11px;
+  text-align: left;
+  white-space: nowrap;
+  cursor: default;
+}
+
+.ctx-menu button:hover {
+  background: var(--selection);
+  color: var(--selection-text);
+}

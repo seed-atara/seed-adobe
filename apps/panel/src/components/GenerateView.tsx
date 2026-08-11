@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import type { Asset, ComposedPlan, GenerationOperation } from "@seed-ae/domain";
 import type { AeRegion } from "../api/cep.ts";
+import { assetToken } from "../mentions.ts";
 import {
   aspectOf,
   closestAspect,
@@ -148,6 +149,7 @@ export function GenerateView({
 }: Props) {
   const [directingFor, setDirectingFor] = useState(0);
   const [now, setNow] = useState(() => Date.now());
+  const [refMenu, setRefMenu] = useState<{ x: number; y: number; asset: Asset }>();
 
   const provider = providers.find((item) => item.id === form.providerId);
   const references = form.inputAssetIds
@@ -195,6 +197,34 @@ export function GenerateView({
     });
   };
 
+  /** Adds the token to the prompt, so a reference can be named by pointing. */
+  const insertToken = (asset: Asset) => {
+    const token = `@${assetToken(asset)}`;
+    const prompt = form.prompt.trimEnd();
+    patch({ prompt: prompt ? `${prompt} ${token} ` : `${token} ` });
+  };
+
+  /**
+   * Puts the token on the clipboard.
+   *
+   * execCommand rather than the async clipboard API: a CEP panel is not a
+   * secure context by the browser's reckoning, so navigator.clipboard is not
+   * reliably available there.
+   */
+  const copyToken = (asset: Asset) => {
+    const field = document.createElement("textarea");
+    field.value = `@${assetToken(asset)}`;
+    field.style.position = "fixed";
+    field.style.opacity = "0";
+    document.body.appendChild(field);
+    field.select();
+    try {
+      document.execCommand("copy");
+    } finally {
+      document.body.removeChild(field);
+    }
+  };
+
   const patchRegion = (changes: Partial<RegionSettings>) => {
     if (region && onRegionChange) onRegionChange({ ...region, ...changes });
   };
@@ -217,6 +247,17 @@ export function GenerateView({
    * so elapsed time is the only real signal there is. It has to tick on its
    * own: nothing else changes between the start and the end of a render.
    */
+  useEffect(() => {
+    if (!refMenu) return;
+    const dismiss = () => setRefMenu(undefined);
+    window.addEventListener("click", dismiss);
+    window.addEventListener("contextmenu", dismiss);
+    return () => {
+      window.removeEventListener("click", dismiss);
+      window.removeEventListener("contextmenu", dismiss);
+    };
+  }, [refMenu]);
+
   useEffect(() => {
     if (!running) return;
     const timer = setInterval(() => setNow(Date.now()), 1000);
@@ -510,7 +551,15 @@ export function GenerateView({
         ) : null}
         <div className="ref-row">
           {references.map((asset, index) => (
-            <div className="ref" key={asset.id}>
+            <div
+              className="ref"
+              key={asset.id}
+              onContextMenu={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                setRefMenu({ x: event.clientX, y: event.clientY, asset });
+              }}
+            >
               <AssetImage client={client} asset={asset} variant="thumbnail" />
               <span className="ref-index mono">{index + 1}</span>
               <button
@@ -850,6 +899,35 @@ export function GenerateView({
           {running ? "Generating…" : "Generate"}
         </button>
       </section>
+
+      {refMenu ? (
+        <ul
+          className="ctx-menu"
+          style={{ left: refMenu.x, top: refMenu.y }}
+          onClick={(event) => event.stopPropagation()}
+        >
+          <li>
+            <button
+              onClick={() => {
+                insertToken(refMenu.asset);
+                setRefMenu(undefined);
+              }}
+            >
+              Insert @{assetToken(refMenu.asset)} into the prompt
+            </button>
+          </li>
+          <li>
+            <button
+              onClick={() => {
+                copyToken(refMenu.asset);
+                setRefMenu(undefined);
+              }}
+            >
+              Copy @{assetToken(refMenu.asset)}
+            </button>
+          </li>
+        </ul>
+      ) : null}
 
       {jobs.length > 0 ? (
         <section className="section">
