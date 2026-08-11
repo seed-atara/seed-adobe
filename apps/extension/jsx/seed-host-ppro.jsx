@@ -1202,6 +1202,21 @@ function seedFillPlaceholder(trackIndex, startSeconds, mediaPath, label) {
                 swapped = (result === 0 || result === true);
                 if (swapped) {
                     try { clip.projectItem.name = file.name; } catch (nameError) {}
+                    /*
+                     * The clip keeps the scale that suited the card, and the
+                     * render is rarely the same size — the card could only ever
+                     * be a prediction of what the model would return. Scaling
+                     * the item to the frame puts it back to pixel-for-pixel,
+                     * which is what it would have been had it been inserted
+                     * fresh.
+                     */
+                    try {
+                        if (typeof clip.projectItem.setScaleToFrameSize === "function") {
+                            clip.projectItem.setScaleToFrameSize();
+                        }
+                    } catch (scaleError) {
+                        // Framing is recoverable by hand; the swap is not.
+                    }
                 }
             }
         } catch (swapError) {

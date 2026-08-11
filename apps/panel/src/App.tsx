@@ -50,6 +50,8 @@ const sessionStartedAt = Date.now();
 function expectedShape(
   form: GenerateForm,
   assets: Asset[],
+  compWidth: number,
+  compHeight: number,
 ): { width: number; height: number } {
   const HEIGHTS: Record<string, number> = {
     "480p": 480,
@@ -69,7 +71,22 @@ function expectedShape(
     if (w && h) aspect = w / h;
   }
 
-  return { width: Math.round(height * (aspect ?? 16 / 9)), height };
+  let width = Math.round(height * (aspect ?? 16 / 9));
+
+  /*
+   * Fitted inside the comp so the card sits at 100% and shows its true shape.
+   * A card larger than the frame is scaled by the host on arrival, and that
+   * scale then has to be undone when the render swaps in.
+   */
+  if (compWidth > 0 && compHeight > 0) {
+    const fit = Math.min(compWidth / width, compHeight / height);
+    if (fit < 1) {
+      width = Math.round(width * fit);
+      height = Math.round(height * fit);
+    }
+  }
+
+  return { width, height };
 }
 
 
@@ -753,7 +770,12 @@ export function App() {
         const seconds = Number(form.durationSeconds) || 5;
         try {
           if (job) {
-            const shape = expectedShape(form, assets);
+            const shape = expectedShape(
+              form,
+              assets,
+              Number(aeContext.width) || 0,
+              Number(aeContext.height) || 0,
+            );
             const handle = await bridge.reservePlaceholder(
               job.job.id.slice(0, 12),
               seconds,

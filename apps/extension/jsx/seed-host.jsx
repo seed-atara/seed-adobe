@@ -1075,11 +1075,26 @@ function seedFillPlaceholder(label, mediaPath) {
         var item = app.project.importFile(new ImportOptions(file));
         item.parentFolder = seedProjectFolder();
 
-        // The layer keeps its own timing, effects and keyframes; only what it
-        // is showing changes.
+        /*
+         * Swapping the source keeps the layer's scale, which was right for the
+         * card and is wrong for the render: the two are rarely the same size,
+         * because the model returns what it returns and the card could only be
+         * a prediction. So the scale is corrected by exactly the ratio between
+         * them, which fixes the swap while keeping any scaling the artist did
+         * while they waited.
+         */
+        var before = layer.source ? layer.source.width : 0;
+
         layer.replaceSource(item, false);
         layer.name = item.name;
         layer.label = 0;
+
+        if (before > 0 && item.width > 0 && before !== item.width) {
+            var scale = layer.property("Transform").property("Scale");
+            var was = scale.value;
+            var factor = before / item.width;
+            scale.setValue([was[0] * factor, was[1] * factor]);
+        }
 
         app.endUndoGroup();
         return seedOk({
