@@ -88,6 +88,18 @@ interface Props {
   onInsertRegion?: () => void;
 }
 
+/** Whether the provider is reporting real movement, rather than 0 or 1. */
+function moving(progress: number | undefined): boolean {
+  return typeof progress === "number" && progress > 0 && progress < 1;
+}
+
+/** How long a job has been going, in the units a person would say it in. */
+function elapsed(createdAt: string, now: number): string {
+  const seconds = Math.max(0, Math.round((now - new Date(createdAt).getTime()) / 1000));
+  if (seconds < 90) return `${seconds}s`;
+  return `${Math.floor(seconds / 60)}m ${String(seconds % 60).padStart(2, "0")}s`;
+}
+
 /** Moves one entry, leaving the rest in order. */
 function move(ids: string[], index: number, by: number): string[] {
   const next = [...ids];
@@ -127,6 +139,7 @@ export function GenerateView({
   onInsertRegion,
 }: Props) {
   const [directingFor, setDirectingFor] = useState(0);
+  const [now, setNow] = useState(() => Date.now());
 
   const provider = providers.find((item) => item.id === form.providerId);
   const references = form.inputAssetIds
@@ -190,6 +203,17 @@ export function GenerateView({
   const running = jobs.some(
     (entry) => entry.job.status === "queued" || entry.job.status === "running",
   );
+
+  /*
+   * Renders take minutes and the provider reports no progress along the way,
+   * so elapsed time is the only real signal there is. It has to tick on its
+   * own: nothing else changes between the start and the end of a render.
+   */
+  useEffect(() => {
+    if (!running) return;
+    const timer = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, [running]);
 
   /** Every finished result across the set, in the order they were started. */
   const results = jobs.flatMap((entry) => entry.outputs);
@@ -827,19 +851,32 @@ export function GenerateView({
                       />
                     </button>
                   ) : (
-                    <div
-                      className={`progress ${
-                        active && entry.job.progress === undefined
-                          ? "indeterminate"
-                          : ""
-                      }`}
-                    >
-                      <i
-                        style={{
-                          width: `${Math.round((entry.job.progress ?? 0) * 100)}%`,
-                        }}
-                      />
-                    </div>
+                    <>
+                      {/*
+                        Seedance reports 0 until it is finished, so a
+                        determinate bar sits empty and motionless for minutes —
+                        which reads as a hung job. A bar is only determinate
+                        when the provider is actually reporting movement.
+                      */}
+                      <div
+                        className={`progress ${
+                          active && !moving(entry.job.progress)
+                            ? "indeterminate"
+                            : ""
+                        }`}
+                      >
+                        <i
+                          style={{
+                            width: `${Math.round((entry.job.progress ?? 0) * 100)}%`,
+                          }}
+                        />
+                      </div>
+                      {active ? (
+                        <div className="hint faint" style={{ marginTop: 2 }}>
+                          {elapsed(entry.job.createdAt, now)}
+                        </div>
+                      ) : null}
+                    </>
                   )}
 
                   {entry.job.errorMessage ? (
