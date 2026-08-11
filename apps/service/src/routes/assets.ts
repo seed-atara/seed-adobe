@@ -94,6 +94,20 @@ export function removeAssetRoute(deps: AppDeps) {
 }
 
 /**
+ * The card used to hold a cut open, in the shape the render will be.
+ *
+ * The host needs a real file on disk to place, and it has to be the right shape
+ * or the artist is framing against something that will not be there.
+ */
+export function placeholderRoute(deps: AppDeps) {
+  return async ({ url }: RequestContext) => {
+    const width = Number(url.searchParams.get("width")) || 1920;
+    const height = Number(url.searchParams.get("height")) || 1080;
+    return json({ path: await ensurePlaceholder(deps.workspace, width, height) });
+  };
+}
+
+/**
  * Absolute on-disk paths for the workspace.
  *
  * A CEP panel runs inside After Effects and drives it through ExtendScript, so

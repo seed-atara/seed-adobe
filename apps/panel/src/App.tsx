@@ -39,6 +39,41 @@ const SETTLED = ["succeeded", "failed", "cancelled"];
  */
 const sessionStartedAt = Date.now();
 
+/**
+ * The shape the render will come back in.
+ *
+ * A frame-anchored generation takes its shape from the first frame — the API
+ * refuses a ratio alongside one and says so — so the reference decides. Failing
+ * that the chosen aspect decides, and failing that it is 16:9. The height comes
+ * from the resolution keyword, since that is what the keyword means.
+ */
+function expectedShape(
+  form: GenerateForm,
+  assets: Asset[],
+): { width: number; height: number } {
+  const HEIGHTS: Record<string, number> = {
+    "480p": 480,
+    "720p": 720,
+    "1080p": 1080,
+    "2K": 1440,
+    "4K": 2160,
+  };
+  const height = HEIGHTS[form.size] ?? 1080;
+
+  const first = assets.find((asset) => asset.id === form.inputAssetIds[0]);
+  let aspect =
+    first?.width && first?.height ? first.width / first.height : undefined;
+
+  if (aspect === undefined && form.aspectRatio.includes(":")) {
+    const [w, h] = form.aspectRatio.split(":").map(Number);
+    if (w && h) aspect = w / h;
+  }
+
+  return { width: Math.round(height * (aspect ?? 16 / 9)), height };
+}
+
+
+
 const EMPTY_FORM: GenerateForm = {
   providerId: "",
   model: "",
@@ -247,40 +282,6 @@ export function App() {
           current.map((entry) => byId.get(entry.job.id) ?? entry),
         );
 
-        // Fill the space that was held, now there is something to put in it.
-        for (const entry of updated) {
-          const handle = placeholders.current.get(entry.job.id);
-          if (!handle || !bridge) continue;
-
-          if (entry.job.status === "succeeded" && entry.outputs[0]) {
-            placeholders.current.delete(entry.job.id);
-            try {
-              const filled = await bridge.fillPlaceholder(
-                handle,
-                entry.outputs[0].id,
-              );
-              setNotice(
-                `${filled.name} is in the timeline` +
-                  (filled.swapped === false
-                    ? " — the placeholder was replaced rather than swapped, so any trimming is gone."
-                    : "."),
-              );
-            } catch (cause) {
-              report(cause);
-            }
-          } else if (["failed", "cancelled"].includes(entry.job.status)) {
-            placeholders.current.delete(entry.job.id);
-            try {
-              await bridge.failPlaceholder(
-                handle,
-                entry.job.errorMessage ?? entry.job.status,
-              );
-            } catch {
-              // The placeholder staying put is the point; naming it is not.
-            }
-          }
-        }
-
         if (updated.some((entry) => entry.job.status === "succeeded")) {
           await refreshAssets();
           // Select the first result, and only the first: re-selecting on every
@@ -344,6 +345,48 @@ export function App() {
     },
     [client, refreshAssets, report],
   );
+
+  /**
+   * Fills reserved space once its render exists.
+   *
+   * Driven by the jobs themselves rather than by the polling tick. Polling
+   * stops the moment everything settles, so a fill attempted there is missed
+   * whenever the outputs arrive a beat after the status does — and then the
+   * placeholder sits in the timeline forever with the render sitting in the
+   * library beside it.
+   */
+  useEffect(() => {
+    if (!bridge || placeholders.current.size === 0) return;
+
+    for (const entry of jobs) {
+      const handle = placeholders.current.get(entry.job.id);
+      if (!handle) continue;
+
+      if (entry.job.status === "succeeded") {
+        const output = entry.outputs[0];
+        if (!output) continue; // the media is still being registered
+        placeholders.current.delete(entry.job.id);
+        void bridge
+          .fillPlaceholder(handle, output.id)
+          .then((filled) =>
+            setNotice(
+              `${filled.name} is in the timeline` +
+                (filled.swapped === false
+                  ? " — the placeholder was replaced rather than swapped, so any trimming is gone."
+                  : "."),
+            ),
+          )
+          .catch(report);
+      } else if (["failed", "cancelled"].includes(entry.job.status)) {
+        placeholders.current.delete(entry.job.id);
+        void bridge
+          .failPlaceholder(handle, entry.job.errorMessage ?? entry.job.status)
+          .catch(() => {
+            // The placeholder staying put is the point; naming it is not.
+          });
+      }
+    }
+  }, [jobs, bridge, report]);
 
   /**
    * Attaches a fresh capture, keeping only as many references as the provider
@@ -694,9 +737,12 @@ export function App() {
         const seconds = Number(form.durationSeconds) || 5;
         try {
           if (job) {
+            const shape = expectedShape(form, assets);
             const handle = await bridge.reservePlaceholder(
               job.job.id.slice(0, 12),
               seconds,
+              shape.width,
+              shape.height,
             );
             placeholders.current.set(job.job.id, handle);
             setNotice(

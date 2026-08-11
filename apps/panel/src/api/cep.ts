@@ -483,11 +483,14 @@ export class CepAeBridge {
   async reservePlaceholder(
     label: string,
     durationSeconds: number,
+    width: number,
+    height: number,
   ): Promise<PlaceholderHandle> {
     await this.ensureHost();
-    const { placeholder } = await this.client.workspace();
+    // Shaped like the render, so the artist frames against the real thing.
+    const { path } = await this.client.placeholder(width, height);
     const reserved = await evalHost<PlaceholderHandle>(
-      `${hostPrefix()}reservePlaceholder(${quote(placeholder)}, ${durationSeconds}, ${quote(label)})`,
+      `${hostPrefix()}reservePlaceholder(${quote(path)}, ${durationSeconds}, ${quote(label)})`,
     );
     return { ...reserved, label };
   }

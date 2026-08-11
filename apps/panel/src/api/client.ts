@@ -211,6 +211,13 @@ export class SeedClient {
     return this.request(`/v1/assets/${id}`, { method: "DELETE" });
   }
 
+  /** The stand-in card, in the shape the render will be. */
+  placeholder(width: number, height: number): Promise<{ path: string }> {
+    return this.request(
+      `/v1/placeholder?width=${Math.round(width)}&height=${Math.round(height)}`,
+    );
+  }
+
   private async request<T>(
     path: string,
     options: { method?: string; body?: unknown } = {},

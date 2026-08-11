@@ -34,6 +34,7 @@ import {
   getAssetRoute,
   listAssetsRoute,
   registerAssetRoute,
+  placeholderRoute,
   removeAssetRoute,
   workspaceRoute,
 } from "./routes/assets.js";
@@ -89,6 +90,7 @@ export function buildRouter(deps: AppDeps): Router {
     .get("/v1/assets/:id/lineage", lineageRoute(deps))
     .get("/v1/assets/:id/recipe", recipeRoute(deps))
     .get("/v1/workspace", workspaceRoute(deps))
+    .get("/v1/placeholder", placeholderRoute(deps))
     .get("/v1/providers", listProvidersRoute(deps))
     .post("/v1/agent/compose", composeRoute(deps))
     .post("/v1/generations", startGenerationRoute(deps))

@@ -18,11 +18,7 @@ import type { WorkspaceLayout } from "@seed-ae/storage";
  * has not arrived yet.
  */
 
-const WIDTH = 1920;
-const HEIGHT = 1080;
-const FILE_NAME = "seed-pending.png";
-
-function paint(): Buffer {
+function paint(WIDTH: number, HEIGHT: number): Buffer {
   const rgba = new Uint8Array(WIDTH * HEIGHT * 4);
 
   for (let y = 0; y < HEIGHT; y += 1) {
@@ -50,15 +46,28 @@ function paint(): Buffer {
 }
 
 /**
- * Writes the card once and returns its path.
+ * Writes the card for a given shape and returns its path.
  *
- * Kept in the workspace rather than a temp directory: a project that is reopened
- * tomorrow with a placeholder still in it should not find its media missing.
+ * Sized to the render it is standing in for, because a placeholder of the wrong
+ * shape is not holding the same space: a 16:9 card in the gap left by a square
+ * render is pillarboxed in one host and stretched in the other, and the artist
+ * frames against something that will not be there.
+ *
+ * One file per shape, cached by name. They are small, and a project reopened
+ * tomorrow with a placeholder still in it should not find its media missing —
+ * which is also why these live in the workspace rather than a temp directory.
  */
 export async function ensurePlaceholder(
   workspace: WorkspaceLayout,
+  width = 1920,
+  height = 1080,
 ): Promise<string> {
-  const target = path.join(workspace.root, FILE_NAME);
-  if (!existsSync(target)) await writeFile(target, paint());
+  // Bounded: this is a card, not a deliverable, and an absurd request for one
+  // should not become an absurd allocation.
+  const w = Math.min(Math.max(Math.round(width) || 1920, 16), 4096);
+  const h = Math.min(Math.max(Math.round(height) || 1080, 16), 4096);
+
+  const target = path.join(workspace.root, `seed-pending-${w}x${h}.png`);
+  if (!existsSync(target)) await writeFile(target, paint(w, h));
   return target;
 }
