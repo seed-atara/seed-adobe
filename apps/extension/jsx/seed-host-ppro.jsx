@@ -239,32 +239,53 @@ function seedExportViaQE(sequence, targetPath, trace) {
     }
 
     /*
-     * The argument form is undocumented and varies: some builds want the
-     * playhead timecode string, others the sequence time. Try both rather
-     * than declaring defeat on the first "Unknown error exception".
+     * The argument form is undocumented, and every attempt so far passed a
+     * time first — which may be the whole problem. The QE exporter most likely
+     * writes whatever the playhead is on and wants only a path; handing it a
+     * timecode as the first argument would produce exactly the "Unknown error
+     * exception" we kept getting.
+     *
+     * So the playhead is moved to the wanted frame first, and the path-only
+     * form is tried before any form that passes a time.
      */
     var attempts = [];
+    attempts.push(["path only", [targetPath]]);
+    attempts.push([
+        "path with size",
+        [targetPath, Number(sequence.frameSizeHorizontal) || 1920,
+            Number(sequence.frameSizeVertical) || 1080]
+    ]);
     try {
-        attempts.push(["CTI timecode", qeSequence.CTI.timecode]);
+        attempts.push(["CTI timecode first", [qeSequence.CTI.timecode, targetPath]]);
     } catch (ctiError) {
         trace.push("QE: could not read CTI timecode");
     }
     try {
-        attempts.push(["player position", String(sequence.getPlayerPosition().ticks)]);
+        attempts.push([
+            "ticks first",
+            [String(sequence.getPlayerPosition().ticks), targetPath]
+        ]);
     } catch (posError) {
         // optional
     }
 
     for (var a = 0; a < attempts.length; a++) {
+        var label = attempts[a][0];
+        var args = attempts[a][1];
         try {
-            qeSequence.exportFramePNG(attempts[a][1], targetPath);
+            if (args.length === 1) qeSequence.exportFramePNG(args[0]);
+            else if (args.length === 2) qeSequence.exportFramePNG(args[0], args[1]);
+            else qeSequence.exportFramePNG(args[0], args[1], args[2]);
         } catch (error) {
-            trace.push("QE: exportFramePNG(" + attempts[a][0] + ") threw: " + error);
+            trace.push("QE: " + label + " threw: " + error);
             continue;
         }
         var file = seedAwaitFile(targetPath);
-        if (file) return file;
-        trace.push("QE: " + attempts[a][0] + " reported no error but wrote no file");
+        if (file) {
+            trace.push("QE: wrote via " + label);
+            return file;
+        }
+        trace.push("QE: " + label + " reported no error but wrote no file");
     }
     return null;
 }
@@ -557,6 +578,23 @@ function seedCaptureFrame(outputDir, basename, presetPath) {
         } while (new File(targetPath).exists && attempt < 1000);
 
         var trace = [];
+
+        /*
+         * Put the playhead on the wanted frame before exporting.
+         *
+         * A path-only exporter writes whatever the playhead is on, so the time
+         * has to be a fact about the sequence rather than an argument. It is
+         * where the artist left it in the normal case; this only matters when
+         * something else moved it.
+         */
+        try {
+            sequence.setPlayerPosition(
+                String(Math.round(seconds * SEED_TICKS_PER_SECOND))
+            );
+        } catch (moveError) {
+            trace.push("could not move the playhead: " + moveError);
+        }
+
         var written = seedExportViaQE(sequence, targetPath, trace);
         var route = "qe";
 
