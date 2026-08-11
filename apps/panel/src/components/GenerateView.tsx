@@ -562,9 +562,11 @@ export function GenerateView({
                 setRefMenu({ x: event.clientX, y: event.clientY, asset });
               }}
             >
+              <div className="ref-thumb">
               <AssetImage client={client} asset={asset} variant="thumbnail" />
               <span className="ref-index mono">{index + 1}</span>
               <button
+                className="ref-remove"
                 title="Remove reference"
                 onClick={() =>
                   patch({
@@ -577,31 +579,6 @@ export function GenerateView({
               >
                 ×
               </button>
-              {rolesOffered ? (
-                <select
-                  className="ref-role"
-                  value={form.inputRoles[index] ?? "reference"}
-                  title="What this reference is for"
-                  onChange={(event) => {
-                    const role = event.target.value as GenerateForm["inputRoles"][number];
-                    // Only one frame can be first, and only one last.
-                    const roles = form.inputRoles.map((existing, at) =>
-                      at === index
-                        ? role
-                        : existing === role && role !== "reference"
-                          ? "reference"
-                          : existing,
-                    );
-                    roles[index] = role;
-                    patch({ inputRoles: roles });
-                  }}
-                >
-                  <option value="reference">ref</option>
-                  <option value="first">first</option>
-                  <option value="last">last</option>
-                </select>
-              ) : null}
-
               {references.length > 1 ? (
                 <div className="ref-move">
                   <button
@@ -630,6 +607,33 @@ export function GenerateView({
                   </button>
                 </div>
               ) : null}
+              </div>
+
+              {rolesOffered ? (
+                <select
+                  className="ref-role"
+                  value={form.inputRoles[index] ?? "reference"}
+                  title="What this reference is for"
+                  onChange={(event) => {
+                    const role = event.target.value as GenerateForm["inputRoles"][number];
+                    // Only one frame can be first, and only one last.
+                    const roles = form.inputRoles.map((existing, at) =>
+                      at === index
+                        ? role
+                        : existing === role && role !== "reference"
+                          ? "reference"
+                          : existing,
+                    );
+                    roles[index] = role;
+                    patch({ inputRoles: roles });
+                  }}
+                >
+                  <option value="reference">ref</option>
+                  <option value="first">first</option>
+                  <option value="last">last</option>
+                </select>
+              ) : null}
+
             </div>
           ))}
           <button
