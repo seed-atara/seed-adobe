@@ -514,9 +514,23 @@ export class PromptDirector {
       text: `What is available to generate with:\n${describeCapabilities(providers)}`,
     });
 
+    /*
+     * Mentions are resolved before the description is shown. The token is how
+     * the artist points at a picture in the panel; to the model it is a
+     * filename in the middle of a sentence that it has to read past, and the
+     * candidate it names is already listed above.
+     */
+    let described = request.description;
+    for (const mention of request.mentions) {
+      const index = candidates.findIndex((asset) => asset.id === mention.assetId);
+      described = described
+        .split(`@${mention.token}`)
+        .join(index >= 0 ? `Candidate ${index + 1}` : mention.token);
+    }
+
     content.push({
       type: "text",
-      text: `The artist's description:\n\n${request.description}`,
+      text: `The artist's description:\n\n${described}`,
     });
 
     if (request.parentAssetId) {

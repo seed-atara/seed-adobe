@@ -13,6 +13,7 @@ import {
   fitWithin,
   readPngSize,
   sniffMimeType,
+  readMp4Size,
 } from "@seed-ae/media";
 import type { ProviderOutput } from "@seed-ae/providers";
 import {
@@ -104,10 +105,21 @@ export class MediaIngestor {
       },
     };
 
-    const width = output.width ?? probed?.width;
-    const height = output.height ?? probed?.height;
+    /*
+     * A video's size is read from its sample description — plain 16-bit fields,
+     * no decoder involved. Without it a generated clip is registered with no
+     * dimensions, and anything placing it on a timeline has to guess its scale.
+     * That guess is what left filled placeholders at the wrong size.
+     */
+    const video = mimeType.startsWith("video/") ? readMp4Size(bytes) : undefined;
+
+    const width = output.width ?? probed?.width ?? video?.width;
+    const height = output.height ?? probed?.height ?? video?.height;
     if (width !== undefined) draft.width = width;
     if (height !== undefined) draft.height = height;
+    if (video?.durationSeconds !== undefined) {
+      draft.durationSeconds = video.durationSeconds;
+    }
 
     const asset = this.assets.create(draft);
     const thumbnailUri = await this.writeThumbnail(bytes, asset.id);

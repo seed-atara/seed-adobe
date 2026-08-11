@@ -56,7 +56,7 @@ export function AssetDetail({
   const importToProject = async (insertAtPlayhead: boolean) => {
     try {
       const result = bridge
-        ? await bridge.importAsset(asset.id, insertAtPlayhead)
+        ? await bridge.importAsset(asset.id, insertAtPlayhead, asset.width)
         : await client.importAsset(asset.id, insertAtPlayhead);
       if (!insertAtPlayhead) {
         setNote(`Imported ${result.name} into the project.`);

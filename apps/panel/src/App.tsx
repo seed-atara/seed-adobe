@@ -385,7 +385,7 @@ export function App() {
         if (!output) continue; // the media is still being registered
         placeholders.current.delete(entry.job.id);
         void bridge
-          .fillPlaceholder(handle, output.id)
+          .fillPlaceholder(handle, output.id, output.width)
           .then((filled) =>
             setNotice(
               `${filled.name} is in the timeline` +

@@ -209,6 +209,8 @@ export interface AeRegionPlacement {
 /** Where a reserved placeholder lives, in whichever host reserved it. */
 export interface PlaceholderHandle {
   label: string;
+  /** The card's width, so the swap can correct the scale by their ratio. */
+  cardWidth?: number;
   atSeconds?: number;
   durationSeconds?: number;
   /** Premiere only: which video track it went onto. */
@@ -492,21 +494,29 @@ export class CepAeBridge {
     const reserved = await evalHost<PlaceholderHandle>(
       `${hostPrefix()}reservePlaceholder(${quote(path)}, ${durationSeconds}, ${quote(label)})`,
     );
-    return { ...reserved, label };
+    return { ...reserved, label, cardWidth: width };
   }
 
   /** Swaps the finished render in underneath a placeholder. */
   async fillPlaceholder(
     handle: PlaceholderHandle,
     assetId: string,
+    mediaWidth?: number,
   ): Promise<{ name: string; swapped?: boolean }> {
     await this.ensureHost();
     const { path } = await this.client.assetPath(assetId);
+    /*
+     * Premiere is told both sizes because it cannot read the media's own: a
+     * project item does not report its dimensions, so the arithmetic has to be
+     * handed to it. After Effects reads its footage item directly.
+     */
     const call =
       hostApp() === "PPRO"
         ? `${hostPrefix()}fillPlaceholder(${handle.trackIndex ?? 0}, ${
             handle.atSeconds ?? 0
-          }, ${quote(path)}, ${quote(handle.label)})`
+          }, ${quote(path)}, ${quote(handle.label)}, ${handle.cardWidth ?? 0}, ${
+            mediaWidth ?? 0
+          })`
         : `${hostPrefix()}fillPlaceholder(${quote(handle.label)}, ${quote(path)})`;
     return evalHost(call);
   }
@@ -529,6 +539,8 @@ export class CepAeBridge {
   async importAsset(
     assetId: string,
     insertAtPlayhead: boolean,
+    /** Premiere cannot read a project item's dimensions; it has to be told. */
+    mediaWidth?: number,
   ): Promise<{
     name: string;
     insertedAtPlayhead: boolean;
@@ -544,7 +556,9 @@ export class CepAeBridge {
     let placement: InsertResult | undefined;
     if (insertAtPlayhead) {
       placement = await evalHost<InsertResult>(
-        `${hostPrefix()}insertAtPlayhead(${quote(imported.projectItemId)})`,
+        `${hostPrefix()}insertAtPlayhead(${quote(imported.projectItemId)}, ${
+          mediaWidth ?? 0
+        })`,
       );
     }
     return {

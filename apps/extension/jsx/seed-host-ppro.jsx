@@ -939,7 +939,7 @@ function seedTrackIsFree(track, from, to) {
  * existing shot is not ours to replace, and the earlier behaviour of falling
  * back to V1 overwrote a main track.
  */
-function seedInsertAtPlayhead(projectItemId) {
+function seedInsertAtPlayhead(projectItemId, insertedWidth) {
     try {
         var sequence = seedActiveSequence();
         if (!sequence) return seedFail(seedNoSequenceMessage());
@@ -991,6 +991,20 @@ function seedInsertAtPlayhead(projectItemId) {
         }
 
         chosen.overwriteClip(item, from);
+
+        /*
+         * Fit the frame, for the same reason After Effects does: a generated
+         * clip is rarely the sequence's exact size, and left alone it sits in
+         * the middle of it with black around the edges.
+         */
+        var placed = seedFindPlaceholderClip(sequence, chosenIndex, from);
+        if (placed) {
+            var frameWidth = Number(sequence.frameSizeHorizontal) || 0;
+            var mediaWidth = Number(insertedWidth) || 0;
+            if (frameWidth > 0 && mediaWidth > 0 && frameWidth !== mediaWidth) {
+                seedSetClipScale(placed, (frameWidth / mediaWidth) * 100);
+            }
+        }
 
         return seedOk({
             trackName: "V" + (chosenIndex + 1),
@@ -1095,6 +1109,39 @@ function seedImportIntoBin(file) {
     return bin.children[bin.children.numItems - 1];
 }
 
+/**
+ * Sets a clip's Motion scale, as a percentage.
+ *
+ * `setScaleToFrameSize` governs what happens when media is *next* placed; it
+ * does not retouch a clip already on the timeline. Swapping media underneath
+ * one therefore leaves the scale that suited the old media, and the only way
+ * to correct it is to write the property.
+ *
+ * Matched on matchName where possible — a display name is localised, and this
+ * should work in a Premiere that is not in English.
+ */
+function seedSetClipScale(clip, percent) {
+    try {
+        for (var i = 0; i < clip.components.numItems; i++) {
+            var component = clip.components[i];
+            var isMotion =
+                String(component.matchName) === "AE.ADBE Motion" ||
+                String(component.displayName) === "Motion";
+            if (!isMotion) continue;
+
+            for (var p = 0; p < component.properties.numItems; p++) {
+                var property = component.properties[p];
+                if (String(property.displayName) !== "Scale") continue;
+                property.setValue(percent, true);
+                return true;
+            }
+        }
+    } catch (error) {
+        // Framing is recoverable by hand; the swap is not.
+    }
+    return false;
+}
+
 /** The clip a placeholder was reserved as, found by where it sits. */
 function seedFindPlaceholderClip(sequence, trackIndex, startSeconds) {
     if (trackIndex < 0 || trackIndex >= sequence.videoTracks.numTracks) return null;
@@ -1179,7 +1226,7 @@ function seedReservePlaceholder(placeholderPath, durationSeconds, label) {
  * a media type change the API may refuse — so a refusal falls back to replacing
  * the clip, which is certain but forgets any trimming.
  */
-function seedFillPlaceholder(trackIndex, startSeconds, mediaPath, label) {
+function seedFillPlaceholder(trackIndex, startSeconds, mediaPath, label, cardWidth, mediaWidth) {
     try {
         var sequence = seedActiveSequence();
         if (!sequence) return seedFail(seedNoSequenceMessage());
@@ -1205,17 +1252,30 @@ function seedFillPlaceholder(trackIndex, startSeconds, mediaPath, label) {
                     /*
                      * The clip keeps the scale that suited the card, and the
                      * render is rarely the same size — the card could only ever
-                     * be a prediction of what the model would return. Scaling
-                     * the item to the frame puts it back to pixel-for-pixel,
-                     * which is what it would have been had it been inserted
-                     * fresh.
+                     * be a prediction of what the model would return. Correct
+                     * it by exactly the ratio between the two, which fixes the
+                     * swap and keeps any scaling the artist did while waiting.
                      */
-                    try {
-                        if (typeof clip.projectItem.setScaleToFrameSize === "function") {
-                            clip.projectItem.setScaleToFrameSize();
+                    var card = Number(cardWidth);
+                    var media = Number(mediaWidth);
+                    if (card > 0 && media > 0 && card !== media) {
+                        var current = 100;
+                        try {
+                            for (var ci = 0; ci < clip.components.numItems; ci++) {
+                                var comp = clip.components[ci];
+                                if (String(comp.matchName) !== "AE.ADBE Motion" &&
+                                    String(comp.displayName) !== "Motion") continue;
+                                for (var pi = 0; pi < comp.properties.numItems; pi++) {
+                                    if (String(comp.properties[pi].displayName) !== "Scale") continue;
+                                    current = Number(comp.properties[pi].getValue()) || 100;
+                                    break;
+                                }
+                                break;
+                            }
+                        } catch (readError) {
+                            current = 100;
                         }
-                    } catch (scaleError) {
-                        // Framing is recoverable by hand; the swap is not.
+                        seedSetClipScale(clip, (current * card) / media);
                     }
                 }
             }
@@ -1237,7 +1297,9 @@ function seedFillPlaceholder(trackIndex, startSeconds, mediaPath, label) {
             name: file.name,
             trackName: "V" + (trackIndex + 1),
             atSeconds: Number(startSeconds),
-            swapped: swapped
+            swapped: swapped,
+            cardWidth: Number(cardWidth) || null,
+            mediaWidth: Number(mediaWidth) || null
         });
     } catch (error) {
         return seedFail(error);
