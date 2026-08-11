@@ -1238,3 +1238,35 @@ pre.raw {
   color: var(--text-disabled);
   cursor: default;
 }
+
+/* --- scrubbing preview ----------------------------------------------------
+   The pointer is the transport: hovering plays, moving scrubs, leaving
+   rewinds. So there are no controls — only an indicator of where we are. */
+
+.scrub {
+  position: relative;
+  width: 100%;
+  cursor: ew-resize;
+}
+
+.scrub video {
+  display: block;
+  width: 100%;
+}
+
+.scrub-track {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 4px;
+  background: rgba(0, 0, 0, 0.55);
+  /* Never intercepts the pointer: it reports position, it does not set it. */
+  pointer-events: none;
+}
+
+.scrub-track i {
+  display: block;
+  height: 100%;
+  background: var(--title-2);
+}
