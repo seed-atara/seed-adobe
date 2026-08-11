@@ -144,7 +144,16 @@ export function buildRegistry(
 ): ProviderRegistry {
   const registry = new ProviderRegistry();
 
-  registry.register(new MockImageProvider({ latencyMs: config.mockLatencyMs }));
+  /*
+   * Mocks exist so the workflow can be exercised without credentials, and that
+   * was worth a permanent slot while Seedance was unverified. It is verified
+   * now, so they are off unless asked for: a mock sitting first in the panel's
+   * provider list is something to pick by accident, and the result only looks
+   * wrong later.
+   */
+  if (config.mockProviders) {
+    registry.register(new MockImageProvider({ latencyMs: config.mockLatencyMs }));
+  }
 
   if (config.arkApiKey && config.seedreamModelId) {
     // The asset library is optional and uses the *other* credential type.
@@ -186,7 +195,7 @@ export function buildRegistry(
     });
   }
 
-  if (config.mockVideoFixture) {
+  if (config.mockProviders && config.mockVideoFixture) {
     registry.register(
       new MockVideoProvider({
         fixturePath: config.mockVideoFixture,

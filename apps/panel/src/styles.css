@@ -1090,3 +1090,59 @@ pre.raw {
 .mention-card-text .mono {
   word-break: break-all;
 }
+
+/* --- variants -------------------------------------------------------------
+   Results sit side by side because choosing between them is the point; a
+   stack would make the comparison happen by scrolling. */
+
+.variants {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(84px, 1fr));
+  gap: var(--gap-sm);
+  margin-bottom: var(--gap);
+}
+
+.variant {
+  padding: var(--gap-xs);
+  background: var(--face);
+  border: 2px solid;
+  border-color: var(--white) var(--black) var(--black) var(--white);
+  box-shadow: inset -1px -1px 0 var(--shadow), inset 1px 1px 0 var(--face-light);
+}
+
+/* The chosen one is pressed in, the way a selected toolbar button is. */
+.variant.selected {
+  border-color: var(--shadow) var(--white) var(--white) var(--shadow);
+  box-shadow: inset 1px 1px 0 var(--black);
+  background: var(--face-light);
+}
+
+.variant-head {
+  display: flex;
+  align-items: center;
+  gap: var(--gap-xs);
+  margin-bottom: var(--gap-xs);
+  font-size: 10px;
+}
+
+.variant-pick {
+  display: block;
+  width: 100%;
+  padding: 0;
+  border: none;
+  background: none;
+  cursor: pointer;
+}
+
+.variant-pick img {
+  width: 100%;
+  aspect-ratio: 1;
+  object-fit: cover;
+  border: 1px solid var(--black);
+  display: block;
+}
+
+.btn.wide.danger,
+.btn.ghost.danger.wide {
+  width: 100%;
+}

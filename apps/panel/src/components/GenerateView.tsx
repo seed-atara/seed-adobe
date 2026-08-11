@@ -33,6 +33,8 @@ export interface GenerateForm {
   durationSeconds: string;
   /** Off by default: sound is a choice, and it is baked into the clip. */
   generateAudio: boolean;
+  /** How many to generate at once, each with its own seed. */
+  variants: string;
   inputAssetIds: string[];
   parentAssetId?: string;
   parentGenerationId?: string;
@@ -43,7 +45,9 @@ interface Props {
   providers: ProviderCapabilitiesDto[];
   assets: Asset[];
   form: GenerateForm;
-  job?: JobView;
+  jobs: JobView[];
+  selectedId?: string;
+  onSelect?: (assetId: string) => void;
   busy: boolean;
   onFormChange: (form: GenerateForm) => void;
   onCapture: () => void;
@@ -70,7 +74,9 @@ export function GenerateView({
   providers,
   assets,
   form,
-  job,
+  jobs,
+  selectedId,
+  onSelect,
   busy,
   onFormChange,
   onCapture,
@@ -142,12 +148,16 @@ export function GenerateView({
   };
 
   const selected = regions?.find((item) => item.name === region?.name);
-  const finishedOutput =
-    job?.job.status === "succeeded" ? job.outputs[0] : undefined;
+  const running = jobs.some(
+    (entry) => entry.job.status === "queued" || entry.job.status === "running",
+  );
 
-  const running =
-    job !== undefined &&
-    (job.job.status === "queued" || job.job.status === "running");
+  /** Every finished result across the set, in the order they were started. */
+  const results = jobs.flatMap((entry) => entry.outputs);
+
+  /** What "composite this" means: the chosen variant, else the first result. */
+  const finishedOutput =
+    results.find((asset) => asset.id === selectedId) ?? results[0];
 
   const referencesFull =
     provider !== undefined && references.length >= provider.maxImageReferences;
@@ -501,6 +511,26 @@ export function GenerateView({
           />
         </Field>
 
+        <Field
+          label="Variants"
+          hint={
+            provider?.seed
+              ? "Generated at once, each with its own seed"
+              : "Generated at once; this provider ignores seeds"
+          }
+        >
+          <select
+            value={form.variants}
+            onChange={(event) => patch({ variants: event.target.value })}
+          >
+            {["1", "2", "3", "4"].map((count) => (
+              <option key={count} value={count}>
+                {count === "1" ? "1 (single)" : `${count} to choose from`}
+              </option>
+            ))}
+          </select>
+        </Field>
+
         {provider?.durationSecondsRange ? (
           <Field
             label="Duration"
@@ -557,35 +587,74 @@ export function GenerateView({
         </button>
       </section>
 
-      {job ? (
+      {jobs.length > 0 ? (
         <section className="section">
-          <SectionLabel>job</SectionLabel>
-          <div className="job">
-            <div className="job-head">
-              <StatusBadge status={job.job.status} />
-              <span className="mono faint">{job.job.provider}</span>
-              <span className="spacer" />
-              {running ? (
-                <button className="btn ghost danger" onClick={onCancel}>
-                  Cancel
-                </button>
-              ) : null}
-            </div>
-            <div
-              className={`progress ${
-                running && job.job.progress === undefined ? "indeterminate" : ""
-              }`}
-            >
-              <i style={{ width: `${Math.round((job.job.progress ?? 0) * 100)}%` }} />
-            </div>
-            {job.job.errorMessage ? (
-              <div className="notice error" style={{ marginTop: 8 }}>
-                {job.job.errorMessage}
-              </div>
-            ) : null}
+          <SectionLabel>
+            {jobs.length > 1 ? `results — ${jobs.length} variants` : "job"}
+          </SectionLabel>
+
+          <div className="variants">
+            {jobs.map((entry, index) => {
+              const output = entry.outputs[0];
+              const selected = output !== undefined && output.id === selectedId;
+              const active =
+                entry.job.status === "queued" || entry.job.status === "running";
+              return (
+                <div
+                  className={`variant ${selected ? "selected" : ""}`}
+                  key={entry.job.id}
+                >
+                  <div className="variant-head">
+                    {jobs.length > 1 ? (
+                      <span className="mono faint">{index + 1}</span>
+                    ) : null}
+                    <StatusBadge status={entry.job.status} />
+                  </div>
+
+                  {output ? (
+                    <button
+                      className="variant-pick"
+                      onClick={() => onSelect?.(output.id)}
+                      title="Choose this one"
+                    >
+                      <AssetImage
+                        client={client}
+                        asset={output}
+                        variant="thumbnail"
+                      />
+                    </button>
+                  ) : (
+                    <div
+                      className={`progress ${
+                        active && entry.job.progress === undefined
+                          ? "indeterminate"
+                          : ""
+                      }`}
+                    >
+                      <i
+                        style={{
+                          width: `${Math.round((entry.job.progress ?? 0) * 100)}%`,
+                        }}
+                      />
+                    </div>
+                  )}
+
+                  {entry.job.errorMessage ? (
+                    <div className="hint faint">{entry.job.errorMessage}</div>
+                  ) : null}
+                </div>
+              );
+            })}
           </div>
+
+          {running ? (
+            <button className="btn ghost danger wide" onClick={onCancel}>
+              Cancel {jobs.length > 1 ? "all" : ""}
+            </button>
+          ) : null}
         </section>
       ) : null}
+
     </>
   );
 }

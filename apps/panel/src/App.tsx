@@ -22,6 +22,9 @@ type Tab = "generate" | "library" | "lineage";
 
 const TOKEN_KEY = "seed-ae.session-token";
 
+/** Job statuses that will not change again. */
+const SETTLED = ["succeeded", "failed", "cancelled"];
+
 const EMPTY_FORM: GenerateForm = {
   providerId: "",
   model: "",
@@ -31,6 +34,7 @@ const EMPTY_FORM: GenerateForm = {
   size: "",
   durationSeconds: "",
   generateAudio: false,
+  variants: "1",
   inputAssetIds: [],
 };
 
@@ -70,7 +74,12 @@ export function App() {
   const [loadedHost, setLoadedHost] = useState<string | undefined>();
   const [selectedId, setSelectedId] = useState<string | undefined>();
   const [form, setForm] = useState<GenerateForm>(EMPTY_FORM);
-  const [job, setJob] = useState<JobView | undefined>();
+  /*
+   * Several jobs, not one. A generation is a roll of the dice, and comparing
+   * a few is how anyone actually chooses — a panel that can only hold the most
+   * recent result forces that comparison to happen in someone's memory.
+   */
+  const [jobs, setJobs] = useState<JobView[]>([]);
   const [error, setError] = useState<string | undefined>();
   /** Non-fatal capture feedback, e.g. a partly rendered frame. */
   const [notice, setNotice] = useState<string | undefined>();
@@ -196,27 +205,43 @@ export function App() {
     return () => clearInterval(timer);
   }, [client, connection, bridge]);
 
-  // Poll the active job until it settles, then pull in its outputs.
+  // Poll every job that has not settled, so variants land as they finish.
   const pollRef = useRef<number | undefined>(undefined);
   useEffect(() => {
-    if (!job || ["succeeded", "failed", "cancelled"].includes(job.job.status)) {
-      return;
-    }
+    const pending = jobs.filter(
+      (entry) => !SETTLED.includes(entry.job.status),
+    );
+    if (pending.length === 0) return;
+
     pollRef.current = window.setTimeout(async () => {
       try {
-        const next = await client.job(job.job.id);
-        setJob(next);
-        if (next.job.status === "succeeded") {
+        const updated = await Promise.all(
+          pending.map((entry) => client.job(entry.job.id)),
+        );
+        const byId = new Map(updated.map((entry) => [entry.job.id, entry]));
+        setJobs((current) =>
+          current.map((entry) => byId.get(entry.job.id) ?? entry),
+        );
+
+        if (updated.some((entry) => entry.job.status === "succeeded")) {
           await refreshAssets();
-          const first = next.outputs[0];
-          if (first) setSelectedId(first.id);
+          // Select the first result, and only the first: re-selecting on every
+          // later arrival would move the selection out from under a comparison.
+          setSelectedId((current) => {
+            if (current) return current;
+            for (const entry of updated) {
+              const first = entry.outputs[0];
+              if (first) return first.id;
+            }
+            return current;
+          });
         }
       } catch (cause) {
         report(cause);
       }
     }, 700);
     return () => window.clearTimeout(pollRef.current);
-  }, [client, job, refreshAssets, report]);
+  }, [client, jobs, refreshAssets, report]);
 
   /**
    * Attaches a fresh capture, keeping only as many references as the provider
@@ -336,7 +361,10 @@ export function App() {
 
   /** Composites the finished clip back onto the region it came from. */
   const insertRegion = useCallback(async () => {
-    const output = job?.outputs[0];
+    // Whatever is selected — which, with variants, is the one they chose.
+    const output =
+      assets.find((asset) => asset.id === selectedId) ??
+      jobs.flatMap((entry) => entry.outputs)[0];
     if (!bridge || !output || !region.name) return;
     setBusy(true);
     try {
@@ -368,7 +396,7 @@ export function App() {
     } finally {
       setBusy(false);
     }
-  }, [bridge, job, region, report]);
+  }, [bridge, jobs, assets, selectedId, region, report]);
 
   /**
    * Turns the description into a proposed generation.
@@ -425,43 +453,79 @@ export function App() {
     }
   }, [client, form, assets, report]);
 
+  /**
+   * Starts one generation per variant.
+   *
+   * Each gets its own seed, so the set differs on purpose rather than by luck
+   * — and so any one of them can be reproduced or branched from later. A
+   * provider that ignores seeds still returns different results; it just
+   * cannot promise the same one twice.
+   */
   const startGeneration = useCallback(async () => {
+    const count = Math.min(Math.max(Number(form.variants) || 1, 1), 4);
+    const provider = providers.find((item) => item.id === form.providerId);
+    const base = Number(form.seed.trim());
+    const seeds =
+      provider?.seed === false
+        ? []
+        : Number.isFinite(base) && form.seed.trim()
+          ? // A stated seed anchors the set: the first is exactly what was
+            // asked for, and the rest step away from it predictably.
+            Array.from({ length: count }, (_, index) => base + index)
+          : Array.from({ length: count }, () =>
+              Math.floor(Math.random() * 2_147_483_647),
+            );
+
     setBusy(true);
     setError(undefined);
+    setJobs([]);
+    setSelectedId(undefined);
     try {
-      const started = await client.startGeneration({
-        providerId: form.providerId,
-        model: form.model || undefined,
-        operation: form.operation,
-        prompt: form.prompt,
-        ...(form.seed.trim() ? { seed: form.seed.trim() } : {}),
-        ...(form.size ? { size: form.size } : {}),
-        ...(Number(form.durationSeconds) > 0
-          ? { durationSeconds: Number(form.durationSeconds) }
-          : {}),
-        ...(form.generateAudio ? { generateAudio: true } : {}),
-        inputAssetIds: form.inputAssetIds,
-        ...(form.parentAssetId ? { parentAssetId: form.parentAssetId } : {}),
-        ...(form.parentGenerationId
-          ? { parentGenerationId: form.parentGenerationId }
-          : {}),
-      });
-      setJob(started);
+      const started = await Promise.all(
+        Array.from({ length: count }, (_, index) =>
+          client.startGeneration({
+            providerId: form.providerId,
+            model: form.model || undefined,
+            operation: form.operation,
+            prompt: form.prompt,
+            ...(seeds[index] !== undefined ? { seed: seeds[index] } : {}),
+            ...(form.size ? { size: form.size } : {}),
+            ...(Number(form.durationSeconds) > 0
+              ? { durationSeconds: Number(form.durationSeconds) }
+              : {}),
+            ...(form.generateAudio ? { generateAudio: true } : {}),
+            inputAssetIds: form.inputAssetIds,
+            ...(form.parentAssetId ? { parentAssetId: form.parentAssetId } : {}),
+            ...(form.parentGenerationId
+              ? { parentGenerationId: form.parentGenerationId }
+              : {}),
+          }),
+        ),
+      );
+      setJobs(started);
     } catch (cause) {
       report(cause);
     } finally {
       setBusy(false);
     }
-  }, [client, form, report]);
+  }, [client, form, providers, report]);
 
+  /** Cancels everything still running — variants are started together. */
   const cancelJob = useCallback(async () => {
-    if (!job) return;
+    const running = jobs.filter((entry) => !SETTLED.includes(entry.job.status));
+    if (running.length === 0) return;
     try {
-      setJob(await client.cancelJob(job.job.id));
+      const cancelled = await Promise.all(
+        running.map((entry) => client.cancelJob(entry.job.id)),
+      );
+      const byId = new Map(cancelled.map((entry) => [entry.job.id, entry]));
+      setJobs((current) =>
+        current.map((entry) => byId.get(entry.job.id) ?? entry),
+      );
     } catch (cause) {
       report(cause);
     }
-  }, [client, job, report]);
+  }, [client, jobs, report]);
 
   /** Loads a stored recipe into the form so a variation branches from it. */
   const openRecipe = useCallback(
@@ -566,7 +630,9 @@ export function App() {
               providers={providers}
               assets={assets}
               form={form}
-              job={job}
+              jobs={jobs}
+              {...(selectedId ? { selectedId } : {})}
+              onSelect={setSelectedId}
               busy={busy}
               onFormChange={setForm}
               {...(canDirect ? { onDirect: directShot } : {})}

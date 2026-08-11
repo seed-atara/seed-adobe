@@ -64,6 +64,13 @@ export interface ProviderConfig {
   mockVideoFixture?: string;
   /** Simulated latency for the mock image provider, so demos show job states. */
   mockLatencyMs: number;
+  /**
+   * Whether to offer the mock providers at all.
+   *
+   * Off by default. They are for running the workflow without credentials, not
+   * for choosing from a list next to the real thing.
+   */
+  mockProviders: boolean;
 }
 
 /**
@@ -144,6 +151,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServiceConfig 
         ? { mockVideoFixture: path.resolve(env.SEED_AE_MOCK_VIDEO_FIXTURE.trim()) }
         : {}),
       mockLatencyMs: parsePositiveInt(env.SEED_AE_MOCK_LATENCY_MS) ?? 1500,
+      mockProviders: env.SEED_AE_MOCK_PROVIDERS?.trim() === "true",
     },
     ...(env.ANTHROPIC_API_KEY?.trim()
       ? {

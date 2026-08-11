@@ -149,6 +149,21 @@ without rebuilding anything.
 Not yet exercised in After Effects — the host functions parse and the panel
 builds, but the round trip has not been run against a real project.
 
+## Variants
+
+Generate asks for 1 to 4 results at once, each with its own seed, shown side by
+side to pick from. A stated seed anchors the set — the first is exactly what was
+asked for and the rest step away from it — so any variant stays reproducible and
+can be branched from. With no seed given, each gets a random one, recorded in
+its recipe.
+
+Picking a variant sets the selection, which is what Import, Insert and
+"Composite result into region" then act on.
+
+The mock providers are no longer registered unless `SEED_AE_MOCK_PROVIDERS` is
+exactly `true`. They exist for running the workflow without credentials, not
+for picking from a list beside the real thing.
+
 ## Next engineering actions
 
 1. Run the full demo in After Effects: capture a hero frame, generate with
