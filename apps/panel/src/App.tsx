@@ -7,7 +7,13 @@ import {
   type JobView,
   type ProviderCapabilitiesDto,
 } from "./api/client.ts";
-import { CepAeBridge, hostApp, isCepHost, type AeRegion } from "./api/cep.ts";
+import {
+  CepAeBridge,
+  hostApp,
+  isCepHost,
+  type AeRegion,
+  type PlaceholderHandle,
+} from "./api/cep.ts";
 import {
   GenerateView,
   type GenerateForm,
@@ -42,6 +48,7 @@ const EMPTY_FORM: GenerateForm = {
   size: "",
   durationSeconds: "",
   generateAudio: false,
+  reserveSpace: true,
   variants: "1",
   aspectRatio: "",
   aspectSourceId: "",
@@ -96,6 +103,8 @@ export function App() {
   const [busy, setBusy] = useState(false);
   const [canDirect, setCanDirect] = useState(false);
   const [originalsDir, setOriginalsDir] = useState<string>();
+  /** Reserved timeline space, by job id, waiting for its render. */
+  const placeholders = useRef(new Map<string, PlaceholderHandle>());
   const [directing, setDirecting] = useState(false);
   const [plan, setPlan] = useState<ComposedPlan | undefined>();
   const [regions, setRegions] = useState<AeRegion[]>();
@@ -238,6 +247,40 @@ export function App() {
           current.map((entry) => byId.get(entry.job.id) ?? entry),
         );
 
+        // Fill the space that was held, now there is something to put in it.
+        for (const entry of updated) {
+          const handle = placeholders.current.get(entry.job.id);
+          if (!handle || !bridge) continue;
+
+          if (entry.job.status === "succeeded" && entry.outputs[0]) {
+            placeholders.current.delete(entry.job.id);
+            try {
+              const filled = await bridge.fillPlaceholder(
+                handle,
+                entry.outputs[0].id,
+              );
+              setNotice(
+                `${filled.name} is in the timeline` +
+                  (filled.swapped === false
+                    ? " — the placeholder was replaced rather than swapped, so any trimming is gone."
+                    : "."),
+              );
+            } catch (cause) {
+              report(cause);
+            }
+          } else if (["failed", "cancelled"].includes(entry.job.status)) {
+            placeholders.current.delete(entry.job.id);
+            try {
+              await bridge.failPlaceholder(
+                handle,
+                entry.job.errorMessage ?? entry.job.status,
+              );
+            } catch {
+              // The placeholder staying put is the point; naming it is not.
+            }
+          }
+        }
+
         if (updated.some((entry) => entry.job.status === "succeeded")) {
           await refreshAssets();
           // Select the first result, and only the first: re-selecting on every
@@ -256,7 +299,7 @@ export function App() {
       }
     }, 700);
     return () => window.clearTimeout(pollRef.current);
-  }, [client, jobs, refreshAssets, report]);
+  }, [client, jobs, bridge, refreshAssets, report]);
 
   /**
    * Removes an asset from the library and deletes its media.
@@ -635,6 +678,38 @@ export function App() {
         ),
       );
       setJobs(started);
+
+      /*
+       * Hold the cut open, but only for a single video: with variants the
+       * artist is choosing between takes afterwards, and four placeholders on
+       * the timeline would be four things to clean up rather than one to fill.
+       */
+      if (
+        bridge &&
+        form.reserveSpace &&
+        form.operation === "video.generate" &&
+        started.length === 1
+      ) {
+        const job = started[0];
+        const seconds = Number(form.durationSeconds) || 5;
+        try {
+          if (job) {
+            const handle = await bridge.reservePlaceholder(
+              job.job.id.slice(0, 12),
+              seconds,
+            );
+            placeholders.current.set(job.job.id, handle);
+            setNotice(
+              `Holding ${seconds}s${handle.trackName ? ` on ${handle.trackName}` : ""}` +
+                " while this renders.",
+            );
+          }
+        } catch (cause) {
+          // Reserving is a convenience; failing to reserve must not stop the
+          // generation that is already running.
+          report(cause);
+        }
+      }
     } catch (cause) {
       report(cause);
     } finally {

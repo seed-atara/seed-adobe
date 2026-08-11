@@ -994,6 +994,132 @@ function seedInsertRegion(projectItemId, options) {
     }
 }
 
+// -------------------------------------------------------------- placeholders
+
+/*
+ * Holding a cut open while a video renders.
+ *
+ * The duration is known when Generate is pressed, so the space is reserved
+ * immediately and the result swapped in when it lands. The swap is
+ * `replaceSource`, not a delete and re-insert: effects, transforms and
+ * keyframes live on the layer rather than the source, so anything the artist
+ * built on the placeholder while waiting survives — and they may well have
+ * trimmed or moved it, which is rather the point of reserving the space.
+ */
+
+var SEED_PENDING_PREFIX = "SEED pending";
+
+/** Finds a placeholder by the label it was reserved under. */
+function seedFindPlaceholder(comp, label) {
+    for (var i = 1; i <= comp.numLayers; i++) {
+        var layer = comp.layer(i);
+        if (layer.name.indexOf(SEED_PENDING_PREFIX) === 0 &&
+            layer.name.indexOf(label) !== -1) {
+            return layer;
+        }
+    }
+    return null;
+}
+
+/** Puts a placeholder at the playhead for the length the render will be. */
+function seedReservePlaceholder(placeholderPath, durationSeconds, label) {
+    try {
+        var comp = seedActiveComp();
+        if (!comp) return seedFail("no active composition");
+
+        var file = new File(seedNormalizePath(placeholderPath));
+        if (!file.exists) return seedFail("placeholder media not found");
+
+        app.beginUndoGroup("SEED: reserve space");
+
+        var item = app.project.importFile(new ImportOptions(file));
+        item.parentFolder = seedProjectFolder();
+        item.name = SEED_PENDING_PREFIX + " " + label;
+
+        var layer = comp.layers.add(item);
+        layer.startTime = comp.time;
+        var seconds = Number(durationSeconds);
+        if (seconds > 0) layer.outPoint = layer.inPoint + seconds;
+        layer.name = SEED_PENDING_PREFIX + " " + label;
+        layer.label = 1; // red, so it reads as unfinished in the timeline
+
+        app.endUndoGroup();
+        return seedOk({
+            label: label,
+            name: layer.name,
+            atSeconds: layer.startTime,
+            durationSeconds: layer.outPoint - layer.inPoint
+        });
+    } catch (error) {
+        try { app.endUndoGroup(); } catch (ignored) {}
+        return seedFail(error);
+    }
+}
+
+/** Swaps the finished render in underneath the placeholder. */
+function seedFillPlaceholder(label, mediaPath) {
+    try {
+        var comp = seedActiveComp();
+        if (!comp) return seedFail("no active composition");
+
+        var layer = seedFindPlaceholder(comp, label);
+        if (!layer) {
+            return seedFail("the placeholder for " + label + " is no longer there");
+        }
+
+        var file = new File(seedNormalizePath(mediaPath));
+        if (!file.exists) return seedFail("file not found: " + mediaPath);
+
+        app.beginUndoGroup("SEED: fill placeholder");
+
+        var item = app.project.importFile(new ImportOptions(file));
+        item.parentFolder = seedProjectFolder();
+
+        // The layer keeps its own timing, effects and keyframes; only what it
+        // is showing changes.
+        layer.replaceSource(item, false);
+        layer.name = item.name;
+        layer.label = 0;
+
+        app.endUndoGroup();
+        return seedOk({
+            name: layer.name,
+            atSeconds: layer.startTime,
+            durationSeconds: layer.outPoint - layer.inPoint
+        });
+    } catch (error) {
+        try { app.endUndoGroup(); } catch (ignored) {}
+        return seedFail(error);
+    }
+}
+
+/**
+ * Marks a placeholder as failed.
+ *
+ * Renamed rather than removed: the artist may have built around it, and
+ * deleting something they were relying on is a worse answer than leaving it
+ * there saying what went wrong.
+ */
+function seedFailPlaceholder(label, message) {
+    try {
+        var comp = seedActiveComp();
+        if (!comp) return seedFail("no active composition");
+
+        var layer = seedFindPlaceholder(comp, label);
+        if (!layer) return seedOk({ name: null });
+
+        app.beginUndoGroup("SEED: placeholder failed");
+        layer.name = "SEED failed - " + String(message || "generation failed").substr(0, 60);
+        layer.label = 9;
+        app.endUndoGroup();
+
+        return seedOk({ name: layer.name });
+    } catch (error) {
+        try { app.endUndoGroup(); } catch (ignored) {}
+        return seedFail(error);
+    }
+}
+
 function seedPing() {
     try {
         return seedOk({
@@ -1030,3 +1156,6 @@ var seedAeft_setRegionContain = seedSetRegionContain;
 var seedAeft_listRegions = seedListRegions;
 var seedAeft_captureRegion = seedCaptureRegion;
 var seedAeft_insertRegion = seedInsertRegion;
+var seedAeft_reservePlaceholder = seedReservePlaceholder;
+var seedAeft_fillPlaceholder = seedFillPlaceholder;
+var seedAeft_failPlaceholder = seedFailPlaceholder;

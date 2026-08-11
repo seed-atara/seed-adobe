@@ -42,48 +42,6 @@ the layer itself would fix that.
 
 ---
 
-## Hold the cut while the video renders
-
-A generation takes minutes. During those minutes the edit has a hole in it, and
-the artist either waits or works around a gap whose length they have to
-remember. The duration is known at the moment Generate is pressed, so the space
-can be reserved immediately and filled when the render lands.
-
-**Both hosts can do this, by different means — checked, not assumed:**
-
-*After Effects* — `AVLayer.replaceSource(newSource, fixExpressions)`. Effects,
-transforms and keyframes live on the layer rather than the source, so they
-survive the swap. A placeholder solid becomes the clip, and anything already
-built on it keeps working. This is the clean one.
-
-*Premiere* — `projectItem.changeMediaPath(newPath, overrideChecks)`, returning 0
-on success. The timeline clip keeps its identity, so effects and transitions on
-it survive. `overrideChecks: true` is reportedly needed in most real cases.
-
-**The Premiere caveat worth testing first:** the placeholder has to be media the
-clip can reference, and SEED cannot encode a video without a dependency — so
-the placeholder would be a still, and the swap a still-to-video media change.
-Whether `changeMediaPath` tolerates that, and what happens to clip length when
-it does, is the thing to find out before building the rest. The fallback is
-unglamorous but certain: remove the placeholder clip and insert the result at
-the same start on the same track, which SEED already knows how to do.
-
-**Shape of it:**
-
-1. Generate reserves the space — a placeholder at the playhead, the requested
-   duration, named for its job (`SEED pending — job_…`).
-2. The panel already polls the job; on success it imports the result and swaps
-   the source underneath the placeholder.
-3. A failed or cancelled job leaves the placeholder with its name changed to
-   say so, rather than silently removing something the artist may have built
-   around.
-
-**Worth being careful about:** the artist may have moved, trimmed or retimed the
-placeholder while waiting. Swapping the source respects that; removing and
-re-inserting does not. That is the strongest argument for `replaceSource` and
-`changeMediaPath` over delete-and-insert, and the reason to test the Premiere
-path properly rather than defaulting to the fallback.
-
 ---
 
 ## Better edges than a rectangle

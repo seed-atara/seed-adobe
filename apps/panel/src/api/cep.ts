@@ -206,6 +206,16 @@ export interface AeRegionPlacement {
   stretchPercent: number;
 }
 
+/** Where a reserved placeholder lives, in whichever host reserved it. */
+export interface PlaceholderHandle {
+  label: string;
+  atSeconds?: number;
+  durationSeconds?: number;
+  /** Premiere only: which video track it went onto. */
+  trackIndex?: number;
+  trackName?: string;
+}
+
 export class CepAeBridge {
   readonly id = "cep";
 
@@ -462,6 +472,55 @@ export class CepAeBridge {
       width: found.width,
       height: found.height,
     });
+  }
+
+  /**
+   * Holds the cut open for a render that has not arrived.
+   *
+   * The two hosts reserve differently — After Effects by layer, Premiere by
+   * track and time — so the handle is opaque and simply given back later.
+   */
+  async reservePlaceholder(
+    label: string,
+    durationSeconds: number,
+  ): Promise<PlaceholderHandle> {
+    await this.ensureHost();
+    const { placeholder } = await this.client.workspace();
+    const reserved = await evalHost<PlaceholderHandle>(
+      `${hostPrefix()}reservePlaceholder(${quote(placeholder)}, ${durationSeconds}, ${quote(label)})`,
+    );
+    return { ...reserved, label };
+  }
+
+  /** Swaps the finished render in underneath a placeholder. */
+  async fillPlaceholder(
+    handle: PlaceholderHandle,
+    assetId: string,
+  ): Promise<{ name: string; swapped?: boolean }> {
+    await this.ensureHost();
+    const { path } = await this.client.assetPath(assetId);
+    const call =
+      hostApp() === "PPRO"
+        ? `${hostPrefix()}fillPlaceholder(${handle.trackIndex ?? 0}, ${
+            handle.atSeconds ?? 0
+          }, ${quote(path)}, ${quote(handle.label)})`
+        : `${hostPrefix()}fillPlaceholder(${quote(handle.label)}, ${quote(path)})`;
+    return evalHost(call);
+  }
+
+  /** Leaves the placeholder in place, saying what went wrong. */
+  async failPlaceholder(
+    handle: PlaceholderHandle,
+    message: string,
+  ): Promise<void> {
+    await this.ensureHost();
+    const call =
+      hostApp() === "PPRO"
+        ? `${hostPrefix()}failPlaceholder(${handle.trackIndex ?? 0}, ${
+            handle.atSeconds ?? 0
+          }, ${quote(message)}, ${quote(handle.label)})`
+        : `${hostPrefix()}failPlaceholder(${quote(handle.label)}, ${quote(message)})`;
+    await evalHost(call);
   }
 
   async importAsset(

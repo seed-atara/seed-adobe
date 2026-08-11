@@ -1064,6 +1064,198 @@ function seedPickupFrame(outputDir, sinceMs) {
     }
 }
 
+// -------------------------------------------------------------- placeholders
+
+/*
+ * Holding a cut open while a video renders.
+ *
+ * Each reservation imports the placeholder card *again*, so it gets its own
+ * project item. That matters: the swap is `changeMediaPath`, which changes what
+ * a project item points at — share one item between two placeholders and
+ * filling one would fill both.
+ *
+ * Swapping rather than replacing the clip means the artist can trim, move or
+ * effect the placeholder while they wait and keep all of it.
+ */
+
+var SEED_PENDING_PREFIX = "SEED pending";
+
+/**
+ * Imports a file into SEED's bin and returns the item that arrived.
+ *
+ * The bin is counted before and after rather than trusting a return value:
+ * importFiles reports nothing useful, and the last child is only the new one
+ * if something was actually added.
+ */
+function seedImportIntoBin(file) {
+    var bin = seedSeedBin();
+    var before = bin.children.numItems;
+    app.project.importFiles([file.fsName], true, bin, false);
+    if (bin.children.numItems <= before) return null;
+    return bin.children[bin.children.numItems - 1];
+}
+
+/** The clip a placeholder was reserved as, found by where it sits. */
+function seedFindPlaceholderClip(sequence, trackIndex, startSeconds) {
+    if (trackIndex < 0 || trackIndex >= sequence.videoTracks.numTracks) return null;
+    var track = sequence.videoTracks[trackIndex];
+    for (var i = 0; i < track.clips.numItems; i++) {
+        var clip = track.clips[i];
+        if (Math.abs(Number(clip.start.seconds) - startSeconds) < 0.25) return clip;
+    }
+    return null;
+}
+
+/** Puts a placeholder at the playhead for the length the render will be. */
+function seedReservePlaceholder(placeholderPath, durationSeconds, label) {
+    try {
+        var sequence = seedActiveSequence();
+        if (!sequence) return seedFail(seedNoSequenceMessage());
+
+        var file = new File(seedNormalizePath(placeholderPath));
+        if (!file.exists) return seedFail("placeholder media not found");
+
+        var seconds = Number(durationSeconds) > 0 ? Number(durationSeconds) : 5;
+        var from = seedPlayheadSeconds(sequence);
+        var to = from + seconds;
+
+        // A free track, on the same terms as any other insert: never overwrite.
+        var chosen = null;
+        var chosenIndex = -1;
+        for (var i = 0; i < sequence.videoTracks.numTracks; i++) {
+            if (seedTrackIsFree(sequence.videoTracks[i], from, to)) {
+                chosen = sequence.videoTracks[i];
+                chosenIndex = i;
+                break;
+            }
+        }
+        if (!chosen) {
+            return seedFail(
+                "every video track already has a clip at the playhead, so there " +
+                    "is nowhere to hold the space without overwriting something"
+            );
+        }
+
+        // Imported per reservation: changeMediaPath acts on the project item,
+        // so a shared one would swap every placeholder at once.
+        var item = seedImportIntoBin(file);
+        if (!item) return seedFail("could not import the placeholder card");
+        try {
+            item.name = SEED_PENDING_PREFIX + " " + label;
+        } catch (nameError) {
+            // A name is a convenience; the clip is found by position.
+        }
+
+        chosen.overwriteClip(item, from);
+        var clip = seedFindPlaceholderClip(sequence, chosenIndex, from);
+        if (clip) {
+            try {
+                // Clip ends are Time objects; ticks is the durable unit.
+                var end = clip.end;
+                end.seconds = to;
+                clip.end = end;
+            } catch (endError) {
+                // A still's default length stands if the end cannot be set.
+            }
+        }
+
+        return seedOk({
+            label: label,
+            trackIndex: chosenIndex,
+            trackName: "V" + (chosenIndex + 1),
+            atSeconds: from,
+            durationSeconds: seconds
+        });
+    } catch (error) {
+        return seedFail(error);
+    }
+}
+
+/**
+ * Swaps the finished render in underneath the placeholder.
+ *
+ * `changeMediaPath` returns 0 on success and keeps the timeline clip, so the
+ * artist's trims and effects survive. It is a still becoming a video, which is
+ * a media type change the API may refuse — so a refusal falls back to replacing
+ * the clip, which is certain but forgets any trimming.
+ */
+function seedFillPlaceholder(trackIndex, startSeconds, mediaPath, label) {
+    try {
+        var sequence = seedActiveSequence();
+        if (!sequence) return seedFail(seedNoSequenceMessage());
+
+        var file = new File(seedNormalizePath(mediaPath));
+        if (!file.exists) return seedFail("file not found: " + mediaPath);
+
+        var clip = seedFindPlaceholderClip(sequence, trackIndex, Number(startSeconds));
+        if (!clip) {
+            return seedFail("the placeholder for " + label + " is no longer there");
+        }
+
+        var swapped = false;
+        try {
+            if (clip.projectItem &&
+                typeof clip.projectItem.changeMediaPath === "function") {
+                // The second argument overrides the compatibility checks, which
+                // a still-to-video change would otherwise fail.
+                var result = clip.projectItem.changeMediaPath(file.fsName, true);
+                swapped = (result === 0 || result === true);
+                if (swapped) {
+                    try { clip.projectItem.name = file.name; } catch (nameError) {}
+                }
+            }
+        } catch (swapError) {
+            swapped = false;
+        }
+
+        if (!swapped) {
+            // Certain, but it forgets any trimming the artist did while waiting.
+            var track = sequence.videoTracks[trackIndex];
+            var at = Number(clip.start.seconds);
+            try { clip.remove(false, true); } catch (removeError) {}
+            var item = seedImportIntoBin(file);
+            if (!item) return seedFail("could not import the finished render");
+            track.overwriteClip(item, at);
+        }
+
+        return seedOk({
+            name: file.name,
+            trackName: "V" + (trackIndex + 1),
+            atSeconds: Number(startSeconds),
+            swapped: swapped
+        });
+    } catch (error) {
+        return seedFail(error);
+    }
+}
+
+/**
+ * Marks a placeholder as failed.
+ *
+ * Renamed rather than removed: the artist may have built around it, and
+ * deleting something they were relying on is a worse answer than leaving it
+ * there saying what went wrong.
+ */
+function seedFailPlaceholder(trackIndex, startSeconds, message, label) {
+    try {
+        var sequence = seedActiveSequence();
+        if (!sequence) return seedFail(seedNoSequenceMessage());
+
+        var clip = seedFindPlaceholderClip(sequence, trackIndex, Number(startSeconds));
+        if (!clip) return seedOk({ name: null });
+
+        try {
+            clip.projectItem.name =
+                "SEED failed - " + String(message || "generation failed").substr(0, 60);
+        } catch (nameError) {
+            // Naming is a courtesy; the clip staying put is the point.
+        }
+        return seedOk({ name: label });
+    } catch (error) {
+        return seedFail(error);
+    }
+}
+
 function seedPing() {
     try {
         return seedOk({
@@ -1093,5 +1285,8 @@ var seedPpro_ping = seedPing;
 var seedPpro_getContext = seedGetContext;
 var seedPpro_captureFrame = seedCaptureFrame;
 var seedPpro_pickupFrame = seedPickupFrame;
+var seedPpro_reservePlaceholder = seedReservePlaceholder;
+var seedPpro_fillPlaceholder = seedFillPlaceholder;
+var seedPpro_failPlaceholder = seedFailPlaceholder;
 var seedPpro_import = seedImport;
 var seedPpro_insertAtPlayhead = seedInsertAtPlayhead;

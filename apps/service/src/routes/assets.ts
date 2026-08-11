@@ -7,6 +7,7 @@ import {
   nowIso,
 } from "@seed-ae/domain";
 import { resolveStorageUri } from "@seed-ae/storage";
+import { ensurePlaceholder } from "../placeholder.js";
 import type { AppDeps } from "../app.js";
 import { parseWith, readJsonBody } from "../http/body.js";
 import { json } from "../http/respond.js";
@@ -100,7 +101,7 @@ export function removeAssetRoute(deps: AppDeps) {
  * over the authenticated loopback API.
  */
 export function workspaceRoute(deps: AppDeps) {
-  return () =>
+  return async () =>
     json({
       workspace: {
         projectRoot: deps.workspace.projectRoot,
@@ -111,6 +112,8 @@ export function workspaceRoute(deps: AppDeps) {
       aeHost: deps.aeHost.id,
       // The panel hides direction rather than offering a button that 501s.
       director: deps.director !== undefined,
+      // The card a host uses to hold a cut open while a video renders.
+      placeholder: await ensurePlaceholder(deps.workspace),
       ...(deps.config.pproStillPreset
         ? { pproStillPreset: deps.config.pproStillPreset }
         : {}),

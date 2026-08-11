@@ -123,6 +123,8 @@ export class SeedClient {
     };
     aeHost: string;
     director: boolean;
+    /** Media the host uses to reserve space while a video renders. */
+    placeholder: string;
     pproStillPreset?: string;
   }> {
     return this.request("/v1/workspace");

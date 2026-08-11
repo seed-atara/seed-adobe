@@ -167,6 +167,31 @@ correct range and ignores it, so it is kept only as a last fallback.
 Not yet exercised in After Effects — the host functions parse and the panel
 builds, but the round trip has not been run against a real project.
 
+## Reserving the cut while a render runs
+
+Generating a video holds its space in the host immediately, at the playhead,
+for the duration asked for — then swaps the result in when it lands. Both hosts
+keep whatever the artist did to the placeholder while waiting, which is the
+point: trimming or moving it is a reasonable thing to do with reserved space.
+
+- **After Effects** uses `AVLayer.replaceSource`. Effects, transforms and
+  keyframes live on the layer rather than the source, so they survive.
+- **Premiere** uses `projectItem.changeMediaPath(path, true)`, which keeps the
+  timeline clip and therefore its effects. Each reservation imports the
+  placeholder card again so it has its own project item — sharing one would
+  mean filling one placeholder filled them all. It is a still becoming a video,
+  a media change the API may refuse; a refusal falls back to replacing the clip,
+  which is certain but forgets any trimming, and the panel says so when it
+  happens.
+
+A failed or cancelled job renames the placeholder rather than removing it —
+deleting something the artist may have built around is worse than leaving it
+there saying what went wrong.
+
+Only reserved for a single video: with variants the artist is choosing between
+takes afterwards, and four placeholders would be four things to tidy rather
+than one to fill.
+
 ## Variants
 
 Generate asks for 1 to 4 results at once, each with its own seed, shown side by

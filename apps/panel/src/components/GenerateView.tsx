@@ -47,6 +47,8 @@ export interface GenerateForm {
   durationSeconds: string;
   /** Off by default: sound is a choice, and it is baked into the clip. */
   generateAudio: boolean;
+  /** Hold the cut open in the host while the render runs. */
+  reserveSpace: boolean;
   /** How many to generate at once, each with its own seed. */
   variants: string;
   /** Blank means the provider's own default. */
@@ -837,6 +839,24 @@ export function GenerateView({
                 patch({ durationSeconds: event.target.value })
               }
             />
+          </Field>
+        ) : null}
+
+        {form.operation === "video.generate" && host !== "unknown" ? (
+          <Field
+            label="Timeline"
+            hint="Holds the cut open, then swaps the result in"
+          >
+            <label className="check">
+              <input
+                type="checkbox"
+                checked={form.reserveSpace}
+                onChange={(event) =>
+                  patch({ reserveSpace: event.target.checked })
+                }
+              />
+              Reserve space while it renders
+            </label>
           </Field>
         ) : null}
 
