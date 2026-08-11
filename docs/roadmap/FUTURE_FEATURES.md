@@ -63,6 +63,28 @@ Ideas, roughly increasing in ambition:
 
 ---
 
+## Scrub library cards, not just the detail preview
+
+The detail preview plays on hover, scrubs with horizontal movement, and rewinds
+on the way out. The library grid does not: a video card is a still with a play
+marker on it, so telling two takes apart means opening each one in turn.
+
+Comparing takes is most of what the library is *for* — several variants of the
+same shot sit side by side and the difference between them is motion, which a
+frozen first frame cannot show. The behaviour should be the same gesture in
+both places.
+
+**The reason it is not already done:** the detail preview fetches the whole
+video as a blob, which is fine for one clip and wrong for a grid — twenty-four
+cards would mean twenty-four full downloads on mount, most never watched. It
+needs to load on first hover and stay loaded after, so the grid costs nothing
+until something is actually looked at.
+
+Worth extracting the hover/scrub logic into one hook shared by both, rather
+than a second copy that drifts.
+
+---
+
 ## Video poster frames
 
 Generated video registers with no thumbnail: `no decoder for these bytes`. The
