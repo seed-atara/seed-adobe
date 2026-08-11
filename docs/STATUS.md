@@ -99,6 +99,10 @@ the service's mock host, so everything stays testable without Adobe.
 - **Region of Interest silently halves a capture.** Detected and warned about
   now, but not prevented: AE has no scripting API to read or clear it.
 - Thumbnails cover PNG and JPEG. WebP has no decoder and degrades to none.
+- Video dimensions and duration are read from the MP4 sample description at
+  ingest, so a generated clip knows its own size. A poster frame still is not
+  extracted — image-to-video results borrow the thumbnail of the frame they came
+  from, which is honest but not a real extract.
 - Interrupted jobs are closed out as failed on startup rather than resumed.
 - Seedance text-to-video is implemented but only image-to-video has been run
   live; accepted parameter values may differ between the two modes.
@@ -227,6 +231,18 @@ favour wide options.
 Where a single reference becomes the first frame, the frame dictates the shape
 and the API refuses a ratio alongside it, so the control is replaced by a note
 saying so rather than offering a choice that does not exist.
+
+## Known-good demo path
+
+Verified end to end at the time of writing:
+
+1. Capture a frame — After Effects natively, Premiere through
+   `sequence.exportFrameAsPNG`.
+2. Direct the shot — about 15 seconds, references stay as chosen.
+3. Generate — space is held in the timeline at the right shape for the
+   duration asked for.
+4. The render swaps in underneath, scaled from its real dimensions.
+5. Pick a variant, composite into a region, or insert at the playhead.
 
 ## Next engineering actions
 
