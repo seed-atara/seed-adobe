@@ -291,21 +291,59 @@ var SEED_WORK_AREA_TYPES = [1, 0, 2];
 
 /** Sets in/out defensively — builds differ on whether they want a number. */
 function seedSetInOut(sequence, inSeconds, outSeconds, trace) {
-    try {
-        sequence.setInPoint(inSeconds);
-        sequence.setOutPoint(outSeconds);
-        return true;
-    } catch (numberError) {
+    /*
+     * Premiere measures in ticks, not seconds — and setInPoint accepts a
+     * number of seconds without complaint, treating it as ticks. Ten seconds
+     * becomes ten ticks, which is 0.00000004s, which is frame zero. Every
+     * capture came back as the first frame of the sequence and nothing ever
+     * reported an error.
+     *
+     * So the value is written and then read back. Whichever form the build
+     * actually wants is the one that survives the round trip; guessing is what
+     * produced the silent failure in the first place.
+     */
+    var forms = [
+        ["ticks (string)", function (seconds) {
+            return String(Math.round(seconds * SEED_TICKS_PER_SECOND));
+        }],
+        ["ticks (number)", function (seconds) {
+            return Math.round(seconds * SEED_TICKS_PER_SECOND);
+        }],
+        ["seconds", function (seconds) { return seconds; }],
+        ["seconds (string)", function (seconds) { return String(seconds); }]
+    ];
+
+    for (var i = 0; i < forms.length; i++) {
+        var label = forms[i][0];
+        var encode = forms[i][1];
         try {
-            sequence.setInPoint(String(inSeconds));
-            sequence.setOutPoint(String(outSeconds));
+            sequence.setInPoint(encode(inSeconds));
+            sequence.setOutPoint(encode(outSeconds));
+        } catch (error) {
+            continue;
+        }
+
+        // Believe the sequence, not the call.
+        try {
+            var landed = Number(sequence.getInPoint().seconds);
+            if (Math.abs(landed - inSeconds) < 0.05) {
+                if (i > 0) trace.push("in/out set as " + label);
+                return true;
+            }
+        } catch (readError) {
+            // Cannot verify; assume the first form that did not throw.
+            trace.push("in/out set as " + label + ", unverified");
             return true;
-        } catch (stringError) {
-            trace.push("could not set in/out points: " + stringError);
-            return false;
         }
     }
+
+    trace.push(
+        "could not set the in point to " + inSeconds.toFixed(2) + "s — the " +
+            "export will cover the whole sequence rather than that frame"
+    );
+    return false;
 }
+
 
 /** Premiere reports failure by returning an error object, not by throwing. */
 function seedExportRefused(returned) {

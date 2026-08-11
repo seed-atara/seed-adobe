@@ -107,6 +107,12 @@ Each of these needs a real billable render, which is why none is answered:
 
 ## Smaller things
 
+- **`@mentions` reach the provider verbatim.** The director resolves a mention
+  to a candidate but leaves the token in the prompt it writes, so the model
+  receives a filename mid-sentence and has to ignore it. Strip resolved tokens
+  from the description before composing — the mention list already says which
+  candidate each one is.
+
 - **`aeHost: "mock"` in the startup log** reads as though something fake is
   running. The service genuinely has no direct AE host — the panel drives AE —
   so `panel-driven` would say what is true.
