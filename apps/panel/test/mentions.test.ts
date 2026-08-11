@@ -7,6 +7,7 @@ import {
   matchAssets,
   mentionQueryAt,
 } from "../src/mentions.ts";
+import { splitRuns } from "../src/components/PromptField.tsx";
 
 function asset(id: string, filename: string): Asset {
   return {
@@ -103,5 +104,39 @@ describe("findMentions", () => {
     expect(
       findMentions("@Comp_1_f00074_001 and @Comp_1_f00074_001", ASSETS),
     ).toHaveLength(1);
+  });
+});
+
+describe("splitting a prompt for highlighting", () => {
+  // The mirror renders these runs; a wrong split shows the mark on the wrong
+  // words, which is worse than no highlight at all.
+  it("marks a known mention and leaves the prose alone", () => {
+    const runs = splitRuns("keep @Comp_1_f00074_001 but colder", ASSETS);
+    expect(runs.map((run) => [run.text, run.asset?.id])).toEqual([
+      ["keep ", undefined],
+      ["@Comp_1_f00074_001", "ast_1"],
+      [" but colder", undefined],
+    ]);
+  });
+
+  it("leaves an @ that names nothing as ordinary prose", () => {
+    const runs = splitRuns("shot at @golden hour", ASSETS);
+    expect(runs).toEqual([{ text: "shot at @golden hour" }]);
+  });
+
+  it("marks every occurrence, including adjacent ones", () => {
+    const runs = splitRuns(
+      "@Comp_1_f00074_001 @seedream_76bbfe52_00",
+      ASSETS,
+    );
+    expect(runs.filter((run) => run.asset).map((run) => run.asset?.id)).toEqual([
+      "ast_1",
+      "ast_2",
+    ]);
+  });
+
+  it("reassembles into exactly the original text", () => {
+    const text = "@Comp_1_f00074_001 relit, @nobody, @seedream_76bbfe52_00 end";
+    expect(splitRuns(text, ASSETS).map((run) => run.text).join("")).toBe(text);
   });
 });

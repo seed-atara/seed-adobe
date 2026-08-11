@@ -921,10 +921,6 @@ pre.raw {
    The agent proposes; the artist disposes. The plan is drawn as a sunken well
    rather than a raised control, because it is something to read, not press. */
 
-.mention-host {
-  position: relative;
-}
-
 /* A dropdown, so it sits above the fields below it and closes on blur. */
 .mention-menu {
   position: absolute;
@@ -1002,4 +998,95 @@ pre.raw {
 
 .plan .notice:last-child {
   margin-bottom: 0;
+}
+
+/* --- prompt field ---------------------------------------------------------
+   The mirror draws the highlighting and the textarea sits transparently over
+   it. Every property that affects wrapping is shared between the two: change
+   one and you must change the other, or the marks drift off their words. */
+
+.prompt-field {
+  position: relative;
+}
+
+.prompt-field textarea,
+.prompt-mirror {
+  /* Shared metrics. */
+  font-family: var(--ui);
+  font-size: 11px;
+  line-height: 1.4;
+  padding: var(--gap-xs) var(--gap-sm);
+  border: 2px solid transparent;
+  min-height: 72px;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+}
+
+.prompt-field textarea {
+  position: relative;
+  z-index: 1;
+  /* The mirror shows through, so only the caret and selection come from here. */
+  background: transparent;
+  color: transparent;
+  caret-color: var(--text);
+}
+
+.prompt-field textarea::selection {
+  background: var(--selection);
+  color: var(--selection-text);
+}
+
+.prompt-mirror {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  color: var(--text);
+  background: var(--well);
+  border-color: var(--shadow) var(--white) var(--white) var(--shadow);
+  box-shadow: inset 1px 1px 0 var(--black);
+  /* Clicks belong to the textarea; only the mentions take the pointer. */
+  pointer-events: none;
+}
+
+.prompt-mirror .mention {
+  color: var(--title);
+  text-decoration: underline;
+  background: #d7e3ff;
+  pointer-events: auto;
+  cursor: help;
+}
+
+/* The hovered asset, shown beside the prompt rather than over the words. */
+.mention-card {
+  position: absolute;
+  z-index: 30;
+  left: calc(100% + var(--gap-sm));
+  width: 180px;
+  padding: var(--gap-sm);
+  display: flex;
+  gap: var(--gap-sm);
+  align-items: flex-start;
+  background: var(--face);
+  border: 2px solid;
+  border-color: var(--white) var(--black) var(--black) var(--white);
+  box-shadow: inset -1px -1px 0 var(--shadow), inset 1px 1px 0 var(--face-light),
+    2px 2px 0 rgba(0, 0, 0, 0.35);
+}
+
+.mention-card img {
+  width: 64px;
+  height: 40px;
+  object-fit: cover;
+  border: 1px solid var(--black);
+  flex: none;
+}
+
+.mention-card-text {
+  font-size: 10px;
+  line-height: 1.35;
+  overflow: hidden;
+}
+
+.mention-card-text .mono {
+  word-break: break-all;
 }

@@ -1,18 +1,13 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import type { Asset, ComposedPlan, GenerationOperation } from "@seed-ae/domain";
 import type { AeRegion } from "../api/cep.ts";
-import {
-  assetToken,
-  completeMention,
-  matchAssets,
-  mentionQueryAt,
-} from "../mentions.ts";
 import type {
   JobView,
   ProviderCapabilitiesDto,
   SeedClient,
 } from "../api/client.ts";
 import { AssetImage, Field, SectionLabel, StatusBadge } from "./primitives.tsx";
+import { PromptField } from "./PromptField.tsx";
 
 /** The region controls, kept together so App owns one piece of state. */
 export interface RegionSettings {
@@ -94,9 +89,15 @@ export function GenerateView({
   onRefreshRegions,
   onInsertRegion,
 }: Props) {
-  const promptRef = useRef<HTMLTextAreaElement>(null);
-  const [mentionQuery, setMentionQuery] = useState<string>();
   const [directingFor, setDirectingFor] = useState(0);
+
+  const provider = providers.find((item) => item.id === form.providerId);
+  const references = form.inputAssetIds
+    .map((id) => assets.find((asset) => asset.id === id))
+    .filter((asset): asset is Asset => asset !== undefined);
+
+  const patch = (changes: Partial<GenerateForm>) =>
+    onFormChange({ ...form, ...changes });
 
   /*
    * Composition takes about half a minute and the API reports no progress, so
@@ -115,39 +116,6 @@ export function GenerateView({
     );
     return () => clearInterval(timer);
   }, [directing]);
-
-  /** Tracks the `@…` being typed so the library can be offered inline. */
-  const syncMentionQuery = (element: HTMLTextAreaElement) => {
-    const at = mentionQueryAt(element.value, element.selectionStart ?? 0);
-    setMentionQuery(at?.query);
-  };
-
-  const mentionMatches =
-    mentionQuery === undefined ? [] : matchAssets(assets, mentionQuery);
-
-  const insertMention = (asset: Asset) => {
-    const element = promptRef.current;
-    if (!element) return;
-    const next = completeMention(
-      form.prompt,
-      element.selectionStart ?? form.prompt.length,
-      asset,
-    );
-    patch({ prompt: next.text });
-    setMentionQuery(undefined);
-    // The caret has to be restored after React re-renders the value.
-    requestAnimationFrame(() => {
-      element.focus();
-      element.setSelectionRange(next.caret, next.caret);
-    });
-  };
-  const provider = providers.find((item) => item.id === form.providerId);
-  const references = form.inputAssetIds
-    .map((id) => assets.find((asset) => asset.id === id))
-    .filter((asset): asset is Asset => asset !== undefined);
-
-  const patch = (changes: Partial<GenerateForm>) =>
-    onFormChange({ ...form, ...changes });
 
   /**
    * Moves the form onto a provider, keeping it internally consistent.
@@ -384,48 +352,19 @@ export function GenerateView({
               : undefined
           }
         >
-          <div className="mention-host">
-            <textarea
-              ref={promptRef}
-              value={form.prompt}
-              placeholder={
-                onDirect
-                  ? "Describe the shot — type @ to name a reference…"
-                  : references.length > 0
-                    ? "Image 1 is the reference. Keep the subject; relight as…"
-                    : "Describe the image you want…"
-              }
-              onChange={(event) => {
-                patch({ prompt: event.target.value });
-                syncMentionQuery(event.target);
-              }}
-              onKeyUp={(event) => syncMentionQuery(event.currentTarget)}
-              onClick={(event) => syncMentionQuery(event.currentTarget)}
-              onBlur={() => setMentionQuery(undefined)}
-            />
-            {mentionMatches.length > 0 ? (
-              <ul className="mention-menu">
-                {mentionMatches.map((asset) => (
-                  <li key={asset.id}>
-                    {/* onMouseDown fires before the textarea's blur closes this. */}
-                    <button
-                      onMouseDown={(event) => {
-                        event.preventDefault();
-                        insertMention(asset);
-                      }}
-                    >
-                      <AssetImage
-                        client={client}
-                        asset={asset}
-                        variant="thumbnail"
-                      />
-                      <span className="mono">@{assetToken(asset)}</span>
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            ) : null}
-          </div>
+          <PromptField
+            client={client}
+            assets={assets}
+            value={form.prompt}
+            placeholder={
+              onDirect
+                ? "Describe the shot — type @ to name a reference…"
+                : references.length > 0
+                  ? "Image 1 is the reference. Keep the subject; relight as…"
+                  : "Describe the image you want…"
+            }
+            onChange={(prompt) => patch({ prompt })}
+          />
         </Field>
 
         {onDirect ? (
