@@ -656,14 +656,12 @@ export function GenerateView({
 
       <section className="section">
         <SectionLabel>direction</SectionLabel>
-        <Field
-          label="Prompt"
-          hint={
-            references.length > 0
-              ? `Refer to references by position — “Image 1”, “the second reference”. Models do not resolve asset ids in prose.`
-              : undefined
-          }
-        >
+        {/*
+          The positional rule used to be explained here. The chips are numbered
+          and the director writes the prompt, so it was telling the artist
+          something the panel already shows and mostly does for them.
+        */}
+        <Field label="Prompt">
           <PromptField
             client={client}
             assets={assets}
