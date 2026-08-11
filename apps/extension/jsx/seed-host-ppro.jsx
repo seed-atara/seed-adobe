@@ -244,7 +244,7 @@ function seedNativePath(value) {
  * Every attempt records what it was and what it got, so a failure narrows the
  * matrix instead of restarting the guessing.
  */
-function seedExportViaQE(sequence, targetPath, trace) {
+function seedExportViaQE(sequence, folder, targetPath, trace) {
     if (typeof app.enableQE !== "function") {
         trace.push("QE: app.enableQE is unavailable");
         return null;
@@ -314,6 +314,7 @@ function seedExportViaQE(sequence, targetPath, trace) {
                 var shape = forms[a][0];
                 var args = forms[a][1];
                 var what = label + " " + how + " " + shape;
+                var attemptedAt = new Date().getTime() - 1000;
 
                 try {
                     if (args.length === 1) qeSequence[method](args[0]);
@@ -323,7 +324,17 @@ function seedExportViaQE(sequence, targetPath, trace) {
                     continue;
                 }
 
+                /*
+                 * Look for what landed rather than for what was asked for. On
+                 * Premiere 25.3 and later this exporter appends a second
+                 * extension, so a check against the exact path reports a
+                 * silent failure for a file that is sitting right there.
+                 */
                 var written = seedAwaitFile(onDisk);
+                if (!written) written = seedAwaitFile(onDisk + extension);
+                if (!written && onDisk.indexOf(seedNormalizePath(folder.fsName)) === 0) {
+                    written = seedNewestSettledFile(folder, attemptedAt);
+                }
                 if (written) {
                     trace.push("QE wrote via " + what);
                     // A control write lands outside the workspace; the service
@@ -660,26 +671,29 @@ function seedCaptureFrame(outputDir, basename, presetPath) {
         }
 
         /*
-         * Media Encoder first: it is what Adobe's own panel uses, so it is the
-         * route most likely to be right. The others are fallbacks for builds
-         * where it is unavailable, and both were arrived at by guesswork.
+         * Media Encoder goes last, despite being what Adobe's own sample uses.
+         *
+         * On this build it is verifiably given the right range — in=10.000s,
+         * out=10.040s, mode ENCODE_IN_TO_OUT as the encoder itself defines it
+         * — and returns the first frame of the sequence anyway. Its still
+         * exporter ignores the range. Nothing in the call can fix that, and a
+         * route that confidently returns the wrong frame is worse than one
+         * that returns nothing, because it also stops every other route from
+         * being tried.
          */
-        var written = null;
-        var route = "ame";
-        if (presetPath) {
-            written = seedExportViaEncoder(sequence, folder, presetPath, seconds, fps, trace);
-        } else {
-            trace.push("no still preset configured, so Media Encoder cannot be used");
-        }
-
-        if (!written) {
-            written = seedExportViaQE(sequence, targetPath, trace);
-            route = "qe";
-        }
+        var written = seedExportViaQE(sequence, folder, targetPath, trace);
+        var route = "qe";
 
         if (!written && presetPath) {
             written = seedExportViaPreset(sequence, folder, presetPath, seconds, fps, trace);
             route = "preset";
+        }
+
+        if (!written && presetPath) {
+            trace.push("falling back to Media Encoder, which on some builds " +
+                "returns the first frame regardless of the range");
+            written = seedExportViaEncoder(sequence, folder, presetPath, seconds, fps, trace);
+            route = "ame";
         }
 
         if (!written) {
