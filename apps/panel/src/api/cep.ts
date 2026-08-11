@@ -211,6 +211,8 @@ export interface PlaceholderHandle {
   label: string;
   /** The card's width, so the swap can correct the scale by their ratio. */
   cardWidth?: number;
+  /** After Effects only: the comp it was reserved in, so it is found later. */
+  compId?: number;
   atSeconds?: number;
   durationSeconds?: number;
   /** Premiere only: which video track it went onto. */
@@ -518,7 +520,9 @@ export class CepAeBridge {
           }, ${quote(path)}, ${quote(handle.label)}, ${handle.cardWidth ?? 0}, ${
             mediaWidth ?? 0
           })`
-        : `${hostPrefix()}fillPlaceholder(${quote(handle.label)}, ${quote(path)})`;
+        : `${hostPrefix()}fillPlaceholder(${quote(handle.label)}, ${quote(path)}, ${
+            handle.compId ?? 0
+          })`;
     return evalHost(call);
   }
 
@@ -533,7 +537,9 @@ export class CepAeBridge {
         ? `${hostPrefix()}failPlaceholder(${handle.trackIndex ?? 0}, ${
             handle.atSeconds ?? 0
           }, ${quote(message)}, ${quote(handle.label)})`
-        : `${hostPrefix()}failPlaceholder(${quote(handle.label)}, ${quote(message)})`;
+        : `${hostPrefix()}failPlaceholder(${quote(handle.label)}, ${quote(message)}, ${
+            handle.compId ?? 0
+          })`;
     await evalHost(call);
   }
 

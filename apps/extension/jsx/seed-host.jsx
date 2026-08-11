@@ -1009,14 +1009,45 @@ function seedInsertRegion(projectItemId, options) {
 
 var SEED_PENDING_PREFIX = "SEED pending";
 
-/** Finds a placeholder by the label it was reserved under. */
-function seedFindPlaceholder(comp, label) {
+/** A placeholder layer within one comp, by the label it was reserved under. */
+function seedPlaceholderIn(comp, label) {
     for (var i = 1; i <= comp.numLayers; i++) {
         var layer = comp.layer(i);
         if (layer.name.indexOf(SEED_PENDING_PREFIX) === 0 &&
             layer.name.indexOf(label) !== -1) {
             return layer;
         }
+    }
+    return null;
+}
+
+/**
+ * The placeholder, wherever it is.
+ *
+ * Searched by the comp it was reserved in first, then across the project.
+ * Looking only in the *active* comp was wrong: a render takes minutes, and
+ * moving up and down the comp ladder while waiting is ordinary work — but it
+ * meant the placeholder stopped being findable the moment the artist looked at
+ * anything else, and the render then landed nowhere.
+ */
+function seedFindPlaceholder(label, compId) {
+    var wanted = Number(compId);
+    if (wanted > 0) {
+        for (var i = 1; i <= app.project.numItems; i++) {
+            var item = app.project.item(i);
+            if (!(item instanceof CompItem) || item.id !== wanted) continue;
+            var found = seedPlaceholderIn(item, label);
+            if (found) return { comp: item, layer: found };
+        }
+    }
+
+    // The comp may have been deleted, or the reservation made before comps
+    // were recorded; the label is unique either way.
+    for (var j = 1; j <= app.project.numItems; j++) {
+        var candidate = app.project.item(j);
+        if (!(candidate instanceof CompItem)) continue;
+        var layer = seedPlaceholderIn(candidate, label);
+        if (layer) return { comp: candidate, layer: layer };
     }
     return null;
 }
@@ -1047,6 +1078,7 @@ function seedReservePlaceholder(placeholderPath, durationSeconds, label) {
         return seedOk({
             label: label,
             name: layer.name,
+            compId: comp.id,
             atSeconds: layer.startTime,
             durationSeconds: layer.outPoint - layer.inPoint
         });
@@ -1057,15 +1089,16 @@ function seedReservePlaceholder(placeholderPath, durationSeconds, label) {
 }
 
 /** Swaps the finished render in underneath the placeholder. */
-function seedFillPlaceholder(label, mediaPath) {
+function seedFillPlaceholder(label, mediaPath, compId) {
     try {
-        var comp = seedActiveComp();
-        if (!comp) return seedFail("no active composition");
-
-        var layer = seedFindPlaceholder(comp, label);
-        if (!layer) {
-            return seedFail("the placeholder for " + label + " is no longer there");
+        var held = seedFindPlaceholder(label, compId);
+        if (!held) {
+            return seedFail(
+                "could not find the placeholder for " + label + " — it may have " +
+                    "been deleted or renamed"
+            );
         }
+        var layer = held.layer;
 
         var file = new File(seedNormalizePath(mediaPath));
         if (!file.exists) return seedFail("file not found: " + mediaPath);
@@ -1115,13 +1148,11 @@ function seedFillPlaceholder(label, mediaPath) {
  * deleting something they were relying on is a worse answer than leaving it
  * there saying what went wrong.
  */
-function seedFailPlaceholder(label, message) {
+function seedFailPlaceholder(label, message, compId) {
     try {
-        var comp = seedActiveComp();
-        if (!comp) return seedFail("no active composition");
-
-        var layer = seedFindPlaceholder(comp, label);
-        if (!layer) return seedOk({ name: null });
+        var held = seedFindPlaceholder(label, compId);
+        if (!held) return seedOk({ name: null });
+        var layer = held.layer;
 
         app.beginUndoGroup("SEED: placeholder failed");
         layer.name = "SEED failed - " + String(message || "generation failed").substr(0, 60);
