@@ -180,6 +180,10 @@ export interface AeRegion {
   centerY: number;
   width: number;
   height: number;
+  /** Width over height of the rectangle the region was built at. */
+  aspect: number;
+  /** True while the region's scale is locked to that aspect. */
+  locked: boolean;
   /** True once the region has a sub-comp, which capture creates. */
   hasComp: boolean;
   /** True once that sub-comp is placed back over the plate. */
@@ -277,10 +281,24 @@ export class CepAeBridge {
    * It is a plain shape layer, so it is adjusted with Position and Scale like
    * anything else in the timeline — SEED only reads its transform back.
    */
-  async createRegion(size: number): Promise<AeRegion> {
+  async createRegion(size: number, aspect: string): Promise<AeRegion> {
     await this.ensureHost();
     const { region } = await evalHost<{ region: AeRegion }>(
-      `${hostPrefix()}createRegion(${Math.round(size)})`,
+      `${hostPrefix()}createRegion(${Math.round(size)}, ${quote(aspect)})`,
+    );
+    return region;
+  }
+
+  /**
+   * Reshapes a region to an aspect and holds it there.
+   *
+   * An empty aspect frees it again. The hold is an expression on the layer's
+   * scale, so it survives a corner drag rather than being corrected after one.
+   */
+  async setRegionAspect(name: string, aspect: string): Promise<AeRegion> {
+    await this.ensureHost();
+    const { region } = await evalHost<{ region: AeRegion }>(
+      `${hostPrefix()}setRegionAspect(${quote(name)}, ${quote(aspect)})`,
     );
     return region;
   }

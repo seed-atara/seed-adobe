@@ -307,18 +307,72 @@ var SEED_REGION_PREFIX = "SEED Region";
 var SEED_COMPOSITE_SUFFIX = " (comp)";
 
 /**
- * The edge length the layer's rectangle was built at.
+ * The rectangle the layer was built at, before its scale.
  *
  * Read from the shape itself rather than remembered, so a project reopened
- * tomorrow still measures correctly.
+ * tomorrow still measures correctly — and so the aspect survives the artist
+ * saving, closing, and coming back to it next week.
  */
 function seedRegionBaseSize(layer) {
     try {
         var group = layer.property("Contents").property(1);
         var rect = group.property("Contents").property("Rectangle Path 1");
-        return rect.property("Size").value[0];
+        var size = rect.property("Size").value;
+        return [size[0], size[1]];
     } catch (error) {
-        return 1024;
+        return [1024, 1024];
+    }
+}
+
+/** "16:9" as a number. Undefined for "adaptive" and anything unparseable. */
+function seedParseAspect(aspect) {
+    if (!aspect) return null;
+    var parts = String(aspect).split(":");
+    if (parts.length !== 2) return null;
+    var w = Number(parts[0]);
+    var h = Number(parts[1]);
+    if (!(w > 0) || !(h > 0)) return null;
+    return w / h;
+}
+
+/**
+ * A rectangle of the given aspect that fits within `size` on its longest edge.
+ *
+ * Sized by the longest edge so that asking for 1024 never produces something
+ * larger than 1024 in either direction — a region has to fit inside the plate.
+ */
+function seedRectForAspect(size, aspect) {
+    var ratio = seedParseAspect(aspect);
+    if (!ratio) return [size, size];
+    return ratio >= 1
+        ? [size, Math.round(size / ratio)]
+        : [Math.round(size * ratio), size];
+}
+
+/**
+ * Locks the layer's vertical scale to its horizontal one.
+ *
+ * An expression rather than a one-off correction: it holds while the artist
+ * drags a corner handle, which is when the aspect would otherwise be lost.
+ * Clearing it returns the region to free scaling.
+ */
+function seedApplyAspectLock(layer, locked) {
+    var scale = layer.property("Transform").property("Scale");
+    try {
+        scale.expression = locked ? "[value[0], value[0]]" : "";
+    } catch (error) {
+        // An expression-disabled project is not a reason to fail the whole
+        // action; the region simply scales freely.
+    }
+}
+
+/** Whether this region is currently holding an aspect. */
+function seedAspectLocked(layer) {
+    try {
+        var expression = layer.property("Transform").property("Scale").expression;
+        return expression !== null && expression !== "";
+    } catch (error) {
+        return false;
     }
 }
 
@@ -331,8 +385,8 @@ function seedRegionRect(layer) {
     return {
         centerX: position[0],
         centerY: position[1],
-        width: Math.max(8, Math.round((base * scale[0]) / 100)),
-        height: Math.max(8, Math.round((base * scale[1]) / 100))
+        width: Math.max(8, Math.round((base[0] * scale[0]) / 100)),
+        height: Math.max(8, Math.round((base[1] * scale[1]) / 100))
     };
 }
 
@@ -396,12 +450,15 @@ function seedProjectFolder() {
 function seedDescribeRegion(comp, layer) {
     var rect = seedRegionRect(layer);
     var sub = seedFindRegionComp(layer.name);
+    var base = seedRegionBaseSize(layer);
     return {
         name: layer.name,
         centerX: rect.centerX,
         centerY: rect.centerY,
         width: rect.width,
         height: rect.height,
+        aspect: base[1] > 0 ? base[0] / base[1] : 1,
+        locked: seedAspectLocked(layer),
         hasComp: sub !== null,
         composited: seedFindComposite(comp, layer.name) !== null
     };
@@ -425,7 +482,7 @@ function seedNextRegionName(comp) {
 }
 
 /** Creates a region guide, centred, sized to fit the plate. */
-function seedCreateRegion(size) {
+function seedCreateRegion(size, aspect) {
     try {
         var comp = seedActiveComp();
         if (!comp) return seedFail("no active composition");
@@ -437,13 +494,15 @@ function seedCreateRegion(size) {
         var limit = Math.min(comp.width, comp.height);
         if (edge > limit) edge = limit;
 
+        var dims = seedRectForAspect(edge, aspect);
+
         var layer = comp.layers.addShape();
         layer.name = seedNextRegionName(comp);
 
         var group = layer.property("Contents").addProperty("ADBE Vector Group");
         var contents = group.property("Contents");
         var rect = contents.addProperty("ADBE Vector Shape - Rect");
-        rect.property("Size").setValue([edge, edge]);
+        rect.property("Size").setValue(dims);
         rect.property("Position").setValue([0, 0]);
 
         var stroke = contents.addProperty("ADBE Vector Graphic - Stroke");
@@ -456,9 +515,56 @@ function seedCreateRegion(size) {
         ]);
         // Excluded from renders, so it can never be baked into a capture.
         layer.guideLayer = true;
+        // The aspect is built into the rectangle; the lock is what keeps it
+        // through a corner drag.
+        seedApplyAspectLock(layer, seedParseAspect(aspect) !== null);
 
         app.endUndoGroup();
         return seedOk({ region: seedDescribeRegion(comp, layer) });
+    } catch (error) {
+        try { app.endUndoGroup(); } catch (ignored) {}
+        return seedFail(error);
+    }
+}
+
+/**
+ * Reshapes a region to an aspect, keeping its width and its centre.
+ *
+ * Width is what is preserved because that is what an artist has usually just
+ * finished framing; the height moves to satisfy the ratio. Passing no aspect
+ * frees the region to scale in either direction again.
+ */
+function seedSetRegionAspect(regionName, aspect) {
+    try {
+        var comp = seedActiveComp();
+        if (!comp) return seedFail("no active composition");
+
+        var region = seedRegionByName(comp, regionName);
+        if (!region) return seedFail("no region named " + regionName);
+
+        app.beginUndoGroup("SEED: region aspect");
+
+        var rect = seedRegionRect(region);
+        var ratio = seedParseAspect(aspect);
+
+        var group = region.property("Contents").property(1);
+        var shape = group.property("Contents").property("Rectangle Path 1");
+
+        if (ratio) {
+            var height = Math.max(8, Math.round(rect.width / ratio));
+            shape.property("Size").setValue([rect.width, height]);
+            // The rectangle now carries the aspect at 100%, so reset the scale
+            // rather than leave the old one distorting it.
+            region.property("Transform").property("Scale").setValue([100, 100]);
+            seedApplyAspectLock(region, true);
+        } else {
+            shape.property("Size").setValue([rect.width, rect.height]);
+            region.property("Transform").property("Scale").setValue([100, 100]);
+            seedApplyAspectLock(region, false);
+        }
+
+        app.endUndoGroup();
+        return seedOk({ region: seedDescribeRegion(comp, region) });
     } catch (error) {
         try { app.endUndoGroup(); } catch (ignored) {}
         return seedFail(error);
@@ -844,6 +950,7 @@ var seedAeft_captureFrame = seedCaptureFrame;
 var seedAeft_import = seedImport;
 var seedAeft_insertAtPlayhead = seedInsertAtPlayhead;
 var seedAeft_createRegion = seedCreateRegion;
+var seedAeft_setRegionAspect = seedSetRegionAspect;
 var seedAeft_listRegions = seedListRegions;
 var seedAeft_captureRegion = seedCaptureRegion;
 var seedAeft_insertRegion = seedInsertRegion;

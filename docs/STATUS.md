@@ -146,6 +146,20 @@ Feather, start time, and a stretch-to duration are all panel parameters. The
 plate is never modified: the composite can be retimed, replaced, or deleted
 without rebuilding anything.
 
+### Holding a region to a shape
+
+A region can be held to an aspect the provider actually offers — the **Shape**
+dropdown, or **Free**. The constraint is an expression on the layer's Scale
+(`[value[0], value[0]]`), so it holds *while* a corner handle is dragged rather
+than correcting the region afterwards. The rectangle itself carries the aspect,
+so the shape survives saving and reopening the project.
+
+Only ratios that describe a shape appear: `adaptive` is a policy, not a shape,
+and offering it would promise a constraint with nothing to enforce.
+
+Reshaping an existing region keeps its width and centre and moves the height —
+width is usually what the artist has just finished framing.
+
 Not yet exercised in After Effects — the host functions parse and the panel
 builds, but the round trip has not been run against a real project.
 

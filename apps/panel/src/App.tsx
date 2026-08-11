@@ -96,6 +96,7 @@ export function App() {
     feather: "24",
     startSeconds: "",
     stretchToSeconds: "",
+    aspect: "",
   });
 
   const selected = assets.find((asset) => asset.id === selectedId);
@@ -368,7 +369,10 @@ export function App() {
     if (!bridge) return;
     setBusy(true);
     try {
-      const created = await bridge.createRegion(Number(region.newSize) || 1024);
+      const created = await bridge.createRegion(
+        Number(region.newSize) || 1024,
+        region.aspect,
+      );
       await refreshRegions();
       setRegion((current) => ({ ...current, name: created.name }));
       setNotice(
@@ -380,7 +384,33 @@ export function App() {
     } finally {
       setBusy(false);
     }
-  }, [bridge, region.newSize, refreshRegions, report]);
+  }, [bridge, region.newSize, region.aspect, refreshRegions, report]);
+
+  /**
+   * Holds a region to a shape, or frees it.
+   *
+   * The constraint is an expression on the layer's scale, so it survives a
+   * corner drag instead of being corrected after one — the region stays
+   * generatable however the artist reframes it.
+   */
+  const setRegionAspect = useCallback(
+    async (aspect: string) => {
+      setRegion((current) => ({ ...current, aspect }));
+      if (!bridge || !region.name) return;
+      try {
+        const updated = await bridge.setRegionAspect(region.name, aspect);
+        await refreshRegions();
+        setNotice(
+          aspect
+            ? `${updated.name} is now ${updated.width}x${updated.height} and held at ${aspect} while you scale it.`
+            : `${updated.name} scales freely again.`,
+        );
+      } catch (cause) {
+        report(cause);
+      }
+    },
+    [bridge, region.name, refreshRegions, report],
+  );
 
   const captureRegion = useCallback(async () => {
     if (!bridge || !region.name) return;
@@ -695,6 +725,7 @@ export function App() {
               onAddRegion={addRegion}
               onCaptureRegion={captureRegion}
               onRefreshRegions={refreshRegions}
+              onRegionAspect={setRegionAspect}
               onInsertRegion={insertRegion}
               onCapture={captureFrame}
               onGenerate={startGeneration}

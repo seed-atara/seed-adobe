@@ -26,6 +26,13 @@ export interface RegionSettings {
   startSeconds: string;
   /** Blank means the clip's own length. */
   stretchToSeconds: string;
+  /**
+   * The shape the region is held to. Blank is free.
+   *
+   * Only ratios the provider actually offers appear, so a region cannot be
+   * framed to a shape nothing can generate.
+   */
+  aspect: string;
 }
 
 export interface GenerateForm {
@@ -76,6 +83,7 @@ interface Props {
   onAddRegion?: () => void;
   onCaptureRegion?: () => void;
   onRefreshRegions?: () => void;
+  onRegionAspect?: (aspect: string) => void;
   onInsertRegion?: () => void;
 }
 
@@ -113,6 +121,7 @@ export function GenerateView({
   onAddRegion,
   onCaptureRegion,
   onRefreshRegions,
+  onRegionAspect,
   onInsertRegion,
 }: Props) {
   const [directingFor, setDirectingFor] = useState(0);
@@ -166,6 +175,14 @@ export function GenerateView({
   const patchRegion = (changes: Partial<RegionSettings>) => {
     if (region && onRegionChange) onRegionChange({ ...region, ...changes });
   };
+
+  /*
+   * "adaptive" is a policy, not a shape — a region cannot be framed to it, and
+   * offering it here would promise a constraint that has nothing to enforce.
+   */
+  const shapeOptions = (provider?.aspectRatios ?? []).filter(
+    (ratio) => parseAspect(ratio) !== undefined,
+  );
 
   const selected = regions?.find((item) => item.name === region?.name);
   const running = jobs.some(
@@ -251,7 +268,7 @@ export function GenerateView({
 
           {regions.length === 0 ? (
             <div className="row">
-              <Field label="Size">
+              <Field label="Size" hint="longest edge, in comp pixels">
                 <input
                   type="number"
                   min={64}
@@ -260,6 +277,21 @@ export function GenerateView({
                     patchRegion({ newSize: event.target.value })
                   }
                 />
+              </Field>
+              <Field label="Shape">
+                <select
+                  value={region.aspect}
+                  onChange={(event) =>
+                    patchRegion({ aspect: event.target.value })
+                  }
+                >
+                  <option value="">Free</option>
+                  {shapeOptions.map((ratio) => (
+                    <option key={ratio} value={ratio}>
+                      {ratio}
+                    </option>
+                  ))}
+                </select>
               </Field>
               <Field label="&nbsp;">
                 <button className="btn wide" onClick={onAddRegion} disabled={busy}>
@@ -307,6 +339,29 @@ export function GenerateView({
                   </div>
                 </Field>
               </div>
+
+              <Field
+                label="Shape"
+                hint={
+                  selected
+                    ? `${selected.width}x${selected.height}${
+                        selected.locked ? " — held while you scale" : " — free"
+                      }`
+                    : undefined
+                }
+              >
+                <select
+                  value={region.aspect}
+                  onChange={(event) => onRegionAspect?.(event.target.value)}
+                >
+                  <option value="">Free</option>
+                  {shapeOptions.map((ratio) => (
+                    <option key={ratio} value={ratio}>
+                      {ratio}
+                    </option>
+                  ))}
+                </select>
+              </Field>
 
               <button
                 className="btn primary wide"
