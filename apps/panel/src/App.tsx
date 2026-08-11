@@ -703,7 +703,12 @@ export function App() {
     setBusy(true);
     setError(undefined);
     setJobs([]);
-    setSelectedId(undefined);
+    /*
+     * The selection stays. It is usually the frame this generation is built
+     * from, and clearing it empties the asset panel at the exact moment the
+     * artist wants to keep looking at what they are generating from. Results
+     * are chosen from their own cards.
+     */
     try {
       const started = await Promise.all(
         Array.from({ length: count }, (_, index) =>

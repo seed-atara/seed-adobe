@@ -562,20 +562,25 @@ export function GenerateView({
                 setRefMenu({ x: event.clientX, y: event.clientY, asset });
               }}
             >
-              <div className="ref-thumb">
+              <div
+                className={`ref-thumb ${asset.id === selectedId ? "selected" : ""}`}
+                onClick={() => onSelect?.(asset.id)}
+                title="Show this in the asset panel"
+              >
               <AssetImage client={client} asset={asset} variant="thumbnail" />
               <span className="ref-index mono">{index + 1}</span>
               <button
                 className="ref-remove"
                 title="Remove reference"
-                onClick={() =>
+                onClick={(event) => {
+                  event.stopPropagation();
                   patch({
                     inputAssetIds: form.inputAssetIds.filter(
                       (_, at) => at !== index,
                     ),
                     inputRoles: form.inputRoles.filter((_, at) => at !== index),
-                  })
-                }
+                  });
+                }}
               >
                 ×
               </button>
@@ -584,24 +589,26 @@ export function GenerateView({
                   <button
                     title="Move earlier"
                     disabled={index === 0}
-                    onClick={() =>
+                    onClick={(event) => {
+                      event.stopPropagation();
                       patch({
                         inputAssetIds: move(form.inputAssetIds, index, -1),
                         inputRoles: move(form.inputRoles, index, -1),
-                      })
-                    }
+                      });
+                    }}
                   >
                     ◀
                   </button>
                   <button
                     title="Move later"
                     disabled={index === references.length - 1}
-                    onClick={() =>
+                    onClick={(event) => {
+                      event.stopPropagation();
                       patch({
                         inputAssetIds: move(form.inputAssetIds, index, 1),
                         inputRoles: move(form.inputRoles, index, 1),
-                      })
-                    }
+                      });
+                    }}
                   >
                     ▶
                   </button>

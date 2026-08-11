@@ -1324,3 +1324,13 @@ pre.raw {
   border: 1px solid;
   border-color: var(--shadow) var(--white) var(--white) var(--shadow);
 }
+
+/* A reference is clickable: it is also the way to inspect it. */
+.ref-thumb {
+  cursor: pointer;
+}
+
+.ref-thumb.selected {
+  outline: 2px solid var(--title);
+  outline-offset: -2px;
+}
