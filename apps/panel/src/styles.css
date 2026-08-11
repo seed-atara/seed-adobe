@@ -1305,3 +1305,18 @@ pre.raw {
   background: var(--selection);
   color: var(--selection-text);
 }
+
+/* The role a reference plays: first frame, last frame, or reference. */
+.ref-role {
+  position: absolute;
+  left: 2px;
+  right: 2px;
+  top: 17px;
+  width: auto;
+  padding: 0 1px;
+  height: 14px;
+  font-size: 9px;
+  line-height: 1;
+  background: var(--face);
+  border: 1px solid var(--black);
+}

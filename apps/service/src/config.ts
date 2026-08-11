@@ -30,6 +30,16 @@ export interface DirectorConfig {
   apiKey: string;
   /** Model id from configuration, so it can be changed without a release. */
   model: string;
+  /**
+   * How hard the model thinks before answering.
+   *
+   * Composition is a short creative task with a picture in front of it, not a
+   * long chain of reasoning, and the default of high spends half a minute
+   * proving it. Low is the right shape for the job and is where this starts.
+   */
+  effort: "low" | "medium" | "high" | "xhigh" | "max";
+  /** Premium-priced fast mode. Off unless someone chooses to pay for it. */
+  fast: boolean;
 }
 
 export interface ProviderConfig {
@@ -158,6 +168,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServiceConfig 
           director: {
             apiKey: env.ANTHROPIC_API_KEY.trim(),
             model: env.SEED_AE_DIRECTOR_MODEL?.trim() || "claude-opus-5",
+            effort: parseEffort(env.SEED_AE_DIRECTOR_EFFORT),
+            fast: env.SEED_AE_DIRECTOR_FAST?.trim() === "true",
           },
         }
       : {}),
@@ -197,6 +209,14 @@ function parseReferencePolicy(
 }
 
 /** A comma-separated setting, trimmed and without blanks. */
+/** Effort level for the direction model, defaulting to the quick end. */
+function parseEffort(value: string | undefined): DirectorConfig["effort"] {
+  const wanted = (value ?? "").trim().toLowerCase();
+  return wanted === "medium" || wanted === "high" || wanted === "xhigh" || wanted === "max"
+    ? wanted
+    : "low";
+}
+
 function parseList(value: string | undefined): string[] {
   return (value ?? "")
     .split(",")

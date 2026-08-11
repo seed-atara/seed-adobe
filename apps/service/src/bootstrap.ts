@@ -125,6 +125,8 @@ export async function bootstrap({
           director: new PromptDirector({
             apiKey: config.director.apiKey,
             model: config.director.model,
+            effort: config.director.effort,
+            fast: config.director.fast,
             workspace,
           }),
         }

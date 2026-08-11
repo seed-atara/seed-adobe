@@ -84,6 +84,7 @@ const EMPTY_FORM: GenerateForm = {
   durationSeconds: "",
   generateAudio: false,
   reserveSpace: true,
+  inputRoles: [],
   variants: "1",
   aspectRatio: "",
   aspectSourceId: "",
@@ -404,11 +405,17 @@ export function App() {
           providers.find((item) => item.id === current.providerId)
             ?.maxImageReferences ?? 1,
         );
-        const next = [
-          ...current.inputAssetIds.filter((id) => id !== assetId),
-          assetId,
-        ];
-        return { ...current, inputAssetIds: next.slice(-limit) };
+        const keep = current.inputAssetIds
+          .map((id, index) => ({ id, role: current.inputRoles[index] ?? "reference" }))
+          .filter((entry) => entry.id !== assetId);
+        // A lone reference anchors the shot; one of several is a reference.
+        keep.push({ id: assetId, role: keep.length === 0 ? "first" : "reference" });
+        const trimmed = keep.slice(-limit);
+        return {
+          ...current,
+          inputAssetIds: trimmed.map((entry) => entry.id),
+          inputRoles: trimmed.map((entry) => entry.role),
+        };
       }),
     [providers],
   );
@@ -708,6 +715,10 @@ export function App() {
             ...(seeds[index] !== undefined ? { seed: seeds[index] } : {}),
             ...(form.size ? { size: form.size } : {}),
             ...(form.aspectRatio ? { aspectRatio: form.aspectRatio } : {}),
+        ...(form.inputRoles.length === form.inputAssetIds.length &&
+        form.inputRoles.some((role) => role !== "reference")
+          ? { inputRoles: form.inputRoles }
+          : {}),
             ...(Number(form.durationSeconds) > 0
               ? { durationSeconds: Number(form.durationSeconds) }
               : {}),

@@ -362,20 +362,40 @@ export class GenerationService {
       throw new SeedError("unsupported_capability", `${provider.id} cannot generate video`);
     }
     /*
-     * A single image anchors the opening frame; several are references. The
-     * adapter enforces the distinction because the provider treats the two as
-     * exclusive modes — see docs/research/MODEL_API_NOTES.md.
+     * Where the caller said what each input is for, that is used. Where it did
+     * not, a single image anchors the opening frame and several are
+     * references — the old guess, kept so an older panel still behaves.
+     *
+     * The two are exclusive modes at the provider, not degrees of one thing;
+     * the adapter enforces that, with the API's own wording.
      */
-    const [first] = inputs;
-    const anchors = capabilities.startEndFrames && inputs.length === 1 && first;
+    const roles = request.inputRoles;
+    let firstFrame: MaterializedInput | undefined;
+    let lastFrame: MaterializedInput | undefined;
+    let references: MaterializedInput[] = [];
+
+    if (roles && roles.length > 0 && capabilities.startEndFrames) {
+      inputs.forEach((input, index) => {
+        const role = roles[index] ?? "reference";
+        if (role === "first" && !firstFrame) firstFrame = input;
+        else if (role === "last" && !lastFrame) lastFrame = input;
+        else references.push(input);
+      });
+    } else {
+      const [only] = inputs;
+      if (capabilities.startEndFrames && inputs.length === 1 && only) firstFrame = only;
+      else references = inputs;
+    }
+
     const payload: VideoGenerationRequest = {
       ...base,
       ...(request.durationSeconds ? { durationSeconds: request.durationSeconds } : {}),
       ...(request.aspectRatio ? { aspectRatio: request.aspectRatio } : {}),
       // Sound is opt-in, and stays off when nothing asked for it.
       ...(request.generateAudio ? { generateAudio: true } : {}),
-      ...(anchors ? { firstFrame: first } : {}),
-      references: anchors ? [] : inputs,
+      ...(firstFrame ? { firstFrame } : {}),
+      ...(lastFrame ? { lastFrame } : {}),
+      references,
     };
     return provider.generateVideo(payload);
   }

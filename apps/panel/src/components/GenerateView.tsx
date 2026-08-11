@@ -49,6 +49,8 @@ export interface GenerateForm {
   generateAudio: boolean;
   /** Hold the cut open in the host while the render runs. */
   reserveSpace: boolean;
+  /** What each reference is for, positionally matched to inputAssetIds. */
+  inputRoles: Array<"first" | "last" | "reference">;
   /** How many to generate at once, each with its own seed. */
   variants: string;
   /** Blank means the provider's own default. */
@@ -109,12 +111,12 @@ function elapsed(createdAt: string, now: number): string {
 }
 
 /** Moves one entry, leaving the rest in order. */
-function move(ids: string[], index: number, by: number): string[] {
+function move<T>(ids: T[], index: number, by: number): T[] {
   const next = [...ids];
   const target = index + by;
   if (target < 0 || target >= next.length) return next;
   const [moved] = next.splice(index, 1);
-  next.splice(target, 0, moved as string);
+  next.splice(target, 0, moved as T);
   return next;
 }
 
@@ -270,6 +272,18 @@ export function GenerateView({
   const results = jobs.flatMap((entry) => entry.outputs);
 
   /*
+   * Frames and references are exclusive modes at the provider — "first/last
+   * frame content cannot be mixed with reference media content" — so a set
+   * that mixes them cannot be generated, and saying so here is better than
+   * letting the request be refused after the artist presses Generate.
+   */
+  const anchored = form.inputRoles.some((role) => role !== "reference");
+  const mixesModes =
+    anchored && form.inputRoles.some((role) => role === "reference");
+  const rolesOffered =
+    form.operation === "video.generate" && provider?.startEndFrames === true;
+
+  /*
    * A single reference becomes the first frame, and the first frame dictates
    * the output shape — the API refuses a ratio alongside one, saying so in as
    * many words. Offering the control there would be offering a choice that
@@ -316,6 +330,7 @@ export function GenerateView({
     !running &&
     provider !== undefined &&
     operationSupported &&
+    !mixesModes &&
     form.prompt.trim().length > 0 &&
     (form.operation !== "image.edit" || references.length > 0);
 
@@ -529,6 +544,13 @@ export function GenerateView({
             and so on. Use ◀ ▶ to reorder.
           </div>
         ) : null}
+        {mixesModes ? (
+          <div className="notice">
+            A first or last frame cannot be combined with references — the
+            provider refuses the two together. Make them all references, or
+            keep only the frames.
+          </div>
+        ) : null}
         <div className="ref-row">
           {references.map((asset, index) => (
             <div
@@ -547,26 +569,62 @@ export function GenerateView({
                 onClick={() =>
                   patch({
                     inputAssetIds: form.inputAssetIds.filter(
-                      (id) => id !== asset.id,
+                      (_, at) => at !== index,
                     ),
+                    inputRoles: form.inputRoles.filter((_, at) => at !== index),
                   })
                 }
               >
                 ×
               </button>
+              {rolesOffered ? (
+                <select
+                  className="ref-role"
+                  value={form.inputRoles[index] ?? "reference"}
+                  title="What this reference is for"
+                  onChange={(event) => {
+                    const role = event.target.value as GenerateForm["inputRoles"][number];
+                    // Only one frame can be first, and only one last.
+                    const roles = form.inputRoles.map((existing, at) =>
+                      at === index
+                        ? role
+                        : existing === role && role !== "reference"
+                          ? "reference"
+                          : existing,
+                    );
+                    roles[index] = role;
+                    patch({ inputRoles: roles });
+                  }}
+                >
+                  <option value="reference">ref</option>
+                  <option value="first">first</option>
+                  <option value="last">last</option>
+                </select>
+              ) : null}
+
               {references.length > 1 ? (
                 <div className="ref-move">
                   <button
                     title="Move earlier"
                     disabled={index === 0}
-                    onClick={() => patch({ inputAssetIds: move(form.inputAssetIds, index, -1) })}
+                    onClick={() =>
+                      patch({
+                        inputAssetIds: move(form.inputAssetIds, index, -1),
+                        inputRoles: move(form.inputRoles, index, -1),
+                      })
+                    }
                   >
                     ◀
                   </button>
                   <button
                     title="Move later"
                     disabled={index === references.length - 1}
-                    onClick={() => patch({ inputAssetIds: move(form.inputAssetIds, index, 1) })}
+                    onClick={() =>
+                      patch({
+                        inputAssetIds: move(form.inputAssetIds, index, 1),
+                        inputRoles: move(form.inputRoles, index, 1),
+                      })
+                    }
                   >
                     ▶
                   </button>

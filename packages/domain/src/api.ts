@@ -74,6 +74,15 @@ export const StartGenerationRequestSchema = z.object({
    * capabilities narrow it further.
    */
   inputAssetIds: z.array(z.string()).max(30).default([]),
+  /**
+   * What each input is for, positionally matched to inputAssetIds.
+   *
+   * Providers distinguish anchoring a shot to a frame from drawing on a
+   * reference, and they are mutually exclusive modes rather than degrees of the
+   * same thing. Without this the service can only guess from the count, which
+   * makes an end frame impossible to ask for.
+   */
+  inputRoles: z.array(z.enum(["first", "last", "reference"])).max(30).optional(),
   /** Set when this generation descends from an existing asset/recipe. */
   parentAssetId: z.string().optional(),
   parentGenerationId: z.string().optional(),

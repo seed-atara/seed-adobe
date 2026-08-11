@@ -156,8 +156,20 @@ The artist reviews everything before anything runs, so make the judgement calls 
 export interface DirectorOptions {
   apiKey: string;
   model: string;
+  effort?: "low" | "medium" | "high" | "xhigh" | "max";
+  fast?: boolean;
   workspace: WorkspaceLayout;
 }
+
+/**
+ * How many candidates are shown as pictures.
+ *
+ * Every image is input tokens and latency, and this is a short creative task —
+ * the artist is waiting on it with a comp open. The ones that matter are the
+ * ones already attached or named; a long tail of recent captures adds seconds
+ * for candidates the model will not choose anyway.
+ */
+const MAX_PICTURES = 4;
 
 export interface ComposeInput {
   request: ComposeRequest;
@@ -455,7 +467,10 @@ export class PromptDirector {
       });
       for (const [index, asset] of candidates.entries()) {
         content.push({ type: "text", text: describeCandidate(asset, index) });
-        const preview = await loadPreview(this.options.workspace, asset);
+        const preview =
+          index < MAX_PICTURES
+            ? await loadPreview(this.options.workspace, asset)
+            : undefined;
         if (preview) {
           content.push({
             type: "image",
@@ -507,18 +522,29 @@ export class PromptDirector {
       });
     }
 
+    const params = {
+      model: this.options.model,
+      max_tokens: 4000,
+      thinking: { type: "adaptive" as const },
+      system: SYSTEM_PROMPT,
+      output_config: {
+        // A short creative task: thinking hard about it mostly costs the
+        // artist time while they wait with a comp open.
+        effort: this.options.effort ?? "low",
+        format: { type: "json_schema" as const, schema: DRAFT_SCHEMA },
+      },
+      messages: [{ role: "user" as const, content }],
+    };
+
     let response: Anthropic.Message;
     try {
-      response = await this.client.messages.create({
-        model: this.options.model,
-        max_tokens: 16000,
-        thinking: { type: "adaptive" },
-        system: SYSTEM_PROMPT,
-        output_config: {
-          format: { type: "json_schema", schema: DRAFT_SCHEMA },
-        },
-        messages: [{ role: "user", content }],
-      });
+      response = this.options.fast
+        ? ((await this.client.beta.messages.create({
+            ...params,
+            speed: "fast",
+            betas: ["fast-mode-2026-02-01"],
+          })) as unknown as Anthropic.Message)
+        : await this.client.messages.create(params);
     } catch (cause) {
       if (cause instanceof Anthropic.AuthenticationError) {
         throw new SeedError(
