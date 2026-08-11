@@ -20,6 +20,10 @@ export interface ProviderCapabilitiesDto {
   textToVideo: boolean;
   imageToVideo: boolean;
   seed: boolean;
+  /** Whether a first and last frame can anchor the shot. */
+  startEndFrames: boolean;
+  videoReferences: boolean;
+  audioReferences: boolean;
   /** Whether the model can score the clip itself. */
   generatesAudio: boolean;
   durationSecondsRange?: [number, number];

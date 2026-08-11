@@ -60,7 +60,7 @@ function expectedShape(
     "2K": 1440,
     "4K": 2160,
   };
-  const height = HEIGHTS[form.size] ?? 1080;
+  let height = HEIGHTS[form.size] ?? 1080;
 
   const first = assets.find((asset) => asset.id === form.inputAssetIds[0]);
   let aspect =
@@ -840,7 +840,8 @@ export function App() {
     async (asset: Asset) => {
       try {
         const { recipe } = await client.recipe(asset.id);
-        setForm({
+        setForm((current) => ({
+          ...current,
           providerId: recipe.providerId,
           model: recipe.model ?? "",
           operation: recipe.operation,
@@ -857,7 +858,10 @@ export function App() {
           inputAssetIds: recipe.inputAssetIds ?? [],
           parentAssetId: recipe.parentAssetId,
           parentGenerationId: recipe.parentGenerationId,
-        });
+          // Roles are not stored on a recipe yet, so a reopened one starts
+          // fresh rather than claiming an arrangement it does not have.
+          inputRoles: [],
+        }));
         setTab("generate");
       } catch (cause) {
         report(cause);
