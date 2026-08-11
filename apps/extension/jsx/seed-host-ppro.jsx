@@ -217,6 +217,33 @@ function seedAwaitFile(path) {
  * Fast and needs no preset, but Adobe does not document it and it is reported
  * to fail on some builds. Returns a File, or null to let the caller fall back.
  */
+/** A path in the form the host operating system writes natively. */
+function seedNativePath(value) {
+    var text = String(value);
+    if ($.os && $.os.indexOf("Windows") !== -1) return text.replace(/\//g, "\\");
+    return text;
+}
+
+/**
+ * Route 1: the QE DOM frame exporters.
+ *
+ * These are the scripted equivalent of the Export Frame button, and they are
+ * undocumented, so every assumption about them has to be tested rather than
+ * believed. Three were wrong at once, which is why this tries a matrix instead
+ * of a call:
+ *
+ *   - the path separator. SEED normalises paths to forward slashes, which most
+ *     of the API tolerates. The QE DOM predates that tolerance, and a path it
+ *     cannot open is reported as "Unknown error exception" — the same message
+ *     as everything else it dislikes.
+ *   - the directory. The workspace lives under a dot-prefixed folder, which is
+ *     ordinary on disk and unusual for a 2003-era API.
+ *   - the format. If PNG is broken and JPEG is not, a JPEG frame is a perfectly
+ *     good reference and worth having.
+ *
+ * Every attempt records what it was and what it got, so a failure narrows the
+ * matrix instead of restarting the guessing.
+ */
 function seedExportViaQE(sequence, targetPath, trace) {
     if (typeof app.enableQE !== "function") {
         trace.push("QE: app.enableQE is unavailable");
@@ -233,62 +260,96 @@ function seedExportViaQE(sequence, targetPath, trace) {
         trace.push("QE: no active sequence");
         return null;
     }
-    if (typeof qeSequence.exportFramePNG !== "function") {
-        trace.push("QE: exportFramePNG is not defined on this build");
-        return null;
-    }
 
-    /*
-     * The argument form is undocumented, and every attempt so far passed a
-     * time first — which may be the whole problem. The QE exporter most likely
-     * writes whatever the playhead is on and wants only a path; handing it a
-     * timecode as the first argument would produce exactly the "Unknown error
-     * exception" we kept getting.
-     *
-     * So the playhead is moved to the wanted frame first, and the path-only
-     * form is tried before any form that passes a time.
-     */
-    var attempts = [];
-    attempts.push(["path only", [targetPath]]);
-    attempts.push([
-        "path with size",
-        [targetPath, Number(sequence.frameSizeHorizontal) || 1920,
-            Number(sequence.frameSizeVertical) || 1080]
-    ]);
+    var timecode = null;
     try {
-        attempts.push(["CTI timecode first", [qeSequence.CTI.timecode, targetPath]]);
+        timecode = qeSequence.CTI.timecode;
     } catch (ctiError) {
-        trace.push("QE: could not read CTI timecode");
-    }
-    try {
-        attempts.push([
-            "ticks first",
-            [String(sequence.getPlayerPosition().ticks), targetPath]
-        ]);
-    } catch (posError) {
-        // optional
+        trace.push("QE: could not read the playhead timecode");
     }
 
-    for (var a = 0; a < attempts.length; a++) {
-        var label = attempts[a][0];
-        var args = attempts[a][1];
-        try {
-            if (args.length === 1) qeSequence.exportFramePNG(args[0]);
-            else if (args.length === 2) qeSequence.exportFramePNG(args[0], args[1]);
-            else qeSequence.exportFramePNG(args[0], args[1], args[2]);
-        } catch (error) {
-            trace.push("QE: " + label + " threw: " + error);
+    // Somewhere with no dot-folder in the path, as a control.
+    var plain = seedNormalizePath(Folder.temp.fsName) + "/seed_frame_" +
+        new Date().getTime();
+
+    var formats = [
+        ["PNG", "exportFramePNG", ".png"],
+        ["JPEG", "exportFrameJPEG", ".jpg"],
+        ["Targa", "exportFrameTarga", ".tga"]
+    ];
+
+    for (var f = 0; f < formats.length; f++) {
+        var label = formats[f][0];
+        var method = formats[f][1];
+        var extension = formats[f][2];
+
+        if (typeof qeSequence[method] !== "function") {
+            trace.push("QE: " + method + " is not defined on this build");
             continue;
         }
-        var file = seedAwaitFile(targetPath);
-        if (file) {
-            trace.push("QE: wrote via " + label);
-            return file;
+
+        var base = targetPath.replace(/\.[^.]+$/, "") + extension;
+        var control = plain + extension;
+
+        var candidates = [
+            ["native path", seedNativePath(base), base],
+            ["forward path", base, base],
+            ["native temp", seedNativePath(control), control],
+            ["forward temp", control, control]
+        ];
+
+        for (var c = 0; c < candidates.length; c++) {
+            var how = candidates[c][0];
+            var handed = candidates[c][1];
+            var onDisk = candidates[c][2];
+
+            var forms = timecode === null
+                ? [["path only", [handed]]]
+                : [
+                    ["timecode first", [timecode, handed]],
+                    ["path only", [handed]]
+                ];
+
+            for (var a = 0; a < forms.length; a++) {
+                var shape = forms[a][0];
+                var args = forms[a][1];
+                var what = label + " " + how + " " + shape;
+
+                try {
+                    if (args.length === 1) qeSequence[method](args[0]);
+                    else qeSequence[method](args[0], args[1]);
+                } catch (error) {
+                    trace.push("QE " + what + ": " + error);
+                    continue;
+                }
+
+                var written = seedAwaitFile(onDisk);
+                if (written) {
+                    trace.push("QE wrote via " + what);
+                    // A control write lands outside the workspace; the service
+                    // only registers media it owns, so bring it home.
+                    if (onDisk !== base) {
+                        try {
+                            written.copy(base);
+                            var moved = seedAwaitFile(base);
+                            if (moved) {
+                                try { written.remove(); } catch (cleanupError) {}
+                                return moved;
+                            }
+                        } catch (copyError) {
+                            trace.push("QE: could not copy into the workspace: " + copyError);
+                        }
+                    }
+                    return written;
+                }
+                trace.push("QE " + what + ": no error, no file");
+            }
         }
-        trace.push("QE: " + label + " reported no error but wrote no file");
     }
+
     return null;
 }
+
 
 /**
  * Route 2: exportAsMediaDirect with a still-image preset.
