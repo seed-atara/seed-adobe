@@ -650,15 +650,24 @@ export function App() {
     setError(undefined);
     try {
       const mentions = findMentions(form.prompt, assets);
-      // What the director gets to look at: what is already attached, what was
-      // named, then recent frames — deduplicated, newest last.
-      const candidateIds = [
+
+      /*
+       * Once the artist has attached references, those are the references.
+       * Offering the library alongside them invites the director to go
+       * shopping — swapping in a frame nobody chose and dropping one that was
+       * deliberately set as the last frame. Recent captures are only offered
+       * when nothing has been chosen at all, where a suggestion is useful
+       * rather than presumptuous.
+       */
+      const chosen = [
         ...new Set([
           ...form.inputAssetIds,
           ...mentions.map((mention) => mention.assetId),
-          ...assets.slice(0, 6).map((asset) => asset.id),
         ]),
-      ].slice(0, 8);
+      ];
+      const candidateIds = (
+        chosen.length > 0 ? chosen : assets.slice(0, 6).map((asset) => asset.id)
+      ).slice(0, 8);
 
       const { plan: composed } = await client.compose({
         description: form.prompt,
@@ -672,6 +681,9 @@ export function App() {
       });
 
       setPlan(composed);
+      // The references stay the artist's when they chose them; the director
+      // wrote the prompt for that set, not a different one.
+      const keepReferences = chosen.length > 0;
       setForm((current) => ({
         ...current,
         providerId: composed.providerId,
@@ -685,7 +697,12 @@ export function App() {
             ? current.durationSeconds
             : String(composed.durationSeconds),
         ...(composed.seed !== undefined ? { seed: String(composed.seed) } : {}),
-        inputAssetIds: composed.references.map((reference) => reference.assetId),
+        ...(keepReferences
+          ? {}
+          : {
+              inputAssetIds: composed.references.map((r) => r.assetId),
+              inputRoles: composed.references.map(() => "reference" as const),
+            }),
       }));
     } catch (cause) {
       report(cause);

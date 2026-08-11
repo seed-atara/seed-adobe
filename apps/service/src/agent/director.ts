@@ -463,7 +463,11 @@ export class PromptDirector {
     if (candidates.length > 0) {
       content.push({
         type: "text",
-        text: "The artist's available reference frames, in the order they appear in the panel:",
+        text:
+          "The artist has attached these references, in this order. Write for " +
+          "them: which images are used is their decision, already made. Say so " +
+          "in a concern if one of them works against the description, rather " +
+          "than quietly leaving it out.",
       });
       for (const [index, asset] of candidates.entries()) {
         content.push({ type: "text", text: describeCandidate(asset, index) });
