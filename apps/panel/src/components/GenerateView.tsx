@@ -38,8 +38,6 @@ export interface GenerateForm {
   durationSeconds: string;
   /** Off by default: sound is a choice, and it is baked into the clip. */
   generateAudio: boolean;
-  /** Off by default: sound is a choice, and it is baked into the clip. */
-  generateAudio: boolean;
   inputAssetIds: string[];
   parentAssetId?: string;
   parentGenerationId?: string;
@@ -151,6 +149,26 @@ export function GenerateView({
   const patch = (changes: Partial<GenerateForm>) =>
     onFormChange({ ...form, ...changes });
 
+  /**
+   * Moves the form onto a provider, keeping it internally consistent.
+   *
+   * Model, size and operation all belong to the provider, so carrying any of
+   * them across is how a form ends up asking Seedance for an image edit — a
+   * request the service can only refuse, after the artist has pressed
+   * Generate and waited for it.
+   */
+  const selectProvider = (id: string) => {
+    const next = providers.find((item) => item.id === id);
+    patch({
+      providerId: id,
+      model: next?.models[0] ?? "",
+      size: next?.sizes[0] ?? "",
+      ...(next && !next.operations.includes(form.operation)
+        ? { operation: (next.operations[0] as GenerationOperation) ?? form.operation }
+        : {}),
+    });
+  };
+
   const patchRegion = (changes: Partial<RegionSettings>) => {
     if (region && onRegionChange) onRegionChange({ ...region, ...changes });
   };
@@ -166,10 +184,16 @@ export function GenerateView({
   const referencesFull =
     provider !== undefined && references.length >= provider.maxImageReferences;
 
+  // The provider decides what it can do; the form must not be able to ask for
+  // anything else, even transiently.
+  const operationSupported =
+    provider !== undefined && provider.operations.includes(form.operation);
+
   const canGenerate =
     !busy &&
     !running &&
     provider !== undefined &&
+    operationSupported &&
     form.prompt.trim().length > 0 &&
     (form.operation !== "image.edit" || references.length > 0);
 
@@ -468,16 +492,7 @@ export function GenerateView({
           <Field label="Provider">
             <select
               value={form.providerId}
-              onChange={(event) => {
-                const next = providers.find(
-                  (item) => item.id === event.target.value,
-                );
-                patch({
-                  providerId: event.target.value,
-                  model: next?.models[0] ?? "",
-                  size: next?.sizes[0] ?? "",
-                });
-              }}
+              onChange={(event) => selectProvider(event.target.value)}
             >
               {providers.map((item) => (
                 <option key={item.id} value={item.id}>
@@ -580,25 +595,17 @@ export function GenerateView({
           </Field>
         ) : null}
 
-        {provider?.generatesAudio ? (
-          <Field label="Sound" hint="Off by default; the model scores the clip">
-            <label className="check">
-              <input
-                type="checkbox"
-                checked={form.generateAudio}
-                onChange={(event) =>
-                  patch({ generateAudio: event.target.checked })
-                }
-              />
-              Generate audio
-            </label>
-          </Field>
-        ) : null}
-
         {form.parentGenerationId ? (
           <div className="notice">
             Branching from an existing recipe. The original stays untouched;
             this run is recorded as a descendant.
+          </div>
+        ) : null}
+
+        {provider && !operationSupported ? (
+          <div className="notice">
+            {provider.displayName} does not do {form.operation}. Pick an
+            operation it supports, or another provider.
           </div>
         ) : null}
 

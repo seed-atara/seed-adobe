@@ -253,15 +253,23 @@ export function App() {
       setNotice(warning);
       await refreshAssets();
       setSelectedId(asset.id);
-      // A fresh capture is almost always the next reference.
+      // A fresh capture is almost always the next reference — but only an
+      // image provider can edit one, and quietly switching a video provider's
+      // operation is what produced "seedance does not support image.edit".
       attachReference(asset.id);
-      setForm((current) => ({ ...current, operation: "image.edit" }));
+      setForm((current) =>
+        providers
+          .find((item) => item.id === current.providerId)
+          ?.operations.includes("image.edit")
+          ? { ...current, operation: "image.edit" }
+          : current,
+      );
     } catch (cause) {
       report(cause);
     } finally {
       setBusy(false);
     }
-  }, [client, bridge, refreshAssets, attachReference, report]);
+  }, [client, bridge, refreshAssets, attachReference, providers, report]);
 
   /**
    * Reads the comp's region guides back.
