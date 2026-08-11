@@ -262,8 +262,25 @@ export class CepAeBridge {
       })`,
     );
 
+    /*
+     * A Premiere export can succeed and still hand back the wrong frame: if the
+     * in point does not land, the range covers the whole sequence and a still
+     * exporter writes frame zero. Nothing errors anywhere. So the frame asked
+     * for is checked against the one the sequence actually held.
+     */
+    const diagnostics = captured as {
+      inPointSeconds?: number | null;
+      trace?: string;
+    };
+    const landed = diagnostics.inPointSeconds;
+    const wanted = captured.timeSeconds;
+    const wrongFrame =
+      typeof landed === "number" &&
+      typeof wanted === "number" &&
+      Math.abs(landed - wanted) > 0.5;
+
     // The service owns path validation, registration and thumbnailing.
-    return this.client.registerCapture({
+    const registered = await this.client.registerCapture({
       path: captured.path,
       context: {
         ...context,
@@ -273,6 +290,15 @@ export class CepAeBridge {
       width: captured.width,
       height: captured.height,
     });
+
+    if (!wrongFrame) return registered;
+    return {
+      ...registered,
+      warning:
+        `That is the frame at ${(landed as number).toFixed(2)}s, not the ` +
+        `${(wanted as number).toFixed(2)}s asked for — the export range did ` +
+        `not take. ${diagnostics.trace ?? ""}`,
+    };
   }
 
   // ------------------------------------------------------------- regions

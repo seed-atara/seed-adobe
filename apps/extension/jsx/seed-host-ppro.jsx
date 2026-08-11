@@ -302,6 +302,18 @@ function seedSetInOut(sequence, inSeconds, outSeconds, trace) {
      * actually wants is the one that survives the round trip; guessing is what
      * produced the silent failure in the first place.
      */
+    // Some builds expose setters that name their unit; prefer those.
+    if (typeof sequence.setInPointAsTicks === "function") {
+        try {
+            sequence.setInPointAsTicks(String(Math.round(inSeconds * SEED_TICKS_PER_SECOND)));
+            sequence.setOutPointAsTicks(String(Math.round(outSeconds * SEED_TICKS_PER_SECOND)));
+            trace.push("in/out set via setInPointAsTicks");
+            return true;
+        } catch (tickError) {
+            trace.push("setInPointAsTicks threw: " + tickError);
+        }
+    }
+
     var forms = [
         ["ticks (string)", function (seconds) {
             return String(Math.round(seconds * SEED_TICKS_PER_SECOND));
@@ -464,8 +476,31 @@ function seedExportViaEncoder(sequence, folder, presetPath, seconds, fps, trace)
         var frameSeconds = fps > 0 ? 1 / fps : 0.04;
         seedSetInOut(sequence, seconds, seconds + frameSeconds, trace);
 
+        /*
+         * The work-area constant is read from app.encoder where the build
+         * exposes it. Assuming 1 means in-to-out is exactly the sort of guess
+         * that produced a first-frame capture: if the constant is wrong, AME
+         * encodes the whole sequence and a still exporter writes frame zero,
+         * with nothing anywhere reporting a problem.
+         */
+        var inToOut = 1;
+        if (typeof app.encoder.ENCODE_IN_TO_OUT === "number") {
+            inToOut = app.encoder.ENCODE_IN_TO_OUT;
+        }
+        trace.push("AME: work area constant " + inToOut +
+            (typeof app.encoder.ENCODE_IN_TO_OUT === "number" ? " (from app.encoder)" : " (assumed)"));
+
+        // What the sequence is actually holding, as opposed to what we asked for.
+        try {
+            trace.push("AME: sequence in=" + Number(sequence.getInPoint().seconds).toFixed(3) +
+                "s out=" + Number(sequence.getOutPoint().seconds).toFixed(3) +
+                "s, wanted " + seconds.toFixed(3) + "s");
+        } catch (readError) {
+            trace.push("AME: could not read back in/out");
+        }
+
         // (sequence, outputPath, presetPath, workAreaType, removeOnCompletion)
-        var jobId = app.encoder.encodeSequence(sequence, target, presetPath, 1, 0);
+        var jobId = app.encoder.encodeSequence(sequence, target, presetPath, inToOut, 0);
         trace.push("AME: encodeSequence returned " + String(jobId));
         if (typeof app.encoder.startBatch === "function") app.encoder.startBatch();
     } catch (error) {
@@ -544,6 +579,13 @@ function seedCaptureFrame(outputDir, basename, presetPath) {
             );
         }
 
+        var landedSeconds = null;
+        try {
+            landedSeconds = Number(sequence.getInPoint().seconds);
+        } catch (readError) {
+            landedSeconds = null;
+        }
+
         return seedOk({
             path: written.fsName,
             bytes: written.length,
@@ -551,7 +593,11 @@ function seedCaptureFrame(outputDir, basename, presetPath) {
             width: Number(sequence.frameSizeHorizontal) || 0,
             height: Number(sequence.frameSizeVertical) || 0,
             frameNumber: frame,
-            timeSeconds: seconds
+            timeSeconds: seconds,
+            // Success is not the same as correctness here: the export can
+            // quietly cover the whole sequence and hand back frame zero.
+            inPointSeconds: landedSeconds,
+            trace: trace.join(" | ")
         });
     } catch (error) {
         return seedFail(error);
