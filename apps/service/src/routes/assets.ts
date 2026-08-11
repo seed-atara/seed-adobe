@@ -1,9 +1,10 @@
 import { createReadStream } from "node:fs";
-import { stat } from "node:fs/promises";
+import { stat, unlink } from "node:fs/promises";
 import {
   ListAssetsQuerySchema,
   RegisterAssetRequestSchema,
   SeedError,
+  nowIso,
 } from "@seed-ae/domain";
 import { resolveStorageUri } from "@seed-ae/storage";
 import type { AppDeps } from "../app.js";
@@ -42,6 +43,52 @@ export function getAssetRoute(deps: AppDeps) {
   return ({ params }: RequestContext) => {
     const id = params.id as string;
     return json({ asset: deps.assets.requireById(id) });
+  };
+}
+
+/**
+ * Removes an asset from the library and reclaims its bytes.
+ *
+ * The row stays. Recipes that used this frame as an input still name it, and a
+ * dangling id explains nothing — so the asset becomes what a missing file
+ * already meant, status 'missing', with a timestamp saying it was deliberate.
+ * The library stops showing it.
+ *
+ * The media is deleted, so this is not undoable. It is the artist's call to
+ * make, and the panel says what it costs before asking them to make it.
+ */
+export function removeAssetRoute(deps: AppDeps) {
+  return async ({ params }: RequestContext) => {
+    const asset = deps.assets.requireById(params.id as string);
+    const usedBy = deps.assets.usedByCount(asset.id);
+
+    const removed: string[] = [];
+    for (const uri of [asset.storageUri, asset.thumbnailUri]) {
+      if (!uri) continue;
+      try {
+        await unlink(resolveStorageUri(deps.workspace, uri));
+        removed.push(uri);
+      } catch (cause) {
+        // Already gone is the outcome we wanted; anything else is worth saying.
+        if ((cause as NodeJS.ErrnoException).code !== "ENOENT") {
+          deps.logger.warn("asset.remove_file_failed", {
+            assetId: asset.id,
+            uri,
+            reason: (cause as Error).message,
+          });
+        }
+      }
+    }
+
+    deps.assets.hide(asset.id, nowIso());
+    deps.logger.info("asset.removed", {
+      assetId: asset.id,
+      filename: asset.filename,
+      filesRemoved: removed.length,
+      usedByGenerations: usedBy,
+    });
+
+    return json({ id: asset.id, filesRemoved: removed.length, usedBy });
   };
 }
 

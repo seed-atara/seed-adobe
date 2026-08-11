@@ -1,6 +1,12 @@
 import { useEffect, useState } from "react";
 import type { Asset, ComposedPlan, GenerationOperation } from "@seed-ae/domain";
 import type { AeRegion } from "../api/cep.ts";
+import {
+  aspectOf,
+  closestAspect,
+  describeAspect,
+  parseAspect,
+} from "../aspect.ts";
 import type {
   JobView,
   ProviderCapabilitiesDto,
@@ -35,6 +41,8 @@ export interface GenerateForm {
   generateAudio: boolean;
   /** How many to generate at once, each with its own seed. */
   variants: string;
+  /** Blank means the provider's own default. */
+  aspectRatio: string;
   inputAssetIds: string[];
   parentAssetId?: string;
   parentGenerationId?: string;
@@ -154,6 +162,28 @@ export function GenerateView({
 
   /** Every finished result across the set, in the order they were started. */
   const results = jobs.flatMap((entry) => entry.outputs);
+
+  /*
+   * A single reference becomes the first frame, and the first frame dictates
+   * the output shape — the API refuses a ratio alongside one, saying so in as
+   * many words. Offering the control there would be offering a choice that
+   * does not exist.
+   */
+  const shapeFromFrame =
+    form.operation === "video.generate" && references.length === 1;
+
+  const referenceAspect = aspectOf(references[0]);
+
+  /** Moves the form to whichever offered option matches the reference. */
+  const fitToReference = () => {
+    if (referenceAspect === undefined) return;
+    const ratio = closestAspect(provider?.aspectRatios ?? [], referenceAspect);
+    const size = closestAspect(provider?.sizes ?? [], referenceAspect);
+    patch({
+      ...(ratio ? { aspectRatio: ratio } : {}),
+      ...(size ? { size } : {}),
+    });
+  };
 
   /** What "composite this" means: the chosen variant, else the first result. */
   const finishedOutput =
@@ -510,6 +540,51 @@ export function GenerateView({
             onChange={(event) => patch({ seed: event.target.value })}
           />
         </Field>
+
+        {(provider?.aspectRatios.length ?? 0) > 0 && !shapeFromFrame ? (
+          <Field
+            label="Aspect"
+            hint={
+              referenceAspect !== undefined
+                ? `Reference is ${describeAspect(referenceAspect)}`
+                : "The shape of the result"
+            }
+          >
+            <div className="row">
+              <select
+                value={form.aspectRatio}
+                onChange={(event) => patch({ aspectRatio: event.target.value })}
+              >
+                <option value="">provider default</option>
+                {(provider?.aspectRatios ?? []).map((ratio) => (
+                  <option key={ratio} value={ratio}>
+                    {ratio}
+                    {parseAspect(ratio) === undefined ? "" : ""}
+                  </option>
+                ))}
+              </select>
+              <button
+                className="btn"
+                onClick={fitToReference}
+                disabled={referenceAspect === undefined}
+                title={
+                  referenceAspect === undefined
+                    ? "Add a reference whose dimensions are known"
+                    : "Pick the offered option closest to the reference"
+                }
+              >
+                Fit reference
+              </button>
+            </div>
+          </Field>
+        ) : null}
+
+        {shapeFromFrame ? (
+          <div className="hint faint" style={{ marginBottom: 8 }}>
+            The reference is the first frame, so it sets the shape — this
+            provider refuses an aspect ratio alongside one.
+          </div>
+        ) : null}
 
         <Field
           label="Variants"

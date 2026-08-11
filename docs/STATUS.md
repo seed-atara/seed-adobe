@@ -164,6 +164,27 @@ The mock providers are no longer registered unless `SEED_AE_MOCK_PROVIDERS` is
 exactly `true`. They exist for running the workflow without credentials, not
 for picking from a list beside the real thing.
 
+## Removing an asset, and aspect ratios
+
+**Remove** (the × on a library card) deletes the media and takes the asset out
+of the library, but keeps the row. Deleting the row would take the provenance
+with it — recipes that used the frame still name it — and would break library
+ordering, which uses rowid to break same-millisecond ties. A removed asset
+becomes what a missing file already meant: status `missing`, plus a timestamp
+saying it was deliberate. The bytes do not come back, so the panel asks first
+and says how many generations still reference it.
+
+**Aspect** is now a control rather than a silent default. Providers speak two
+vocabularies — a ratio like `16:9`, or a size like `1920x1080` — and **Fit
+reference** reads whichever the provider uses and picks the option closest to
+the reference frame's own shape. Closeness is measured on the log of the ratio,
+so twice-as-wide and half-as-wide are equally far; a raw quotient would quietly
+favour wide options.
+
+Where a single reference becomes the first frame, the frame dictates the shape
+and the API refuses a ratio alongside it, so the control is replaced by a note
+saying so rather than offering a choice that does not exist.
+
 ## Next engineering actions
 
 1. Run the full demo in After Effects: capture a hero frame, generate with

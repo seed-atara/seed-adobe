@@ -111,17 +111,50 @@ export class AssetRepository {
     return asset;
   }
 
+  /**
+   * Hides an asset and records that it was deliberate.
+   *
+   * The row survives, because recipes that used this frame still name it. The
+   * caller is responsible for the bytes; this only changes what the library
+   * shows and what the status claims.
+   */
+  hide(id: string, at: string): void {
+    this.db
+      .prepare(
+        `UPDATE assets SET hidden_at = ?, status = 'missing' WHERE id = ?`,
+      )
+      .run(at, id);
+  }
+
+  /** How many recorded generations used this asset as an input. */
+  usedByCount(id: string): number {
+    const row = this.db
+      .prepare(
+        `SELECT COUNT(*) AS uses FROM generation_inputs WHERE asset_id = ?`,
+      )
+      .get(id) as { uses: number } | undefined;
+    return row?.uses ?? 0;
+  }
+
   list(options: ListAssetsOptions = {}): ListAssetsResult {
     const limit = options.limit ?? 50;
     const offset = options.offset ?? 0;
-    const where = options.kind ? "WHERE kind = ?" : "";
-    const filterParams = options.kind ? [options.kind] : [];
+    // Hidden assets stay in the table for provenance but leave the library:
+    // the artist removed them, and showing them anyway would be a lie.
+    const clauses = ["hidden_at IS NULL"];
+    const filterParams: string[] = [];
+    if (options.kind) {
+      clauses.push("kind = ?");
+      filterParams.push(options.kind);
+    }
+    const where = `WHERE ${clauses.join(" AND ")}`;
 
     const rows = this.db
       .prepare(
         // rowid breaks ties in true insertion order: createdAt is only
         // millisecond-precise, and several captures can land in one tick.
-        // Safe because assets are never deleted (assets_no_delete trigger).
+        // Safe because rows are never deleted (assets_no_delete trigger) —
+        // removing an asset hides it rather than taking its rowid away.
         `SELECT ${SELECT_COLUMNS} FROM assets ${where}
          ORDER BY created_at DESC, rowid DESC
          LIMIT ? OFFSET ?`,

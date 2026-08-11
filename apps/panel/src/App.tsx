@@ -35,6 +35,7 @@ const EMPTY_FORM: GenerateForm = {
   durationSeconds: "",
   generateAudio: false,
   variants: "1",
+  aspectRatio: "",
   inputAssetIds: [],
 };
 
@@ -244,6 +245,50 @@ export function App() {
   }, [client, jobs, refreshAssets, report]);
 
   /**
+   * Removes an asset from the library and deletes its media.
+   *
+   * Asked for plainly first, because the bytes do not come back. The record
+   * survives so recipes that used the frame still resolve, and the count of
+   * those recipes is part of the question — removing something three
+   * generations were built on is a different decision from clearing a stray
+   * capture.
+   */
+  const removeAsset = useCallback(
+    async (asset: Asset) => {
+      const confirmed = window.confirm(
+        `Remove ${asset.filename}?
+
+` +
+          "The media file is deleted and cannot be recovered. The record stays, " +
+          "so recipes that used it still resolve.",
+      );
+      if (!confirmed) return;
+
+      setBusy(true);
+      try {
+        const { usedBy } = await client.removeAsset(asset.id);
+        setSelectedId((current) => (current === asset.id ? undefined : current));
+        setForm((current) => ({
+          ...current,
+          inputAssetIds: current.inputAssetIds.filter((id) => id !== asset.id),
+        }));
+        await refreshAssets();
+        setNotice(
+          `Removed ${asset.filename}.` +
+            (usedBy > 0
+              ? ` ${usedBy} recorded generation${usedBy === 1 ? "" : "s"} still names it.`
+              : ""),
+        );
+      } catch (cause) {
+        report(cause);
+      } finally {
+        setBusy(false);
+      }
+    },
+    [client, refreshAssets, report],
+  );
+
+  /**
    * Attaches a fresh capture, keeping only as many references as the provider
    * takes.
    *
@@ -439,6 +484,7 @@ export function App() {
         operation: composed.operation,
         prompt: composed.prompt,
         ...(composed.size ? { size: composed.size } : {}),
+        ...(composed.aspectRatio ? { aspectRatio: composed.aspectRatio } : {}),
         durationSeconds:
           composed.durationSeconds === undefined
             ? current.durationSeconds
@@ -490,6 +536,7 @@ export function App() {
             prompt: form.prompt,
             ...(seeds[index] !== undefined ? { seed: seeds[index] } : {}),
             ...(form.size ? { size: form.size } : {}),
+            ...(form.aspectRatio ? { aspectRatio: form.aspectRatio } : {}),
             ...(Number(form.durationSeconds) > 0
               ? { durationSeconds: Number(form.durationSeconds) }
               : {}),
@@ -543,6 +590,8 @@ export function App() {
             typeof recipe.durationSeconds === "number"
               ? String(recipe.durationSeconds)
               : "",
+          aspectRatio:
+            typeof recipe.aspectRatio === "string" ? recipe.aspectRatio : "",
           generateAudio: recipe.generateAudio === true,
           inputAssetIds: recipe.inputAssetIds ?? [],
           parentAssetId: recipe.parentAssetId,
@@ -659,6 +708,7 @@ export function App() {
               assets={assets}
               selectedId={selectedId}
               onSelect={setSelectedId}
+              onRemove={removeAsset}
             />
           ) : null}
 

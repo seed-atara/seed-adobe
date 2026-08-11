@@ -1146,3 +1146,41 @@ pre.raw {
 .btn.ghost.danger.wide {
   width: 100%;
 }
+
+/* --- library card removal -------------------------------------------------
+   The remove control is a sibling of the card, not a child: a button cannot
+   contain another button. */
+
+.card-slot {
+  position: relative;
+}
+
+.card-remove {
+  position: absolute;
+  z-index: 2;
+  top: 3px;
+  right: 3px;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  line-height: 1;
+  font-family: var(--ui);
+  font-size: 11px;
+  background: var(--face);
+  border: 2px solid;
+  border-color: var(--white) var(--black) var(--black) var(--white);
+  box-shadow: inset -1px -1px 0 var(--shadow), inset 1px 1px 0 var(--face-light);
+  /* Quiet until the card is under the pointer: destructive controls should
+     not be the first thing the eye lands on. */
+  opacity: 0;
+}
+
+.card-slot:hover .card-remove,
+.card-remove:focus-visible {
+  opacity: 1;
+}
+
+.card-remove:active {
+  border-color: var(--shadow) var(--white) var(--white) var(--shadow);
+  box-shadow: inset 1px 1px 0 var(--black);
+}

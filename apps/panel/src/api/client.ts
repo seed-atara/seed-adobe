@@ -195,6 +195,20 @@ export class SeedClient {
     });
   }
 
+  /**
+   * Removes an asset from the library and deletes its media.
+   *
+   * The record survives so recipes that used it still resolve; only the bytes
+   * and the library entry go. Not undoable.
+   */
+  removeAsset(id: string): Promise<{
+    id: string;
+    filesRemoved: number;
+    usedBy: number;
+  }> {
+    return this.request(`/v1/assets/${id}`, { method: "DELETE" });
+  }
+
   private async request<T>(
     path: string,
     options: { method?: string; body?: unknown } = {},

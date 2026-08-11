@@ -34,6 +34,7 @@ import {
   getAssetRoute,
   listAssetsRoute,
   registerAssetRoute,
+  removeAssetRoute,
   workspaceRoute,
 } from "./routes/assets.js";
 import {
@@ -82,6 +83,7 @@ export function buildRouter(deps: AppDeps): Router {
     .post("/v1/assets", registerAssetRoute(deps))
     .get("/v1/assets", listAssetsRoute(deps))
     .get("/v1/assets/:id", getAssetRoute(deps))
+    .delete("/v1/assets/:id", removeAssetRoute(deps))
     .get("/v1/assets/:id/file", getAssetFileRoute(deps))
     .get("/v1/assets/:id/path", getAssetPathRoute(deps))
     .get("/v1/assets/:id/lineage", lineageRoute(deps))

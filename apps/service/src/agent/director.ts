@@ -107,7 +107,10 @@ const DRAFT_SCHEMA = {
     },
     aspectRatio: {
       type: ["string", "null"],
-      description: "One of the offered aspect ratios, or null.",
+      description:
+        "One of the offered aspect ratios, or null. Prefer the one closest to " +
+        "the references' own shape unless the description asks otherwise — a " +
+        "reframe is usually meant to keep the plate's proportions.",
     },
     durationSeconds: {
       type: ["number", "null"],

@@ -54,6 +54,10 @@ export class Router {
     return this.add("POST", pattern, handler, options);
   }
 
+  delete(pattern: string, handler: Handler, options?: RouteOptions): this {
+    return this.add("DELETE", pattern, handler, options);
+  }
+
   match(
     method: string,
     pathname: string,

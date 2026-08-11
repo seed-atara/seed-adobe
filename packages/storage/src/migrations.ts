@@ -133,6 +133,23 @@ MIGRATIONS.push({
   `,
 });
 
+MIGRATIONS.push({
+  version: 3,
+  name: "hidden-assets",
+  sql: `
+    -- Removing an asset hides it and reclaims its bytes; the row stays.
+    --
+    -- Deleting the row would take the provenance with it: the recipes that
+    -- used this frame as an input still name it, and a dangling id explains
+    -- nothing. It would also break library ordering, which uses rowid to break
+    -- same-millisecond ties and needs it to stay monotonic.
+    --
+    -- So a removed asset becomes what a missing file already meant — status
+    -- 'missing' — plus a timestamp recording that it was deliberate.
+    ALTER TABLE assets ADD COLUMN hidden_at TEXT;
+  `,
+});
+
 export const LATEST_SCHEMA_VERSION = MIGRATIONS.reduce(
   (max, migration) => Math.max(max, migration.version),
   0,
