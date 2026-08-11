@@ -733,6 +733,7 @@ export function App() {
               {...(selectedId ? { selectedId } : {})}
               onSelect={setSelectedId}
               busy={busy}
+              host={hostId}
               onFormChange={setForm}
               {...(canDirect ? { onDirect: directShot } : {})}
               directing={directing}

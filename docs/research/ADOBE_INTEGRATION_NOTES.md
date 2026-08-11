@@ -61,3 +61,38 @@ in until then, and every product feature is already testable against it.
   https://blog.developer.adobe.com/en/publish/2025/12/uxp-arrives-in-premiere-a-new-era-for-plugin-development
 - Adobe Community — CEP / UXP roadmap discussions:
   https://community.adobe.com/t5/after-effects-discussions/uxp-for-after-effects/td-p/13360660
+
+## Premiere frame capture: four routes, all wrong, none complaining
+
+Frame capture is disabled in Premiere. Every route returns the **first frame of
+the sequence** regardless of the playhead, and every one reports success.
+
+What was tried, and what each did:
+
+| route | result |
+|---|---|
+| `qe…exportFramePNG(timecode, path)` | "Unknown error exception" |
+| `qe…exportFramePNG(path)` and `(path, w, h)` | no error, first frame |
+| `sequence.exportAsMediaDirect(path, preset, n)` | "Unable to initialize export!" for every work-area constant and both path forms |
+| `app.encoder.encodeSequence(..., ENCODE_IN_TO_OUT, 0)` | writes a real PNG — of frame zero |
+
+Things ruled out along the way:
+
+- **The playhead is read correctly.** The panel shows the right frame number in
+  its context strip, so `getPlayerPosition()` is fine.
+- **In/out was set in seconds, which the API takes as ticks** — ten seconds
+  became ten ticks, i.e. frame zero. Fixed by writing and reading back, and it
+  did not change the result.
+- **`setPlayerPosition` before a path-only export** did not change it either.
+
+So the remaining explanation is that the still exporter ignores the range and
+always renders from the sequence start. Every one of these calls is
+undocumented, and each attempt to guess its shape produced a *successful* wrong
+answer — which is the worst failure mode available and the reason this is now
+disabled rather than left to look like it works.
+
+After Effects capture is unaffected: `CompItem.saveFrameToPng` is documented,
+synchronous, and correct.
+
+Worth trying if this is picked up again: exporting from a *duplicate* sequence
+trimmed to the single frame, so no range parameter is involved at all.
