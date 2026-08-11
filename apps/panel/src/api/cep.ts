@@ -424,6 +424,34 @@ export class CepAeBridge {
     return { ...placed, name: placed.name || filename };
   }
 
+  /**
+   * Registers a frame Premiere exported itself.
+   *
+   * Premiere's Export Frame button produces the right frame where every
+   * scripted route produces the first one, so the panel picks up after it
+   * rather than trying to replace it.
+   */
+  async pickupFrame(since: number): Promise<{ asset: Asset; warning?: string }> {
+    await this.ensureHost();
+    const { workspace } = await this.client.workspace();
+    const context = await this.getContext();
+
+    const found = await evalHost<CaptureResult>(
+      `${hostPrefix()}pickupFrame(${quote(workspace.originalsDir)}, ${Math.round(since)})`,
+    );
+
+    return this.client.registerCapture({
+      path: found.path,
+      context: {
+        ...context,
+        frameNumber: found.frameNumber,
+        timeSeconds: found.timeSeconds,
+      },
+      width: found.width,
+      height: found.height,
+    });
+  }
+
   async importAsset(
     assetId: string,
     insertAtPlayhead: boolean,

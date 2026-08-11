@@ -25,6 +25,14 @@ const TOKEN_KEY = "seed-ae.session-token";
 /** Job statuses that will not change again. */
 const SETTLED = ["succeeded", "failed", "cancelled"];
 
+/**
+ * When this panel loaded.
+ *
+ * A picked-up frame has to be newer than this, so yesterday's export in the
+ * same folder can never be adopted as today's capture.
+ */
+const sessionStartedAt = Date.now();
+
 const EMPTY_FORM: GenerateForm = {
   providerId: "",
   model: "",
@@ -87,6 +95,7 @@ export function App() {
   const [notice, setNotice] = useState<string | undefined>();
   const [busy, setBusy] = useState(false);
   const [canDirect, setCanDirect] = useState(false);
+  const [originalsDir, setOriginalsDir] = useState<string>();
   const [directing, setDirecting] = useState(false);
   const [plan, setPlan] = useState<ComposedPlan | undefined>();
   const [regions, setRegions] = useState<AeRegion[]>();
@@ -154,8 +163,11 @@ export function App() {
 
         // Direction is optional; a service without a key simply never offers it.
         try {
-          const { director } = await client.workspace();
-          if (!cancelled) setCanDirect(director);
+          const { director, workspace } = await client.workspace();
+          if (!cancelled) {
+            setCanDirect(director);
+            setOriginalsDir(workspace.originalsDir);
+          }
         } catch {
           // Not knowing means not offering, which is the safe direction.
         }
@@ -314,6 +326,29 @@ export function App() {
       }),
     [providers],
   );
+
+  /**
+   * Registers a frame Premiere exported through its own Export Frame button.
+   *
+   * Only files written since the panel loaded are considered, so an older
+   * export cannot be adopted twice or mistaken for a new one.
+   */
+  const pickupFrame = useCallback(async () => {
+    if (!bridge) return;
+    setBusy(true);
+    setError(undefined);
+    try {
+      const { asset, warning } = await bridge.pickupFrame(sessionStartedAt);
+      setNotice(warning ?? `Picked up ${asset.filename}.`);
+      await refreshAssets();
+      setSelectedId(asset.id);
+      attachReference(asset.id);
+    } catch (cause) {
+      report(cause);
+    } finally {
+      setBusy(false);
+    }
+  }, [bridge, refreshAssets, attachReference, report]);
 
   const captureFrame = useCallback(async () => {
     setBusy(true);
@@ -734,6 +769,8 @@ export function App() {
               onSelect={setSelectedId}
               busy={busy}
               host={hostId}
+              {...(originalsDir ? { originalsDir } : {})}
+              onPickupFrame={pickupFrame}
               onFormChange={setForm}
               {...(canDirect ? { onDirect: directShot } : {})}
               directing={directing}

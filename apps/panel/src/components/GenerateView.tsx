@@ -70,6 +70,9 @@ interface Props {
   onCapture: () => void;
   /** "AEFT" | "PPRO" | "unknown" — capture is only reliable in After Effects. */
   host?: string;
+  /** Where Premiere should export a frame to, shown so it can be pasted. */
+  originalsDir?: string;
+  onPickupFrame?: () => void;
   onGenerate: () => void;
   onCancel: () => void;
   onOpenLibrary: () => void;
@@ -124,6 +127,8 @@ export function GenerateView({
   onFormChange,
   onCapture,
   host,
+  originalsDir,
+  onPickupFrame,
   onGenerate,
   onCancel,
   onOpenLibrary,
@@ -283,12 +288,25 @@ export function GenerateView({
            * hands back the wrong frame and calls it done is worse than no
            * button, because the mistake is only visible much later.
            */
-          <div className="notice">
-            Frame capture is unreliable in Premiere — every export route
-            returns the first frame of the sequence regardless of the playhead.
-            Capture in After Effects instead. Import and Insert at playhead
-            work normally here.
-          </div>
+          <>
+            <div className="hint faint" style={{ marginBottom: 6 }}>
+              Premiere's own <b>Export Frame</b> (Ctrl+Shift+E) gets the right
+              frame where every scripted route gets the first one. Export into
+              the SEED folder, then pick it up here.
+            </div>
+            <button
+              className="btn primary wide"
+              onClick={onPickupFrame}
+              disabled={busy}
+            >
+              Pick up exported frame
+            </button>
+            {originalsDir ? (
+              <div className="hint faint mono" style={{ marginTop: 4, wordBreak: "break-all" }}>
+                {originalsDir}
+              </div>
+            ) : null}
+          </>
         ) : (
           <button className="btn primary wide" onClick={onCapture} disabled={busy}>
             Capture current frame

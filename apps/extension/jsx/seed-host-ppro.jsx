@@ -800,6 +800,65 @@ function seedInsertAtPlayhead(projectItemId) {
     }
 }
 
+/**
+ * Adopts a frame Premiere itself exported.
+ *
+ * Premiere's own Export Frame button works perfectly and every scripted route
+ * to the same result does not — four of them returned the first frame of the
+ * sequence while reporting success. So this stops trying to replace the button
+ * and picks up after it instead: the artist exports into the SEED folder with
+ * Ctrl+Shift+E, and this finds what landed.
+ *
+ * Only files newer than the moment the panel started waiting are considered,
+ * so an older export can never be adopted twice or mistaken for a new one.
+ */
+function seedPickupFrame(outputDir, sinceMs) {
+    try {
+        var folder = seedEnsureFolder(outputDir);
+        if (!folder.exists) {
+            return seedFail("could not open the SEED folder: " + outputDir);
+        }
+
+        var files = folder.getFiles();
+        var newest = null;
+        var since = Number(sinceMs) || 0;
+
+        for (var i = 0; i < files.length; i++) {
+            var file = files[i];
+            if (!(file instanceof File)) continue;
+            if (!/\.(png|jpg|jpeg|tif|tiff|tga|dpx)$/i.test(file.name)) continue;
+            if (file.modified.getTime() < since) continue;
+            if (!newest || file.modified.getTime() > newest.modified.getTime()) {
+                newest = file;
+            }
+        }
+
+        if (!newest) {
+            return seedFail(
+                "no exported frame found in " + outputDir + ". Use Export Frame " +
+                    "(Ctrl+Shift+E) in the Program Monitor, save it there, then " +
+                    "try again."
+            );
+        }
+
+        var sequence = seedActiveSequence();
+        var seconds = sequence ? seedPlayheadSeconds(sequence) : 0;
+        var fps = sequence ? seedSequenceFps(sequence) : 0;
+
+        return seedOk({
+            path: newest.fsName,
+            bytes: newest.length,
+            width: sequence ? Number(sequence.frameSizeHorizontal) || 0 : 0,
+            height: sequence ? Number(sequence.frameSizeVertical) || 0 : 0,
+            frameNumber: fps > 0 ? Math.round(seconds * fps) : 0,
+            timeSeconds: seconds,
+            route: "export-frame"
+        });
+    } catch (error) {
+        return seedFail(error);
+    }
+}
+
 function seedPing() {
     try {
         return seedOk({
@@ -828,5 +887,6 @@ function seedPing() {
 var seedPpro_ping = seedPing;
 var seedPpro_getContext = seedGetContext;
 var seedPpro_captureFrame = seedCaptureFrame;
+var seedPpro_pickupFrame = seedPickupFrame;
 var seedPpro_import = seedImport;
 var seedPpro_insertAtPlayhead = seedInsertAtPlayhead;
