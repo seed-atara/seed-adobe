@@ -542,6 +542,17 @@ function seedExportViaEncoder(sequence, folder, presetPath, seconds, fps, trace)
         var frameSeconds = fps > 0 ? 1 / fps : 0.033;
         seedSetInOut(sequence, seconds, seconds + frameSeconds, trace);
 
+        /*
+         * Report the constants rather than assume them. If ENCODE_IN_TO_OUT is
+         * not exposed, the fallback of 1 is a guess — and if 1 happens to mean
+         * "entire sequence" on this build, Media Encoder renders the whole
+         * thing and a still exporter writes frame zero, which is exactly the
+         * symptom we cannot otherwise explain.
+         */
+        trace.push("AME constants: entire=" + String(app.encoder.ENCODE_ENTIRE) +
+            " inToOut=" + String(app.encoder.ENCODE_IN_TO_OUT) +
+            " workArea=" + String(app.encoder.ENCODE_WORK_AREA));
+
         var inToOut = typeof app.encoder.ENCODE_IN_TO_OUT === "number"
             ? app.encoder.ENCODE_IN_TO_OUT
             : 1;

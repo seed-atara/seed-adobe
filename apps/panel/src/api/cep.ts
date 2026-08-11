@@ -291,14 +291,26 @@ export class CepAeBridge {
       height: captured.height,
     });
 
-    if (!wrongFrame) return registered;
-    return {
-      ...registered,
-      warning:
-        `That is the frame at ${(landed as number).toFixed(2)}s, not the ` +
-        `${(wanted as number).toFixed(2)}s asked for — the export range did ` +
-        `not take. ${diagnostics.trace ?? ""}`,
-    };
+    if (wrongFrame) {
+      return {
+        ...registered,
+        warning:
+          `That is the frame at ${(landed as number).toFixed(2)}s, not the ` +
+          `${(wanted as number).toFixed(2)}s asked for — the export range did ` +
+          `not take. ${diagnostics.trace ?? ""}`,
+      };
+    }
+
+    /*
+     * Premiere reports how it got the frame even when it worked. The failure
+     * mode here is a successful-looking export of the wrong frame, which no
+     * check on our side can see — only the artist looking at the picture can.
+     * So the numbers are put where they can be read against it.
+     */
+    if (hostApp() === "PPRO" && diagnostics.trace) {
+      return { ...registered, warning: diagnostics.trace };
+    }
+    return registered;
   }
 
   // ------------------------------------------------------------- regions
