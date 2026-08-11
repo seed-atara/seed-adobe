@@ -217,6 +217,83 @@ function seedAwaitFile(path) {
  * Fast and needs no preset, but Adobe does not document it and it is reported
  * to fail on some builds. Returns a File, or null to let the caller fall back.
  */
+/**
+ * Route 0: a frame exporter on the sequence itself.
+ *
+ * Reported to exist as `sequence.exportFrameAsPNG(time, path)` — no QE DOM, no
+ * Media Encoder, an explicit time, and a boolean back. If it is real on this
+ * build it is exactly the right call: every other route either ignores the time
+ * it is given or has to be guessed at.
+ *
+ * It is not in the scripting guide, so rather than trust it or dismiss it the
+ * build is asked directly. Whatever happens, the trace names which of these
+ * methods exist here — which is the inventory that would have saved the last
+ * six attempts.
+ */
+function seedExportViaSequenceApi(sequence, folder, targetPath, seconds, trace) {
+    var candidates = [
+        ["exportFrameAsPNG", ".png"],
+        ["exportFramePNG", ".png"],
+        ["exportFrameAsJPEG", ".jpg"],
+        ["exportFrameJPEG", ".jpg"],
+        ["exportFrameAsTIFF", ".tif"],
+        ["exportFrameAsDPX", ".dpx"]
+    ];
+
+    var present = [];
+    for (var c = 0; c < candidates.length; c++) {
+        if (typeof sequence[candidates[c][0]] === "function") present.push(candidates[c][0]);
+    }
+    trace.push("sequence frame exporters: " + (present.length ? present.join(", ") : "none"));
+    if (present.length === 0) return null;
+
+    var playhead = null;
+    try {
+        playhead = sequence.getPlayerPosition();
+    } catch (error) {
+        trace.push("could not read the playhead as a Time object");
+    }
+
+    for (var i = 0; i < candidates.length; i++) {
+        var method = candidates[i][0];
+        var extension = candidates[i][1];
+        if (typeof sequence[method] !== "function") continue;
+
+        var base = targetPath.replace(/\.[^.]+$/, "") + extension;
+
+        // The reported form passes the Time object; the others cost nothing.
+        var times = [];
+        if (playhead) times.push(["Time object", playhead]);
+        times.push(["seconds", seconds]);
+        times.push(["ticks", String(Math.round(seconds * SEED_TICKS_PER_SECOND))]);
+
+        for (var t = 0; t < times.length; t++) {
+            var label = method + " with " + times[t][0];
+            var startedAt = new Date().getTime() - 1000;
+            var returned;
+            try {
+                returned = sequence[method](times[t][1], base);
+            } catch (error) {
+                trace.push(label + " threw: " + error);
+                continue;
+            }
+
+            // The double-extension bug applies here too, so look around.
+            var written = seedAwaitFile(base);
+            if (!written) written = seedAwaitFile(base + extension);
+            if (!written) written = seedNewestSettledFile(folder, startedAt);
+
+            if (written) {
+                trace.push(label + " wrote " + written.name);
+                return written;
+            }
+            trace.push(label + " returned " + String(returned) + ", no file");
+        }
+    }
+
+    return null;
+}
+
 /** A path in the form the host operating system writes natively. */
 function seedNativePath(value) {
     var text = String(value);
@@ -681,8 +758,16 @@ function seedCaptureFrame(outputDir, basename, presetPath) {
          * that returns nothing, because it also stops every other route from
          * being tried.
          */
-        var written = seedExportViaQE(sequence, folder, targetPath, trace);
-        var route = "qe";
+        // The sequence's own exporter first: an explicit time, no encoder.
+        var written = seedExportViaSequenceApi(
+            sequence, folder, targetPath, seconds, trace
+        );
+        var route = "sequence";
+
+        if (!written) {
+            written = seedExportViaQE(sequence, folder, targetPath, trace);
+            route = "qe";
+        }
 
         if (!written && presetPath) {
             written = seedExportViaPreset(sequence, folder, presetPath, seconds, fps, trace);
