@@ -388,3 +388,44 @@ happens to its audio. The shape is accepted; the behaviour has not been run.
 now a per-request switch, defaulting to off at every layer — request, provider
 config, and the panel checkbox. Sound is baked into the returned clip, so it
 is not a thing to leave on by accident.
+
+## Why a generated frame does not match its plate (2026-08-11)
+
+**The returned MP4 carries no colour signalling at all.** Two Seedance 2.0
+results were checked and neither has a `colr` box:
+
+```
+seedance-2-0_15ba53a5_00.mp4  — no colr box
+seedance-2-0_407ac357_00.mp4  — no colr box
+```
+
+An untagged H.264 file is guessed at, and every editor guesses the same way:
+**BT.709, limited range** for HD. The frame that went in was a full-range sRGB
+PNG. So even a model that reproduced the first frame exactly would come back
+looking different, because the two ends disagree about what the numbers mean:
+
+- **Range** — 0–255 against 16–235. Reading full-range samples as limited
+  raises the blacks and lifts contrast.
+- **Transfer** — sRGB against BT.709. Similar curves, different toes; the
+  difference lives in the midtones, which is exactly where a corrective Curves
+  ends up working.
+- **Chroma** — 4:2:0 halves the colour resolution. This part is not
+  correctable, and is why *pixel* perfection is not available through an H.264
+  delivery however well the rest is handled.
+
+`scripts/compare-frames.ts` measures which of these is in play for a given
+pair, comparing per-channel percentiles so two frames that differ slightly in
+content can still be compared. It was validated against a synthetic pair with a
+known limited-range shift: distance 0.23 for the right conversion against 12.57
+for none.
+
+### First and last frames
+
+Verified against the live API by probing (see the roles table above):
+`first_frame` and `last_frame` are roles on `image_url` content parts, at most
+one of each, and they cannot be mixed with `reference_image`. Third-party
+wrappers expose the same thing as `first_frame_url` / `last_frame_url`.
+
+Nothing in any documentation claims the first frame is reproduced exactly — the
+wording is consistently that the model "preserves the look and style" of the
+input. Treat an exact match as something to correct for, not to expect.
