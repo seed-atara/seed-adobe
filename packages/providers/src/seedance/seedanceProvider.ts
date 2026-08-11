@@ -44,6 +44,8 @@ const TASKS_PATH = "/contents/generations/tasks";
  */
 type ContentPart =
   | { type: "text"; text: string }
+  | { type: "video_url"; video_url: { url: string }; role: "reference_video" }
+  | { type: "audio_url"; audio_url: { url: string }; role: "reference_audio" }
   | {
       type: "image_url";
       image_url: { url: string };
@@ -117,12 +119,30 @@ export function seedanceProviderId(model: string): string {
   return `seedance-${match[1]}-${match[2]}${match[4] ? `-${match[4]}` : ""}`;
 }
 
-/** One image part, with the role the API requires. */
+/** One frame part, with the role the API requires. */
 function seedanceImage(
   input: MaterializedInput,
   role: SeedanceImageRole,
 ): ContentPart {
   return { type: "image_url", image_url: { url: toUrl(input) }, role };
+}
+
+/**
+ * One reference part, typed by what the media actually is.
+ *
+ * Each kind has its own part type and its own role, and the API says so
+ * plainly when they disagree: "reference media mode requires video role to be
+ * reference_video".
+ */
+function seedanceReference(input: MaterializedInput): ContentPart {
+  const url = toUrl(input);
+  if (input.mimeType.startsWith("video/")) {
+    return { type: "video_url", video_url: { url }, role: "reference_video" };
+  }
+  if (input.mimeType.startsWith("audio/")) {
+    return { type: "audio_url", audio_url: { url }, role: "reference_audio" };
+  }
+  return { type: "image_url", image_url: { url }, role: "reference_image" };
 }
 
 export class SeedanceProvider implements GenerationProvider {
@@ -163,13 +183,19 @@ export class SeedanceProvider implements GenerationProvider {
       maxImageReferences: this.config.maxReferences ?? 30,
       textToVideo: true,
       imageToVideo: true,
-      videoReferences: false,
+      /*
+       * Reference media is one mode with three kinds in it: images, video and
+       * audio mix freely, each under its own role. A video carries motion and
+       * grade that no still can — a camera move referenced from a plate,
+       * alongside stills for the characters and the location.
+       */
+      videoReferences: true,
       // `video_url` and `audio_url` parts exist but their semantics are
       // unconfirmed, so they are not offered.
       // A first_frame + last_frame pair passes validation; more than one of
       // either is refused by count.
       startEndFrames: true,
-      audioReferences: false,
+      audioReferences: true,
       generatesAudio: true,
       seed: true,
       /*
@@ -231,7 +257,7 @@ export class SeedanceProvider implements GenerationProvider {
     } else if (loose.length > 1) {
       mode = "reference";
       for (const reference of loose) {
-        content.push(seedanceImage(reference, "reference_image"));
+        content.push(seedanceReference(reference));
       }
     }
 

@@ -43,6 +43,8 @@ export interface GenerateForm {
   variants: string;
   /** Blank means the provider's own default. */
   aspectRatio: string;
+  /** Which reference "Fit reference" measures. Blank means the first. */
+  aspectSourceId: string;
   inputAssetIds: string[];
   parentAssetId?: string;
   parentGenerationId?: string;
@@ -75,6 +77,16 @@ interface Props {
   onCaptureRegion?: () => void;
   onRefreshRegions?: () => void;
   onInsertRegion?: () => void;
+}
+
+/** Moves one entry, leaving the rest in order. */
+function move(ids: string[], index: number, by: number): string[] {
+  const next = [...ids];
+  const target = index + by;
+  if (target < 0 || target >= next.length) return next;
+  const [moved] = next.splice(index, 1);
+  next.splice(target, 0, moved as string);
+  return next;
 }
 
 export function GenerateView({
@@ -172,7 +184,15 @@ export function GenerateView({
   const shapeFromFrame =
     form.operation === "video.generate" && references.length === 1;
 
-  const referenceAspect = aspectOf(references[0]);
+  /*
+   * With several references the shape is a choice, not a fact: a plate for the
+   * camera move and stills for the characters have no reason to agree, and
+   * only the artist knows which one the frame should match.
+   */
+  const aspectSource =
+    references.find((asset) => asset.id === form.aspectSourceId) ??
+    references[0];
+  const referenceAspect = aspectOf(aspectSource);
 
   /** Moves the form to whichever offered option matches the reference. */
   const fitToReference = () => {
@@ -353,10 +373,17 @@ export function GenerateView({
 
       <section className="section">
         <SectionLabel>references</SectionLabel>
+        {references.length > 1 ? (
+          <div className="hint faint" style={{ marginBottom: 6 }}>
+            Position is meaning: the prompt refers to these as Image 1, Image 2
+            and so on. Use ◀ ▶ to reorder.
+          </div>
+        ) : null}
         <div className="ref-row">
-          {references.map((asset) => (
+          {references.map((asset, index) => (
             <div className="ref" key={asset.id}>
               <AssetImage client={client} asset={asset} variant="thumbnail" />
+              <span className="ref-index mono">{index + 1}</span>
               <button
                 title="Remove reference"
                 onClick={() =>
@@ -369,6 +396,24 @@ export function GenerateView({
               >
                 ×
               </button>
+              {references.length > 1 ? (
+                <div className="ref-move">
+                  <button
+                    title="Move earlier"
+                    disabled={index === 0}
+                    onClick={() => patch({ inputAssetIds: move(form.inputAssetIds, index, -1) })}
+                  >
+                    ◀
+                  </button>
+                  <button
+                    title="Move later"
+                    disabled={index === references.length - 1}
+                    onClick={() => patch({ inputAssetIds: move(form.inputAssetIds, index, 1) })}
+                  >
+                    ▶
+                  </button>
+                </div>
+              ) : null}
             </div>
           ))}
           <button
@@ -545,8 +590,8 @@ export function GenerateView({
           <Field
             label="Aspect"
             hint={
-              referenceAspect !== undefined
-                ? `Reference is ${describeAspect(referenceAspect)}`
+              referenceAspect !== undefined && aspectSource
+                ? `${aspectSource.filename} is ${describeAspect(referenceAspect)}`
                 : "The shape of the result"
             }
           >
@@ -563,6 +608,21 @@ export function GenerateView({
                   </option>
                 ))}
               </select>
+              {references.length > 1 ? (
+                <select
+                  value={form.aspectSourceId || (references[0]?.id ?? "")}
+                  onChange={(event) =>
+                    patch({ aspectSourceId: event.target.value })
+                  }
+                  title="Which reference sets the shape"
+                >
+                  {references.map((asset, index) => (
+                    <option key={asset.id} value={asset.id}>
+                      from Image {index + 1}
+                    </option>
+                  ))}
+                </select>
+              ) : null}
               <button
                 className="btn"
                 onClick={fitToReference}

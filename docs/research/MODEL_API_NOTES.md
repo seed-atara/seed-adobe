@@ -359,7 +359,30 @@ Still unmeasured: whether duration ranges differ per model, which cannot be
 probed this way without a request valid in every other respect — and that
 creates a billable task.
 
-### Audio
+### Reference media is images, video and audio together (verified 2026-08-11)
+
+Reference mode is not images-only. Each kind has its own content part and its
+own role, and the API names the mismatch precisely — "reference media mode
+requires video role to be reference_video".
+
+| part | role | count |
+|---|---|---|
+| `image_url` | `reference_image` | many |
+| `video_url` | `reference_video` | many (12 accepted) |
+| `audio_url` | `reference_audio` | at least one |
+
+They mix freely in one request: a video alongside several stills is accepted.
+That is what makes "the camera move from this plate, these characters, that
+location" a single request rather than a compromise.
+
+Frames remain exclusive of all of it — a `first_frame` beside a
+`reference_video` is refused with the same message as before: "first/last frame
+content cannot be mixed with reference media content."
+
+Unverified: whether a referenced video's motion is actually followed, and what
+happens to its audio. The shape is accepted; the behaviour has not been run.
+
+### Audio generation
 
 `generate_audio` is a documented body field and SEED has always sent it. It is
 now a per-request switch, defaulting to off at every layer — request, provider

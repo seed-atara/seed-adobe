@@ -1184,3 +1184,57 @@ pre.raw {
   border-color: var(--shadow) var(--white) var(--white) var(--shadow);
   box-shadow: inset 1px 1px 0 var(--black);
 }
+
+/* --- reference order ------------------------------------------------------
+   The number is not decoration: these models address references by position,
+   so "Image 2" in the prompt means the second chip here. */
+
+.ref-index {
+  position: absolute;
+  left: 2px;
+  top: 2px;
+  min-width: 13px;
+  height: 13px;
+  padding: 0 2px;
+  font-size: 9px;
+  line-height: 13px;
+  text-align: center;
+  color: var(--selection-text);
+  background: var(--title);
+  border: 1px solid var(--black);
+}
+
+/* Overlaid on the chip rather than below it: the chip is a fixed 58px box,
+   and a row underneath would break the row's alignment. */
+.ref-move {
+  position: absolute;
+  left: 2px;
+  right: 2px;
+  bottom: 2px;
+  display: flex;
+  gap: 1px;
+  opacity: 0;
+}
+
+.ref:hover .ref-move,
+.ref-move:focus-within {
+  opacity: 1;
+}
+
+.ref-move button {
+  flex: 1;
+  height: 14px;
+  padding: 0;
+  font-size: 8px;
+  line-height: 1;
+  font-family: var(--ui);
+  background: var(--face);
+  border: 1px solid;
+  border-color: var(--white) var(--black) var(--black) var(--white);
+  cursor: pointer;
+}
+
+.ref-move button:disabled {
+  color: var(--text-disabled);
+  cursor: default;
+}

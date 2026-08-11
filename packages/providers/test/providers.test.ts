@@ -728,3 +728,55 @@ describe("seedanceSizesFor", () => {
     );
   });
 });
+
+describe("SeedanceProvider reference media", () => {
+  // "reference media mode requires video role to be reference_video" — the
+  // API types each kind separately, and a mismatch is refused outright.
+  const MODEL = "dreamina-seedance-2-5-260628";
+
+  function provider(fetchImpl: typeof fetch) {
+    return new SeedanceProvider({
+      baseUrl: "https://ark.test/api/v3",
+      apiKey: "key",
+      model: MODEL,
+      fetchImpl,
+    });
+  }
+
+  it("types each reference by what the media actually is", async () => {
+    let body: any;
+    await provider(
+      (async (_url: string, init: RequestInit) => {
+        body = JSON.parse(String(init.body));
+        return new Response(JSON.stringify({ id: "cgt-mixed" }), { status: 200 });
+      }) as unknown as typeof fetch,
+    ).generateVideo({
+      model: MODEL,
+      prompt: "this move, those characters",
+      correlationId: "cor_mixed_media",
+      references: [
+        { kind: "url", value: "https://x/clip.mp4", mimeType: "video/mp4" },
+        { kind: "base64", value: "AA", mimeType: "image/png" },
+        { kind: "url", value: "https://x/room.mp3", mimeType: "audio/mpeg" },
+      ],
+    });
+
+    expect(body.content.slice(1)).toEqual([
+      {
+        type: "video_url",
+        video_url: { url: "https://x/clip.mp4" },
+        role: "reference_video",
+      },
+      {
+        type: "image_url",
+        image_url: { url: "data:image/png;base64,AA" },
+        role: "reference_image",
+      },
+      {
+        type: "audio_url",
+        audio_url: { url: "https://x/room.mp3" },
+        role: "reference_audio",
+      },
+    ]);
+  });
+});

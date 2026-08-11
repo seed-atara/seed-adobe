@@ -36,6 +36,7 @@ const EMPTY_FORM: GenerateForm = {
   generateAudio: false,
   variants: "1",
   aspectRatio: "",
+  aspectSourceId: "",
   inputAssetIds: [],
 };
 
