@@ -62,7 +62,49 @@ in until then, and every product feature is already testable against it.
 - Adobe Community — CEP / UXP roadmap discussions:
   https://community.adobe.com/t5/after-effects-discussions/uxp-for-after-effects/td-p/13360660
 
-## Premiere frame capture: the answer is PProPanel
+## Premiere frame capture: `sequence.exportFrameAsPNG` (verified working)
+
+```js
+var sequence = app.project.activeSequence;
+var written  = sequence.exportFrameAsPNG(sequence.getPlayerPosition(), path);
+```
+
+A method on the **sequence object itself** — no QE DOM, no Media Encoder, an
+explicit `Time` and a boolean back. It respects the time it is given, which
+nothing else here does. It is not in the scripting guide, which is why six
+earlier attempts never tried it; SEED now probes for it by name and reports
+what the build offers.
+
+**It appends the format's extension to whatever path it is given**, so asking
+for `frame.png` produces `frame.png.png` — the documented 25.3+ behaviour. The
+file is correct; only the name is wrong, and SEED renames it after the fact.
+Code that checks for the exact path it requested will conclude the call failed
+silently, which is very likely what some earlier attempts actually hit.
+
+### Why the other routes fail
+
+| route | result |
+|---|---|
+| `app.encoder.encodeSequence(..., ENCODE_IN_TO_OUT, 1, true)` | **Given the right range and ignores it.** Verified: `in=10.000s out=10.040s`, mode `1` read from `app.encoder.ENCODE_IN_TO_OUT`, real job id, first frame of the sequence written. Its still exporter disregards the range. |
+| `sequence.exportAsMediaDirect(path, preset, n)` | "Unable to initialize export!" for every work-area constant and both path forms |
+| `qe…exportFramePNG(timecode, path)` | "Unknown error exception" |
+
+Adobe's own PProPanel sample uses `encodeSequence`, so the sanctioned route is
+the one that returns the wrong frame here. Worth knowing before trusting a
+reference implementation over a measurement.
+
+`app.encoder.ENCODE_WORK_AREA` is `undefined` on this build, while
+`ENCODE_ENTIRE` is 0 and `ENCODE_IN_TO_OUT` is 1.
+
+### The lesson worth keeping
+
+Every failed attempt reported success. AME always writes *a* file, so it counted
+as a working route and prevented the fallbacks from ever running — the QE matrix
+built to find a working combination had never once executed by the time the real
+answer turned up. When a route can fail silently, ordering it first hides
+everything behind it.
+
+## Superseded: the PProPanel approach
 
 Adobe's own CEP sample has a working single-frame export,
 `exportCurrentFrameAsPNG` in `PProPanel/jsx/PPRO/Premiere.jsx`, and it is the

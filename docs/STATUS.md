@@ -160,6 +160,10 @@ and offering it would promise a constraint with nothing to enforce.
 Reshaping an existing region keeps its width and centre and moves the height —
 width is usually what the artist has just finished framing.
 
+Premiere frame capture works, via `sequence.exportFrameAsPNG(time, path)` — see
+the Adobe notes. Media Encoder, the route Adobe's own sample uses, is given the
+correct range and ignores it, so it is kept only as a last fallback.
+
 Not yet exercised in After Effects — the host functions parse and the panel
 builds, but the round trip has not been run against a real project.
 

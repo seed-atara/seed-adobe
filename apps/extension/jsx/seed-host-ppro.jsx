@@ -218,6 +218,36 @@ function seedAwaitFile(path) {
  * to fail on some builds. Returns a File, or null to let the caller fall back.
  */
 /**
+ * Renames `frame.png.png` to `frame.png`.
+ *
+ * Premiere 25.3 and later append the format's extension to whatever path they
+ * are given, so a request for `frame.png` produces `frame.png.png`. The file
+ * is correct; only its name is wrong, and a library full of doubled extensions
+ * is a lasting reminder of a bug that took one line to undo.
+ */
+function seedDropDoubledExtension(file, extension, trace) {
+    var doubled = extension + extension;
+    var name = file.name;
+    if (name.length <= doubled.length) return file;
+    if (name.substr(name.length - doubled.length).toLowerCase() !== doubled) return file;
+
+    var wanted = name.substr(0, name.length - extension.length);
+    try {
+        var target = new File(file.path + "/" + wanted);
+        // The intended name was chosen to be free, but never overwrite blindly.
+        if (target.exists) return file;
+        if (file.rename(wanted)) {
+            var renamed = new File(file.path + "/" + wanted);
+            if (renamed.exists) return renamed;
+        }
+        trace.push("could not rename " + name);
+    } catch (error) {
+        trace.push("could not rename " + name + ": " + error);
+    }
+    return file;
+}
+
+/**
  * Route 0: a frame exporter on the sequence itself.
  *
  * Reported to exist as `sequence.exportFrameAsPNG(time, path)` — no QE DOM, no
@@ -284,6 +314,7 @@ function seedExportViaSequenceApi(sequence, folder, targetPath, seconds, trace) 
             if (!written) written = seedNewestSettledFile(folder, startedAt);
 
             if (written) {
+                written = seedDropDoubledExtension(written, extension, trace);
                 trace.push(label + " wrote " + written.name);
                 return written;
             }
@@ -413,6 +444,7 @@ function seedExportViaQE(sequence, folder, targetPath, trace) {
                     written = seedNewestSettledFile(folder, attemptedAt);
                 }
                 if (written) {
+                    written = seedDropDoubledExtension(written, extension, trace);
                     trace.push("QE wrote via " + what);
                     // A control write lands outside the workspace; the service
                     // only registers media it owns, so bring it home.
