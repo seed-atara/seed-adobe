@@ -281,6 +281,36 @@ and `inputRoles` were never returned, and the last two were never stored at
 all, so a reopened video recipe quietly changed length and forgot which
 reference was the end frame. Both halves are fixed and covered by tests.
 
+## Film look
+
+P1 of ADR 0008 is built. The engine is `packages/filmlook` — 66 parameters,
+five stocks, four presets, both phases in the specified order — and it runs as
+`LookProvider`, an ordinary provider that needs no credential and reaches no
+network. A look is therefore a generation: it has a job, a recipe, a lineage,
+and it can be reopened, branched and iterated on with the flows that already
+exist.
+
+It runs as `image.edit` rather than an operation of its own. An edit is exactly
+what it is, and inventing a fourth operation would have meant touching the
+domain enum, the router and every switch over operations to say something the
+existing one already says.
+
+Verified against the live service on a real 1774x1774 library frame: about ten
+seconds, registered as a child of its source, source untouched. The numbers
+read the way the preset says they should — red mean pulled down and green and
+blue lifted, which is the show stock's 0.85 global desaturation acting on a
+red-dominant image; highlights compressed; a black centre pixel lifted to 7 by
+grain; corners darker than centre from the vignette.
+
+**Not yet compared against the reference renderer.** That needs a frame from
+the original pipeline, which we do not have. `FILM_LOOK_FIDELITY.md` records
+which stages are transcribed exactly from the specification and which are
+interpreted from a description, so that comparison starts from what is known.
+
+Around 3.4 seconds for a 1080p frame, which settles the video question with a
+number: ten seconds of 24fps is roughly fourteen minutes on the CPU. Video
+needs the GPU path, as ADR 0008 assumed.
+
 ## Known-good demo path
 
 Verified end to end at the time of writing:

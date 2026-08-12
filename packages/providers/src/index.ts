@@ -9,3 +9,4 @@ export * from "./registry.js";
 export * from "./seedance/seedanceProvider.js";
 export * from "./seedream/seedreamProvider.js";
 export * from "./types.js";
+export * from "./look/lookProvider.js";

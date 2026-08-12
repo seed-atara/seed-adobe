@@ -1,8 +1,9 @@
 import { useEffect, useState } from "react";
 import type { Asset, Generation } from "@seed-ae/domain";
-import type { SeedClient } from "../api/client.ts";
+import type { ProviderCapabilitiesDto, SeedClient } from "../api/client.ts";
 import type { CepAeBridge } from "../api/cep.ts";
 import { describeColor } from "../colorSummary.ts";
+import { LookPanel } from "./LookPanel.tsx";
 import {
   AssetImage,
   AssetVideo,
@@ -21,6 +22,10 @@ interface Props {
   onUseAsReference: (asset: Asset) => void;
   onShowLineage: () => void;
   onError: (cause: unknown) => void;
+  /** Absent when the service has not registered the look provider. */
+  lookProvider?: ProviderCapabilitiesDto;
+  /** Selects a freshly treated frame, so it can be iterated on in turn. */
+  onSelectAsset: (asset: Asset) => void;
 }
 
 export function AssetDetail({
@@ -31,6 +36,8 @@ export function AssetDetail({
   onUseAsReference,
   onShowLineage,
   onError,
+  lookProvider,
+  onSelectAsset,
 }: Props) {
   const [generation, setGeneration] = useState<Generation | undefined>();
   const [note, setNote] = useState<string | undefined>();
@@ -115,6 +122,14 @@ export function AssetDetail({
       </div>
 
       {note ? <div className="notice">{note}</div> : null}
+
+      <LookPanel
+        client={client}
+        asset={asset}
+        {...(lookProvider ? { provider: lookProvider } : {})}
+        onApplied={onSelectAsset}
+        onError={onError}
+      />
 
       <div className="section">
         <SectionLabel>media</SectionLabel>

@@ -2,6 +2,7 @@ import { MockAeHostAdapter, type AeHostAdapter } from "@seed-ae/ae-host";
 import {
   ArkAssetLibrary,
   ArkOpenApiClient,
+  LookProvider,
   MockImageProvider,
   MockVideoProvider,
   ProviderRegistry,
@@ -145,6 +146,13 @@ export function buildRegistry(
   logger: Logger,
 ): ProviderRegistry {
   const registry = new ProviderRegistry();
+
+  /*
+   * The film look needs no credential and reaches no network, so it is always
+   * available — there is no configuration under which offering it would fail.
+   * Registered first because it is the one thing here that always works.
+   */
+  registry.register(new LookProvider());
 
   /*
    * Mocks exist so the workflow can be exercised without credentials, and that

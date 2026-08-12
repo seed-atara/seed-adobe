@@ -182,6 +182,12 @@ export function App() {
   });
 
   const selected = assets.find((asset) => asset.id === selectedId);
+  /*
+   * The look needs no credential, so it is normally there — but the panel
+   * still asks rather than assuming, on the same terms as every other
+   * provider: nothing in the UI may offer a capability that was not declared.
+   */
+  const lookProvider = providers.find((provider) => provider.id === "film-look");
 
   const report = useCallback((cause: unknown) => {
     const message =
@@ -1095,6 +1101,13 @@ export function App() {
               onUseAsReference={addReference}
               onError={report}
               onShowLineage={() => setTab("lineage")}
+              {...(lookProvider ? { lookProvider } : {})}
+              onSelectAsset={(treated) => {
+                // Show the result and keep it selected, so the obvious next
+                // move — iterate, insert, or treat again — is one click away.
+                void refreshAssets();
+                setSelectedId(treated.id);
+              }}
             />
           </aside>
         ) : null}

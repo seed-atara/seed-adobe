@@ -11,6 +11,7 @@
   "dependencies": {
     "@seed-ae/domain": "*",
     "zod": "^4.0.0",
-    "@seed-ae/media": "*"
+    "@seed-ae/media": "*",
+    "@seed-ae/filmlook": "*"
   }
 }
