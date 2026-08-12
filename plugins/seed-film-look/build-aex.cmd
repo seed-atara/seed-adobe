@@ -25,12 +25,29 @@ set INC=/I"%AE_SDK%\Examples\Headers" /I"%AE_SDK%\Examples\Headers\SP" /I"%AE_SD
 
 REM .aex is a DLL with Adobe's extension. The entry point is exported by name
 REM from the source, so no .def file is needed.
+REM ---------------------------------------------------------------- PiPL
+REM
+REM Without this resource After Effects never sees the plugin at all: it
+REM compiles, links, exports both entry points, and simply does not appear in
+REM the Effect menu. AE scans binaries for the PiPL to find out what they are
+REM before it calls into them, so the runtime entry point is not a substitute.
+REM
+REM Three stages, as Adobe's own projects do it: preprocess the .r, run it
+REM through PiPLtool, preprocess the result into a .rc, then compile that.
+set PIPL=%~dp0src\ae\SeedFilmLookPiPL
+
+cl /nologo /I "%AE_SDK%\Examples\Headers" /EP "%PIPL%.r" > "%OUT%\pipl.rr" || exit /b 1
+"%AE_SDK%\Examples\Resources\PiPLtool" "%OUT%\pipl.rr" "%OUT%\pipl.rrc" || exit /b 1
+cl /nologo /D "MSWindows" /EP "%OUT%\pipl.rrc" > "%OUT%\pipl.rc" || exit /b 1
+rc /nologo /fo "%OUT%\pipl.res" "%OUT%\pipl.rc" || exit /b 1
+
 REM AE_OS_WIN is set by AEConfig.h; defining it here as well is a redefinition.
 cl /nologo /std:c++17 /O2 /EHsc /MT /DWIN32 /D_WINDOWS /DMSWindows=1 ^
    %INC% ^
    /LD /Fe:"%OUT%\SEED Film Look.aex" /Fo:"%OUT%\\" ^
    "%~dp0src\ae\SeedFilmLook.cpp" "%~dp0src\core\look.cpp" ^
    "%AE_SDK%\Examples\Util\Smart_Utils.cpp" ^
+   "%OUT%\pipl.res" ^
    /link /OUT:"%OUT%\SEED Film Look.aex"
 if errorlevel 1 exit /b 1
 
