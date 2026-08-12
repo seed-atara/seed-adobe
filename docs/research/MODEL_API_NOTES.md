@@ -447,3 +447,50 @@ wrappers expose the same thing as `first_frame_url` / `last_frame_url`.
 Nothing in any documentation claims the first frame is reproduced exactly — the
 wording is consistently that the model "preserves the look and style" of the
 input. Treat an exact match as something to correct for, not to expect.
+
+## Video references need a public URL — VERIFIED (2026-08-13)
+
+Seedance accepts a video reference as a `video_url` content part with role
+`reference_video`, and the adapter has built that part correctly all along. What
+had never been established is whether the URL may be inline. It may not:
+
+```
+POST {ARK_BASE_URL}/contents/generations/tasks
+content: [ {type:"text",...},
+           {type:"video_url", video_url:{url:"data:video/mp4;base64,..."},
+            role:"reference_video"} ]
+
+HTTP 400
+InvalidParameter: The parameter `content` specified in the request is not
+valid: reference_video must be provided as a web url.
+```
+
+Probed with a real 1.41MB clip from the library — `scripts/probe-video-reference.ts`
+reproduces it. The message is unambiguous and arrives before any generation is
+charged.
+
+This is a different rule from images, which are accepted inline as data URLs
+and are how every reference works today. So video references are blocked on
+exactly the `PublicUrlPublisher` that has been on the roadmap since ADR 0005 —
+not on the adapter, the panel, or the materializer, all of which already handle
+video.
+
+### What was ruled out
+
+- **Ark's asset library.** `CreateAsset` also fetches from a URL and rejects
+  `data:`, so it moves the problem rather than solving it.
+- **An Ark-hosted upload.** `POST {base}/files` answers 400 and
+  `POST {base}/uploads` answers 200 with an empty body to any payload,
+  including `{}` — a catch-all route, not an upload API.
+
+### What actually unblocks it
+
+Somewhere Ark's servers can fetch from over https. Any of:
+
+- an S3-compatible bucket with presigned GETs (R2, S3, B2, MinIO), which is
+  the shape `PublicUrlPublisher` was always meant to take;
+- a tunnel to the local service (Cloudflare Tunnel, ngrok) for development;
+- any static host the workspace can write to.
+
+The lifetime only has to cover the request: Ark fetches the media when the task
+is submitted, not while it renders.
