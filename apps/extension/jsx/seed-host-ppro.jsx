@@ -1215,6 +1215,46 @@ function seedClipScale(clip) {
     return 100;
 }
 
+/**
+ * How many clips anywhere in the project use this project item.
+ *
+ * `changeMediaPath` is Replace Footage: it swaps the media under a project item
+ * and every sequence keeps its effects, masks, keyframes and transitions
+ * intact. That is exactly what iterating wants — but it acts on the *item*, so
+ * it is only safe when the item belongs to a single clip. Counting first is the
+ * difference between a swap that preserves everything and one that silently
+ * changes a shot the artist is using somewhere else.
+ */
+function seedCountClipsUsing(nodeId) {
+    var wanted = String(nodeId);
+    var count = 0;
+    try {
+        for (var s = 0; s < app.project.sequences.numSequences; s++) {
+            var sequence = app.project.sequences[s];
+            var groups = [sequence.videoTracks, sequence.audioTracks];
+            for (var g = 0; g < groups.length; g++) {
+                for (var t = 0; t < groups[g].numTracks; t++) {
+                    var track = groups[g][t];
+                    for (var c = 0; c < track.clips.numItems; c++) {
+                        try {
+                            if (String(track.clips[c].projectItem.nodeId) === wanted) {
+                                count++;
+                            }
+                        } catch (clipError) {
+                            // A clip without a readable item is not a use.
+                        }
+                    }
+                }
+            }
+        }
+    } catch (error) {
+        // Unable to count means unable to prove it is private: say so by
+        // reporting more than one, which takes the cautious branch.
+        return 2;
+    }
+    return count;
+}
+
 /** Whether a clip is backed by media of this name. */
 function seedClipHasFile(clip, filename) {
     try {
@@ -1291,7 +1331,10 @@ function seedSelectedMedia() {
  * put the take back where it was — iterating must not cost the artist the
  * version they already had.
  */
-function seedAdoptPlaceholder(placeholderPath, label, trackIndex, startSeconds, expectedFile) {
+function seedAdoptPlaceholder(
+    placeholderPath, label, trackIndex, startSeconds, expectedFile,
+    sourceWidth, cardWidth
+) {
     try {
         var sequence = seedActiveSequence();
         if (!sequence) return seedFail(seedNoSequenceMessage());
@@ -1336,7 +1379,80 @@ function seedAdoptPlaceholder(placeholderPath, label, trackIndex, startSeconds, 
         } catch (idError) {
             restoreNodeId = null;
         }
+        var restorePath = "";
+        try {
+            restorePath = String(restoreItem.getMediaPath());
+        } catch (pathError) {
+            restorePath = "";
+        }
 
+        /*
+         * The good route: swap the media under the clip's own project item.
+         *
+         * This is Replace Footage, and it keeps everything on the clip —
+         * effects, masks, keyframes, transitions, speed — because the clip is
+         * never touched. It is only correct when this item belongs to this one
+         * clip, since it would otherwise change every other use of it too.
+         */
+        var uses = restoreNodeId === null ? 2 : seedCountClipsUsing(restoreNodeId);
+        if (uses === 1 && restorePath) {
+            var swapped = false;
+            try {
+                var result = restoreItem.changeMediaPath(file.fsName, true);
+                swapped = (result === 0 || result === true);
+            } catch (swapError) {
+                swapped = false;
+            }
+
+            if (swapped) {
+                try {
+                    restoreItem.name = SEED_PENDING_PREFIX + " " + label;
+                } catch (nameError) {
+                    // The clip is found by name; falling back to position.
+                }
+
+                /*
+                 * The clip keeps the scale that suited the old take, and the
+                 * card is rarely the same size. Correcting by their ratio now
+                 * means the fill's own correction lands the render back at
+                 * exactly the size the artist had framed.
+                 */
+                var was = Number(sourceWidth);
+                var cardW = Number(cardWidth);
+                if (was > 0 && cardW > 0 && was !== cardW) {
+                    seedSetClipScale(clip, (scalePercent * was) / cardW);
+                }
+
+                return seedOk({
+                    label: label,
+                    mode: "swap",
+                    trackIndex: index,
+                    trackName: "V" + (index + 1),
+                    atSeconds: from,
+                    durationSeconds: to - from,
+                    scalePercent: scalePercent,
+                    /*
+                     * Deliberately no restoreNodeId: this clip was never
+                     * replaced, so the only correct way back is the media
+                     * path. Offering the item as a second option would let a
+                     * failed restore lay the placeholder card down as if it
+                     * were the take.
+                     */
+                    restoreMediaPath: restorePath,
+                    restoreName: restoreName,
+                    keepsEffects: true
+                });
+            }
+        }
+
+        /*
+         * The lossy route, taken only when the item is shared or refuses the
+         * swap. Overwriting the clip's span is the only way left, and Premiere
+         * has no API that copies effects onto a new clip — adding one at all
+         * needs the undocumented QE DOM, and masks are not exposed to scripting
+         * in any form. The scale is carried across by hand; the caller is told
+         * plainly that the rest is not.
+         */
         // Imported per reservation, for the reason reserve gives: changeMediaPath
         // acts on the item, so a shared card would swap every placeholder at once.
         var card = seedImportIntoBin(file);
@@ -1365,13 +1481,16 @@ function seedAdoptPlaceholder(placeholderPath, label, trackIndex, startSeconds, 
 
         return seedOk({
             label: label,
+            mode: "overwrite",
             trackIndex: index,
             trackName: "V" + (index + 1),
             atSeconds: from,
             durationSeconds: to - from,
             scalePercent: scalePercent,
             restoreNodeId: restoreNodeId,
-            restoreName: restoreName
+            restoreName: restoreName,
+            keepsEffects: false,
+            sharedBy: uses
         });
     } catch (error) {
         return seedFail(error);
@@ -1543,7 +1662,10 @@ function seedFillPlaceholder(trackIndex, startSeconds, mediaPath, label, cardWid
  * deleting something they were relying on is a worse answer than leaving it
  * there saying what went wrong.
  */
-function seedFailPlaceholder(trackIndex, startSeconds, message, label, restoreNodeId) {
+function seedFailPlaceholder(
+    trackIndex, startSeconds, message, label, restoreNodeId,
+    restoreMediaPath, sourceWidth, cardWidth
+) {
     try {
         var sequence = seedActiveSequence();
         if (!sequence) return seedFail(seedNoSequenceMessage());
@@ -1559,6 +1681,39 @@ function seedFailPlaceholder(trackIndex, startSeconds, message, label, restoreNo
          * and a striped card where their shot used to be is a worse outcome
          * than the take they already had.
          */
+        /*
+         * A swapped clip is put back by swapping again — the clip was never
+         * touched, so restoring is only a matter of pointing its item at the
+         * media it had. The scale correction is undone in the same breath.
+         */
+        if (restoreMediaPath) {
+            var previousMedia = new File(seedNormalizePath(restoreMediaPath));
+            if (previousMedia.exists) {
+                try {
+                    var undone = clip.projectItem.changeMediaPath(
+                        previousMedia.fsName, true
+                    );
+                    if (undone === 0 || undone === true) {
+                        try {
+                            clip.projectItem.name = previousMedia.name;
+                        } catch (nameBackError) {
+                            // Naming is a courtesy; the media is the point.
+                        }
+                        var wasWidth = Number(sourceWidth);
+                        var cardW = Number(cardWidth);
+                        if (wasWidth > 0 && cardW > 0 && wasWidth !== cardW) {
+                            seedSetClipScale(
+                                clip, (seedClipScale(clip) * cardW) / wasWidth
+                            );
+                        }
+                        return seedOk({ name: previousMedia.name, restored: true });
+                    }
+                } catch (swapBackError) {
+                    // Fall through to the overwrite restore, then to naming.
+                }
+            }
+        }
+
         if (restoreNodeId) {
             var previous = seedFindByNodeId(app.project.rootItem, String(restoreNodeId));
             if (previous) {

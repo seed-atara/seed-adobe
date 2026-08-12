@@ -819,6 +819,9 @@ export function App() {
                   label,
                   shape.width,
                   shape.height,
+                  // Premiere cannot read a project item's dimensions, so the
+                  // take's own width comes from the library entry instead.
+                  assets.find((a) => a.id === form.parentAssetId)?.width,
                 )
               : await bridge.reservePlaceholder(
                   label,
@@ -829,7 +832,19 @@ export function App() {
             placeholders.current.set(job.job.id, handle);
             setNotice(
               refining
-                ? `Replacing ${refining.layerName} when this render lands.`
+                ? `Replacing ${refining.layerName} when this render lands.` +
+                  /*
+                   * Only Premiere's fallback route loses work, and only when
+                   * the clip shares its project item. Saying so at the moment
+                   * it happens beats discovering it when the render lands.
+                   */
+                  (handle.keepsEffects === false
+                    ? ` Its effects will not survive — ${
+                        handle.sharedBy && handle.sharedBy > 1
+                          ? `${handle.sharedBy} clips share this media, so it `
+                          : "this clip "
+                      }has to be overwritten rather than swapped.`
+                    : "")
                 : `Holding ${seconds}s${
                     handle.trackName ? ` on ${handle.trackName}` : ""
                   } while this renders.`,

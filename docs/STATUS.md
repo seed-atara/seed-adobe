@@ -257,11 +257,24 @@ Three details decide whether this is trustworthy:
 - **A failed render restores the previous take.** Iterating costs the wait and
   nothing else; it never leaves a striped card where the artist's shot was.
 
-In After Effects the swap is `replaceSource`, so effects and keyframes survive.
-In Premiere it cannot be: `changeMediaPath` acts on the project item, which is
-the library's copy of the render, so adopting overwrites the clip's span
-instead and carries the scale across by hand. Clip effects do not survive that
-— an honest cost of the only route Premiere leaves open.
+Both hosts preserve the artist's work on the clip. After Effects uses
+`replaceSource`. Premiere uses `changeMediaPath`, which is Replace Footage: the
+media under the project item changes and every sequence keeps its effects,
+masks, keyframes, transitions and speed, because the clip itself is never
+touched.
+
+The catch in Premiere is that `changeMediaPath` acts on the *item*, so it is
+only correct when that item belongs to a single clip. SEED counts the uses
+across every sequence first. One use is the normal case for a SEED clip — the
+reserve/fill flow gives each reservation its own item — and takes the swap.
+More than one falls back to overwriting the clip's span, which loses effects,
+and the panel says so at the moment it happens rather than leaving it to be
+discovered when the render lands.
+
+The fallback cannot be made lossless: Premiere's scripting API has no way to
+clone a clip with its effects, adding an effect at all requires the
+undocumented QE DOM, and masks are not exposed to scripting in any form. Only
+the scale is carried across by hand.
 
 Recipes were lossy until now: `durationSeconds`, `aspectRatio`, `generateAudio`
 and `inputRoles` were never returned, and the last two were never stored at

@@ -193,3 +193,55 @@ synchronous, and correct.
 
 Worth trying if this is picked up again: exporting from a *duplicate* sequence
 trimmed to the single frame, so no range parameter is involved at all.
+
+## Replacing a Premiere clip's media without losing the work on it — RESOLVED (2026-08-12)
+
+Premiere has no `replaceSource`. The question is how to swap the media under a
+timeline clip while keeping the effects, masks, keyframes and transitions the
+artist built on it.
+
+What the scripting API **cannot** do, confirmed against the scripting guide and
+Adobe's own community answers:
+
+- There is no way to clone a trackItem with its effects. Placing a clip through
+  `insertClip`/`overwriteClip` takes the raw project item, and every effect and
+  keyframe on the original is lost.
+- Adding an effect to a clip is not in the documented API at all. It is only
+  reachable through the undocumented QE DOM.
+- Masks are not exposed to scripting in any form, so "copy the attributes and
+  paste them afterwards" cannot be completed even in principle.
+
+What it **can** do: `ComponentParam` is fully featured — `getValue`,
+`setValue`, `getKeys`, `getValueAtKey`, `setValueAtKey`, `addKey`,
+`removeKeyRange`, `isTimeVarying`, `setTimeVarying`,
+`setInterpolationTypeAtKey`. So the values and keyframes of parameters on
+components that *already exist* can be copied. Note the asymmetry:
+interpolation type can be set but not read, so round-tripping curve shapes is
+not possible either.
+
+### The route that does work
+
+`projectItem.changeMediaPath(path, true)` is Replace Footage. It swaps the
+media under a project item, and every sequence using it keeps its attributes
+intact — because the clips are never replaced. This is the same call the fill
+step already used, and it preserves everything.
+
+Its one hazard is that it acts on the **item**, not the clip: an item used by
+several clips changes all of them at once, which would silently alter a shot
+elsewhere in the edit.
+
+So SEED counts the clips referencing that item across every sequence
+(`app.project.sequences` → video and audio tracks) before choosing:
+
+| Uses | Route | Cost |
+| --- | --- | --- |
+| 1 | `changeMediaPath` | nothing — effects, masks, keyframes, transitions all survive |
+| >1, or the item is unreadable | overwrite the clip's span | effects and masks lost; scale carried across by hand |
+
+One use is the normal case for a SEED clip, because the reserve/fill flow
+imports a private project item per reservation.
+
+Sources:
+- Premiere Pro Scripting Guide, ComponentParam — https://ppro-scripting.docsforadobe.dev/sequence/componentparam/
+- "How to add effects to clips in Premiere with CEP/ExtendScript?" — https://community.adobe.com/t5/premiere-pro-discussions/how-to-add-effects-to-clips-in-premiere-with-cep-extendscript/td-p/10431363
+- "ExtendScript: How to retain Effects when copying TrackItems between Sequences?" — https://community.adobe.com/questions-729/extendscript-how-to-retain-effects-when-copying-trackitems-between-sequences-1550341

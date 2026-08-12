@@ -227,6 +227,17 @@ export interface PlaceholderHandle {
   restoreNodeId?: string;
   restoreWidth?: number;
   restoreName?: string;
+  /** Premiere swap route: the media to put back under the clip's own item. */
+  restoreMediaPath?: string;
+  /** The take's own width, so a swap can undo its scale correction. */
+  sourceWidth?: number;
+  /**
+   * Whether the artist's effects survive this replacement. False only on
+   * Premiere's fallback route, and worth saying out loud when it happens.
+   */
+  keepsEffects?: boolean;
+  /** How many clips share the project item, when that forced the fallback. */
+  sharedBy?: number;
 }
 
 /** What the artist has selected in the host, if it came from a file. */
@@ -545,6 +556,7 @@ export class CepAeBridge {
     label: string,
     width: number,
     height: number,
+    sourceWidth?: number,
   ): Promise<PlaceholderHandle> {
     await this.ensureHost();
     const { path } = await this.client.placeholder(width, height, label);
@@ -553,16 +565,17 @@ export class CepAeBridge {
      * the shot the artist chose: both hosts locate the target by a position
      * that other edits can shift underneath it.
      */
+    const take = sourceWidth ?? selection.width ?? 0;
     const call =
       hostApp() === "PPRO"
         ? `${hostPrefix()}adoptPlaceholder(${quote(path)}, ${quote(label)}, ${
             selection.trackIndex ?? 0
-          }, ${selection.startSeconds ?? 0}, ${quote(selection.filename)})`
+          }, ${selection.startSeconds ?? 0}, ${quote(selection.filename)}, ${take}, ${width})`
         : `${hostPrefix()}adoptPlaceholder(${quote(path)}, ${quote(label)}, ${
             selection.compId ?? 0
           }, ${selection.layerIndex ?? 0}, ${quote(selection.filename)})`;
     const adopted = await evalHost<PlaceholderHandle>(call);
-    return { ...adopted, label, cardWidth: width };
+    return { ...adopted, label, cardWidth: width, sourceWidth: take };
   }
 
   /** Swaps the finished render in underneath a placeholder. */
@@ -608,7 +621,9 @@ export class CepAeBridge {
             handle.atSeconds ?? 0
           }, ${quote(message)}, ${quote(handle.label)}, ${
             handle.restoreNodeId ? quote(handle.restoreNodeId) : "null"
-          })`
+          }, ${
+            handle.restoreMediaPath ? quote(handle.restoreMediaPath) : '""'
+          }, ${handle.sourceWidth ?? 0}, ${handle.cardWidth ?? 0})`
         : `${hostPrefix()}failPlaceholder(${quote(handle.label)}, ${quote(message)}, ${
             handle.compId ?? 0
           }, ${handle.restoreItemId ?? 0}, ${handle.restoreWidth ?? 0})`;
