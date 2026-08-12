@@ -78,6 +78,10 @@ interface Props {
   /** Where Premiere should export a frame to, shown so it can be pasted. */
   originalsDir?: string;
   onPickupFrame?: () => void;
+  /** Loads the recipe behind the layer or clip selected in the host. */
+  onRefineSelected?: () => void;
+  /** Name of the shot being iterated on, when Generate will replace it. */
+  refining?: string;
   onGenerate: () => void;
   onCancel: () => void;
   onOpenLibrary: () => void;
@@ -134,6 +138,8 @@ export function GenerateView({
   host,
   originalsDir,
   onPickupFrame,
+  onRefineSelected,
+  refining,
   onGenerate,
   onCancel,
   onOpenLibrary,
@@ -341,6 +347,29 @@ export function GenerateView({
         <button className="btn primary wide" onClick={onCapture} disabled={busy}>
           Capture current frame
         </button>
+        {onRefineSelected ? (
+          <>
+            <button
+              className="btn wide"
+              onClick={onRefineSelected}
+              disabled={busy}
+              style={{ marginTop: 6 }}
+            >
+              Iterate on selected shot
+            </button>
+            <div className="hint faint" style={{ marginTop: 6 }}>
+              {refining ? (
+                <>
+                  Generate now replaces <b>{refining}</b> where it sits, keeping
+                  its scale, position and timing. The take you have stays in the
+                  library either way.
+                </>
+              ) : (
+                "Select a generated clip in the timeline to load the prompt and references that made it."
+              )}
+            </div>
+          </>
+        ) : null}
         {host === "PPRO" ? (
           <div className="hint faint" style={{ marginTop: 6 }}>
             Premiere renders the frame through Media Encoder, so give it a few

@@ -1088,6 +1088,218 @@ function seedReservePlaceholder(placeholderPath, durationSeconds, label) {
     }
 }
 
+/*
+ * Iterating on a shot that is already in the timeline.
+ *
+ * The loop the artist actually wants is: look at the take in context, decide
+ * it is nearly right, change one thing, run it again — and have the new take
+ * arrive where the old one was, still carrying the scale, position, timing and
+ * effects that were built around it.
+ *
+ * That needs two things the reserve/fill pair did not have. Something has to
+ * say which generation made the layer under the cursor, and the layer itself
+ * has to become the placeholder rather than a second one appearing at the
+ * playhead. Both are below; the fill that follows is the same one a fresh
+ * reservation uses.
+ */
+
+/** Whether a layer is backed by a file of this name. */
+function seedLayerHasFile(layer, filename) {
+    try {
+        if (!layer || !layer.source || !layer.source.file) return false;
+        return String(layer.source.file.name) === String(filename);
+    } catch (error) {
+        return false;
+    }
+}
+
+/**
+ * Describes the media under the selection, so the panel can find its recipe.
+ *
+ * Reports the source file rather than the layer name, because the name is the
+ * artist's to change and the path is not. A region composite is followed one
+ * level down: the selection there is the sub-comp sitting in the plate, and
+ * what is being iterated on is the footage inside it.
+ */
+function seedSelectedMedia() {
+    try {
+        var comp = seedActiveComp();
+        if (!comp) return seedFail("no active composition");
+
+        var selected = comp.selectedLayers;
+        if (selected.length === 0) {
+            return seedFail("select the layer you want to iterate on");
+        }
+        if (selected.length > 1) {
+            return seedFail("select a single layer — " + selected.length + " are selected");
+        }
+
+        var layer = selected[0];
+        var source = layer.source;
+        if (!source) return seedFail(layer.name + " has no source to iterate on");
+
+        var host = comp;
+        var inRegion = null;
+
+        // A region composite: step inside and take the footage it holds.
+        if (source instanceof CompItem) {
+            var inner = null;
+            for (var i = 1; i <= source.numLayers; i++) {
+                var candidate = source.layer(i);
+                if (candidate.source && candidate.source instanceof FootageItem &&
+                    candidate.source.file) {
+                    inner = candidate;
+                    break;
+                }
+            }
+            if (!inner) {
+                return seedFail(
+                    layer.name + " is a composition with no generated footage inside it"
+                );
+            }
+            inRegion = source.name;
+            host = source;
+            layer = inner;
+            source = inner.source;
+        }
+
+        if (!source.file) {
+            return seedFail(layer.name + " is not backed by a file on disk");
+        }
+
+        return seedOk({
+            path: source.file.fsName,
+            filename: source.file.name,
+            layerName: layer.name,
+            compId: host.id,
+            compName: host.name,
+            layerIndex: layer.index,
+            width: source.width,
+            height: source.height,
+            durationSeconds: source.duration,
+            regionName: inRegion,
+            startSeconds: layer.startTime,
+            inRegion: inRegion !== null
+        });
+    } catch (error) {
+        return seedFail(error);
+    }
+}
+
+/**
+ * Turns a layer that is already in the timeline into the pending placeholder.
+ *
+ * `replaceSource` rather than a delete and re-add, for the same reason fill
+ * uses it: everything the artist built — transforms, keyframes, effects, the
+ * trim — lives on the layer, and iterating must not cost them that. The
+ * original item and its width go back to the caller so a failed render can put
+ * the previous take back, which is the whole safety net of iterating: the take
+ * you had is never worse off for having tried another.
+ */
+function seedAdoptPlaceholder(placeholderPath, label, compId, layerIndex, expectedFile) {
+    try {
+        var comp = null;
+        var wanted = Number(compId);
+        for (var i = 1; i <= app.project.numItems; i++) {
+            var item = app.project.item(i);
+            if (item instanceof CompItem && item.id === wanted) {
+                comp = item;
+                break;
+            }
+        }
+        if (!comp) return seedFail("the composition holding that layer is gone");
+
+        var index = Number(layerIndex);
+        if (!(index >= 1 && index <= comp.numLayers)) {
+            return seedFail("layer " + layerIndex + " is no longer in " + comp.name);
+        }
+        var layer = comp.layer(index);
+
+        /*
+         * Confirm it is still the same shot before replacing anything.
+         *
+         * A layer index is a position in a stack, and stacks get reordered —
+         * between choosing to iterate and pressing Generate the artist may
+         * have added a layer above this one, which silently shifts every index
+         * below it. Replacing whatever now sits at that position would destroy
+         * unrelated work, so the file is checked, and the layer is found by
+         * file if the index has moved.
+         */
+        if (expectedFile) {
+            var wantedName = String(expectedFile);
+            if (!seedLayerHasFile(layer, wantedName)) {
+                var relocated = null;
+                var seen = 0;
+                for (var s = 1; s <= comp.numLayers; s++) {
+                    if (seedLayerHasFile(comp.layer(s), wantedName)) {
+                        relocated = comp.layer(s);
+                        seen++;
+                    }
+                }
+                if (seen !== 1) {
+                    return seedFail(
+                        seen === 0
+                            ? wantedName + " is no longer in " + comp.name +
+                                  ", so there is nothing to iterate on"
+                            : comp.name + " has " + seen + " layers using " +
+                                  wantedName + " — select it again so there is " +
+                                  "no doubt which one to replace"
+                    );
+                }
+                layer = relocated;
+            }
+        }
+
+        var file = new File(seedNormalizePath(placeholderPath));
+        if (!file.exists) return seedFail("placeholder media not found");
+
+        var original = layer.source;
+        if (!original) return seedFail(layer.name + " has no source to replace");
+        var originalWidth = original.width;
+        var originalName = layer.name;
+
+        app.beginUndoGroup("SEED: iterate on this shot");
+
+        var card = app.project.importFile(new ImportOptions(file));
+        card.parentFolder = seedProjectFolder();
+        card.name = SEED_PENDING_PREFIX + " " + label;
+
+        layer.replaceSource(card, false);
+        layer.name = SEED_PENDING_PREFIX + " " + label;
+        layer.label = 1; // red, so it reads as unfinished in the timeline
+
+        /*
+         * Hold the framing. Swapping the source keeps the scale that suited the
+         * old take, and the card is rarely the same size — correcting by the
+         * ratio now means the fill's own correction lands back exactly where
+         * the artist had it, whatever size the render turns out to be.
+         */
+        if (originalWidth > 0 && card.width > 0 && originalWidth !== card.width) {
+            var scale = layer.property("Transform").property("Scale");
+            var was = scale.value;
+            var factor = originalWidth / card.width;
+            scale.setValue([was[0] * factor, was[1] * factor]);
+        }
+
+        app.endUndoGroup();
+
+        return seedOk({
+            label: label,
+            name: layer.name,
+            compId: comp.id,
+            layerIndex: layer.index,
+            atSeconds: layer.startTime,
+            durationSeconds: layer.outPoint - layer.inPoint,
+            restoreItemId: original.id,
+            restoreName: originalName,
+            restoreWidth: originalWidth
+        });
+    } catch (error) {
+        try { app.endUndoGroup(); } catch (ignored) {}
+        return seedFail(error);
+    }
+}
+
 /** Swaps the finished render in underneath the placeholder. */
 function seedFillPlaceholder(label, mediaPath, compId) {
     try {
@@ -1148,18 +1360,49 @@ function seedFillPlaceholder(label, mediaPath, compId) {
  * deleting something they were relying on is a worse answer than leaving it
  * there saying what went wrong.
  */
-function seedFailPlaceholder(label, message, compId) {
+function seedFailPlaceholder(label, message, compId, restoreItemId, restoreWidth) {
     try {
         var held = seedFindPlaceholder(label, compId);
         if (!held) return seedOk({ name: null });
         var layer = held.layer;
 
         app.beginUndoGroup("SEED: placeholder failed");
-        layer.name = "SEED failed - " + String(message || "generation failed").substr(0, 60);
-        layer.label = 9;
+
+        /*
+         * An adopted layer had a take in it before this attempt. Put it back:
+         * a failed iteration should cost the artist the wait and nothing else,
+         * and a striped card where their shot used to be is a worse outcome
+         * than the take they already had.
+         */
+        var restored = false;
+        var wanted = Number(restoreItemId);
+        if (wanted > 0) {
+            var previous = seedFindItemById(wanted);
+            if (previous) {
+                var cardWidth = layer.source ? layer.source.width : 0;
+                layer.replaceSource(previous, false);
+                layer.name = previous.name;
+                layer.label = 0;
+                var back = Number(restoreWidth);
+                if (cardWidth > 0 && back > 0 && cardWidth !== back) {
+                    var scale = layer.property("Transform").property("Scale");
+                    var was = scale.value;
+                    var factor = cardWidth / back;
+                    scale.setValue([was[0] * factor, was[1] * factor]);
+                }
+                restored = true;
+            }
+        }
+
+        if (!restored) {
+            layer.name =
+                "SEED failed - " + String(message || "generation failed").substr(0, 60);
+            layer.label = 9;
+        }
+
         app.endUndoGroup();
 
-        return seedOk({ name: layer.name });
+        return seedOk({ name: layer.name, restored: restored });
     } catch (error) {
         try { app.endUndoGroup(); } catch (ignored) {}
         return seedFail(error);
@@ -1205,3 +1448,5 @@ var seedAeft_insertRegion = seedInsertRegion;
 var seedAeft_reservePlaceholder = seedReservePlaceholder;
 var seedAeft_fillPlaceholder = seedFillPlaceholder;
 var seedAeft_failPlaceholder = seedFailPlaceholder;
+var seedAeft_selectedMedia = seedSelectedMedia;
+var seedAeft_adoptPlaceholder = seedAdoptPlaceholder;

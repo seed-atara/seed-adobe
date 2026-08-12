@@ -91,6 +91,21 @@ export function recipeRoute(deps: AppDeps) {
     const generation = deps.generations.requireById(asset.generationId);
     const parameters = generation.parameters as Record<string, unknown>;
 
+    /*
+     * Lift the parameters the form has fields for back to the top level.
+     *
+     * They are all in `parameters` too, but a caller reconstructing a form
+     * should not have to know which of them the service happened to flatten —
+     * and when it did have to, the ones it did not know about were silently
+     * dropped, so reopening a video recipe quietly changed its length.
+     */
+    const roles = Array.isArray(parameters.inputRoles)
+      ? parameters.inputRoles.filter(
+          (role): role is "first" | "last" | "reference" =>
+            role === "first" || role === "last" || role === "reference",
+        )
+      : undefined;
+
     return json({
       recipe: {
         providerId: generation.provider,
@@ -99,6 +114,14 @@ export function recipeRoute(deps: AppDeps) {
         prompt: generation.prompt,
         ...(generation.seed !== undefined ? { seed: generation.seed } : {}),
         ...(typeof parameters.size === "string" ? { size: parameters.size } : {}),
+        ...(typeof parameters.durationSeconds === "number"
+          ? { durationSeconds: parameters.durationSeconds }
+          : {}),
+        ...(typeof parameters.aspectRatio === "string"
+          ? { aspectRatio: parameters.aspectRatio }
+          : {}),
+        ...(parameters.generateAudio === true ? { generateAudio: true } : {}),
+        ...(roles && roles.length > 0 ? { inputRoles: roles } : {}),
         inputAssetIds: generation.inputAssetIds,
         parentAssetId: asset.id,
         parentGenerationId: generation.id,

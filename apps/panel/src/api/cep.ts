@@ -218,6 +218,36 @@ export interface PlaceholderHandle {
   /** Premiere only: which video track it went onto. */
   trackIndex?: number;
   trackName?: string;
+  /*
+   * Set when this placeholder was adopted from a layer that already held a
+   * take, so a failed render can put that take back. After Effects identifies
+   * the previous source by project item id, Premiere by node id.
+   */
+  restoreItemId?: number;
+  restoreNodeId?: string;
+  restoreWidth?: number;
+  restoreName?: string;
+}
+
+/** What the artist has selected in the host, if it came from a file. */
+export interface SelectedMedia {
+  path: string;
+  filename: string;
+  layerName: string;
+  width?: number;
+  height?: number;
+  durationSeconds?: number;
+  startSeconds?: number;
+  /** After Effects: the comp and layer to adopt later. */
+  compId?: number;
+  layerIndex?: number;
+  /** Premiere: the track and time to adopt later. */
+  trackIndex?: number;
+  trackName?: string;
+  scalePercent?: number;
+  /** After Effects: set when the selection was a region composite. */
+  inRegion?: boolean;
+  regionName?: string | null;
 }
 
 export class CepAeBridge {
@@ -500,6 +530,41 @@ export class CepAeBridge {
     return { ...reserved, label, cardWidth: width };
   }
 
+  /** What the artist has selected, so its recipe can be reopened. */
+  async selectedMedia(): Promise<SelectedMedia> {
+    await this.ensureHost();
+    return evalHost<SelectedMedia>(`${hostPrefix()}selectedMedia()`);
+  }
+
+  /**
+   * Turns a layer that already holds a take into the placeholder for the next
+   * one, so iterating replaces the shot in place rather than stacking beside it.
+   */
+  async adoptPlaceholder(
+    selection: SelectedMedia,
+    label: string,
+    width: number,
+    height: number,
+  ): Promise<PlaceholderHandle> {
+    await this.ensureHost();
+    const { path } = await this.client.placeholder(width, height, label);
+    /*
+     * The filename goes with it so the host can confirm it is still replacing
+     * the shot the artist chose: both hosts locate the target by a position
+     * that other edits can shift underneath it.
+     */
+    const call =
+      hostApp() === "PPRO"
+        ? `${hostPrefix()}adoptPlaceholder(${quote(path)}, ${quote(label)}, ${
+            selection.trackIndex ?? 0
+          }, ${selection.startSeconds ?? 0}, ${quote(selection.filename)})`
+        : `${hostPrefix()}adoptPlaceholder(${quote(path)}, ${quote(label)}, ${
+            selection.compId ?? 0
+          }, ${selection.layerIndex ?? 0}, ${quote(selection.filename)})`;
+    const adopted = await evalHost<PlaceholderHandle>(call);
+    return { ...adopted, label, cardWidth: width };
+  }
+
   /** Swaps the finished render in underneath a placeholder. */
   async fillPlaceholder(
     handle: PlaceholderHandle,
@@ -532,14 +597,21 @@ export class CepAeBridge {
     message: string,
   ): Promise<void> {
     await this.ensureHost();
+    /*
+     * The restore handle rides along: an adopted placeholder had a take in it
+     * before this attempt, and a failed render should leave the artist with
+     * the version they already had rather than a striped card.
+     */
     const call =
       hostApp() === "PPRO"
         ? `${hostPrefix()}failPlaceholder(${handle.trackIndex ?? 0}, ${
             handle.atSeconds ?? 0
-          }, ${quote(message)}, ${quote(handle.label)})`
+          }, ${quote(message)}, ${quote(handle.label)}, ${
+            handle.restoreNodeId ? quote(handle.restoreNodeId) : "null"
+          })`
         : `${hostPrefix()}failPlaceholder(${quote(handle.label)}, ${quote(message)}, ${
             handle.compId ?? 0
-          })`;
+          }, ${handle.restoreItemId ?? 0}, ${handle.restoreWidth ?? 0})`;
     await evalHost(call);
   }
 

@@ -96,11 +96,23 @@ export class GenerationService {
       operation: request.operation,
       prompt: request.prompt,
       ...(request.seed !== undefined ? { seed: request.seed } : {}),
+      /*
+       * Everything the request said, so the recipe can be run again.
+       *
+       * Roles and the audio switch are recorded for the same reason size and
+       * duration are: without them a reopened recipe is a different generation
+       * wearing the same prompt. Roles especially — "this frame is where the
+       * shot ends" is not recoverable by guessing from a list of inputs.
+       */
       parameters: {
         ...request.parameters,
         ...(request.size ? { size: request.size } : {}),
         ...(request.durationSeconds ? { durationSeconds: request.durationSeconds } : {}),
         ...(request.aspectRatio ? { aspectRatio: request.aspectRatio } : {}),
+        ...(request.generateAudio ? { generateAudio: true } : {}),
+        ...(request.inputRoles && request.inputRoles.length > 0
+          ? { inputRoles: request.inputRoles }
+          : {}),
       },
       inputAssetIds: request.inputAssetIds,
       ...(request.parentAssetId ? { parentAssetId: request.parentAssetId } : {}),

@@ -232,6 +232,42 @@ Where a single reference becomes the first frame, the frame dictates the shape
 and the API refuses a ratio alongside it, so the control is replaced by a note
 saying so rather than offering a choice that does not exist.
 
+## Iterating on a shot in place
+
+Built, not yet exercised in the applications.
+
+Selecting a generated clip in the timeline and pressing **Iterate on selected
+shot** loads the recipe that made it — prompt, references, roles, seed,
+duration, aspect and the audio switch. Changing anything and pressing Generate
+turns that clip into the pending placeholder rather than reserving new space,
+and the render replaces it where it sits, keeping the scale, position and
+timing already built around it.
+
+Three details decide whether this is trustworthy:
+
+- **The link is the media path.** Nothing is written into the Adobe project to
+  mark a layer as SEED's, because a layer can be renamed, duplicated,
+  pre-composed or copied to another project, and a mark would survive all of
+  that while meaning something different afterwards.
+- **The target is re-confirmed before anything is replaced.** Both hosts locate
+  a shot by position — a layer index, a time on a track — and both positions
+  shift under ordinary editing. The filename is checked at adopt time, After
+  Effects re-finds the layer by file if its index moved, and an ambiguous match
+  refuses rather than guesses.
+- **A failed render restores the previous take.** Iterating costs the wait and
+  nothing else; it never leaves a striped card where the artist's shot was.
+
+In After Effects the swap is `replaceSource`, so effects and keyframes survive.
+In Premiere it cannot be: `changeMediaPath` acts on the project item, which is
+the library's copy of the render, so adopting overwrites the clip's span
+instead and carries the scale across by hand. Clip effects do not survive that
+— an honest cost of the only route Premiere leaves open.
+
+Recipes were lossy until now: `durationSeconds`, `aspectRatio`, `generateAudio`
+and `inputRoles` were never returned, and the last two were never stored at
+all, so a reopened video recipe quietly changed length and forgot which
+reference was the end frame. Both halves are fixed and covered by tests.
+
 ## Known-good demo path
 
 Verified end to end at the time of writing:

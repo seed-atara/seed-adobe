@@ -13,6 +13,7 @@ import {
   isCepHost,
   type AeRegion,
   type PlaceholderHandle,
+  type SelectedMedia,
 } from "./api/cep.ts";
 import {
   GenerateView,
@@ -23,6 +24,7 @@ import { LibraryView } from "./components/LibraryView.tsx";
 import { AssetDetail } from "./components/AssetDetail.tsx";
 import { LineageView } from "./components/LineageView.tsx";
 import { findMentions } from "./mentions.ts";
+import { resolveRefineTarget } from "./refine.ts";
 
 type Tab = "generate" | "library" | "lineage";
 
@@ -158,6 +160,15 @@ export function App() {
   const [originalsDir, setOriginalsDir] = useState<string>();
   /** Reserved timeline space, by job id, waiting for its render. */
   const placeholders = useRef(new Map<string, PlaceholderHandle>());
+  /**
+   * The shot being iterated on, if any.
+   *
+   * Held from the moment its recipe is loaded until Generate is pressed, which
+   * is what turns the next render from "a new clip at the playhead" into "this
+   * clip, replaced". Cleared afterwards so the following generation does not
+   * quietly overwrite something the artist has stopped looking at.
+   */
+  const [refining, setRefining] = useState<SelectedMedia>();
   const [directing, setDirecting] = useState(false);
   const [plan, setPlan] = useState<ComposedPlan | undefined>();
   const [regions, setRegions] = useState<AeRegion[]>();
@@ -779,7 +790,7 @@ export function App() {
        */
       if (
         bridge &&
-        form.reserveSpace &&
+        (form.reserveSpace || refining) &&
         form.operation === "video.generate" &&
         started.length === 1
       ) {
@@ -793,16 +804,35 @@ export function App() {
               Number(aeContext.width) || 0,
               Number(aeContext.height) || 0,
             );
-            const handle = await bridge.reservePlaceholder(
-              job.job.id.slice(0, 12),
-              seconds,
-              shape.width,
-              shape.height,
-            );
+            const label = job.job.id.slice(0, 12);
+
+            /*
+             * Iterating adopts the shot that is already there; a fresh
+             * generation reserves new space at the playhead. The difference
+             * matters to the artist as "does this replace what I am looking at
+             * or land next to it", which is exactly what they chose by
+             * pressing one button rather than the other.
+             */
+            const handle = refining
+              ? await bridge.adoptPlaceholder(
+                  refining,
+                  label,
+                  shape.width,
+                  shape.height,
+                )
+              : await bridge.reservePlaceholder(
+                  label,
+                  seconds,
+                  shape.width,
+                  shape.height,
+                );
             placeholders.current.set(job.job.id, handle);
             setNotice(
-              `Holding ${seconds}s${handle.trackName ? ` on ${handle.trackName}` : ""}` +
-                " while this renders.",
+              refining
+                ? `Replacing ${refining.layerName} when this render lands.`
+                : `Holding ${seconds}s${
+                    handle.trackName ? ` on ${handle.trackName}` : ""
+                  } while this renders.`,
             );
           }
         } catch (cause) {
@@ -811,12 +841,22 @@ export function App() {
           report(cause);
         }
       }
+
+      // One press, one replacement: the next generation is a new shot unless
+      // the artist says otherwise again.
+      setRefining(undefined);
     } catch (cause) {
       report(cause);
     } finally {
       setBusy(false);
     }
-  }, [client, form, providers, report]);
+    /*
+     * Everything the body reads. `refining` especially: it is set just after
+     * the form is, so a callback that only rebuilt on `form` would still be
+     * holding the previous value and would reserve new space instead of
+     * replacing the shot the artist had just chosen.
+     */
+  }, [client, form, providers, report, bridge, assets, aeContext, refining]);
 
   /** Cancels everything still running — variants are started together. */
   const cancelJob = useCallback(async () => {
@@ -869,6 +909,43 @@ export function App() {
     },
     [client, report],
   );
+
+  /**
+   * Loads the recipe behind whatever is selected in the timeline.
+   *
+   * The link back is the file on disk. Nothing is written into the Adobe
+   * project to mark a layer as ours — a layer can be renamed, duplicated,
+   * pre-composed or copied between projects, and any mark we left would
+   * survive all of that while meaning something different afterwards. The
+   * media path cannot drift from the media.
+   */
+  const refineSelected = useCallback(async () => {
+    if (!bridge) return;
+    setBusy(true);
+    try {
+      const selection = await bridge.selectedMedia();
+      const target = resolveRefineTarget(selection, assets);
+      if (!target.ok) {
+        setError(target.reason);
+        return;
+      }
+
+      await openRecipe(target.asset);
+      setRefining(selection);
+      setSelectedId(target.asset.id);
+      setNotice(
+        `Iterating on ${selection.layerName}` +
+          (selection.inRegion && selection.regionName
+            ? ` inside ${selection.regionName}`
+            : "") +
+          ". Generate replaces it in place.",
+      );
+    } catch (cause) {
+      report(cause);
+    } finally {
+      setBusy(false);
+    }
+  }, [bridge, assets, openRecipe, report]);
 
   const addReference = useCallback((asset: Asset) => {
     setForm((current) =>
@@ -951,6 +1028,8 @@ export function App() {
               host={hostId}
               {...(originalsDir ? { originalsDir } : {})}
               onPickupFrame={pickupFrame}
+              {...(bridge ? { onRefineSelected: refineSelected } : {})}
+              {...(refining ? { refining: refining.layerName } : {})}
               onFormChange={setForm}
               {...(canDirect ? { onDirect: directShot } : {})}
               directing={directing}

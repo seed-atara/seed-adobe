@@ -180,6 +180,109 @@ describe("generation lifecycle", () => {
   });
 });
 
+describe("reopening a recipe", () => {
+  /*
+   * Iterating on a shot means loading what made it, changing one thing, and
+   * running it again. Anything the recipe drops silently becomes a change the
+   * artist did not ask for — so the assertion is on the whole round trip, not
+   * on the fields that happened to be easy to carry.
+   *
+   * Built through the repositories rather than by generating: the fields that
+   * were being dropped are all video ones, and the mock video provider replays
+   * a real file the repository does not ship. What is under test is the route's
+   * reconstruction of a form, not the provider that filled it in.
+   */
+  async function storeGeneration(parameters: Record<string, unknown>) {
+    const first = await captureFrame();
+    const last = await captureFrame();
+    const job = service.deps.jobs.create({
+      provider: "mock-video",
+      model: "mock-video-v1",
+      operation: "video.generate",
+      correlationId: "cor_test",
+    });
+    // Settled, so this stand-in does not read as work still to do.
+    service.deps.jobs.update(job.id, { status: "succeeded" });
+    const generation = service.deps.generations.create({
+      provider: "mock-video",
+      model: "mock-video-v1",
+      operation: "video.generate",
+      prompt: "a slow push through the doorway",
+      seed: 7,
+      parameters,
+      inputAssetIds: [first.id, last.id],
+      jobId: job.id,
+    });
+    const asset = service.deps.assets.create({
+      kind: "video",
+      filename: "mock-video_abcd1234_00.mp4",
+      mimeType: "video/mp4",
+      storageUri: "assets/generated/mock-video_abcd1234_00.mp4",
+      generationId: generation.id,
+      source: { type: "generated", provider: "mock-video", model: "mock-video-v1" },
+    });
+    return { generation, asset, first, last };
+  }
+
+  it("returns every field the form can set, including roles and audio", async () => {
+    const { generation, asset, first, last } = await storeGeneration({
+      size: "1920x1080",
+      durationSeconds: 5,
+      aspectRatio: "16:9",
+      generateAudio: true,
+      inputRoles: ["first", "last"],
+    });
+
+    const { recipe } = await readJson(
+      await service.call(`/v1/assets/${asset.id}/recipe`),
+    );
+
+    expect(recipe).toMatchObject({
+      providerId: "mock-video",
+      operation: "video.generate",
+      prompt: "a slow push through the doorway",
+      seed: 7,
+      size: "1920x1080",
+      durationSeconds: 5,
+      aspectRatio: "16:9",
+      generateAudio: true,
+      inputAssetIds: [first.id, last.id],
+      inputRoles: ["first", "last"],
+      parentAssetId: asset.id,
+      parentGenerationId: generation.id,
+    });
+  });
+
+  it("omits the switches that were off rather than reporting them false", async () => {
+    const { asset } = await storeGeneration({ durationSeconds: 5 });
+
+    const { recipe } = await readJson(
+      await service.call(`/v1/assets/${asset.id}/recipe`),
+    );
+    expect(recipe.generateAudio).toBeUndefined();
+    expect(recipe.inputRoles).toBeUndefined();
+    expect(recipe.durationSeconds).toBe(5);
+  });
+
+  it("persists roles and the audio switch when a generation starts", async () => {
+    const frame = await captureFrame();
+    const { final } = await generate({
+      providerId: "mock-image",
+      operation: "image.generate",
+      prompt: "a lighthouse at dusk",
+      size: "64x64",
+      inputAssetIds: [frame.id],
+      inputRoles: ["reference"],
+      generateAudio: true,
+    });
+
+    expect(final.generation?.parameters).toMatchObject({
+      inputRoles: ["reference"],
+      generateAudio: true,
+    });
+  });
+});
+
 describe("generation failures", () => {
   it("rejects a capability the provider has not declared", async () => {
     const response = await service.call("/v1/generations", {

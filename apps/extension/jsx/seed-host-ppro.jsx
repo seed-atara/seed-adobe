@@ -1182,6 +1182,202 @@ function seedFindPlaceholderClip(sequence, trackIndex, startSeconds, label) {
     return null;
 }
 
+/*
+ * Iterating on a shot that is already in the sequence.
+ *
+ * Same intent as After Effects, different mechanics. There the layer's source
+ * is swapped and everything built on the layer survives; here the clip's media
+ * cannot be swapped, because `changeMediaPath` acts on the *project item* and
+ * that item is the library's copy of the render — pointing it at a striped card
+ * would change every clip using it, and corrupt the library entry besides.
+ *
+ * So Premiere adopts by overwriting the clip's own span with a placeholder and
+ * carrying the framing across by hand. Effects on the old clip do not survive
+ * that, which is the honest cost of the route Premiere leaves open; the scale
+ * does, because losing it is what makes a swap look broken.
+ */
+
+/** Reads a clip's Motion scale, as a percentage. */
+function seedClipScale(clip) {
+    try {
+        for (var i = 0; i < clip.components.numItems; i++) {
+            var component = clip.components[i];
+            if (String(component.matchName) !== "AE.ADBE Motion" &&
+                String(component.displayName) !== "Motion") continue;
+            for (var p = 0; p < component.properties.numItems; p++) {
+                if (String(component.properties[p].displayName) !== "Scale") continue;
+                return Number(component.properties[p].getValue()) || 100;
+            }
+        }
+    } catch (error) {
+        // Reported as the default; the swap matters more than the framing.
+    }
+    return 100;
+}
+
+/** Whether a clip is backed by media of this name. */
+function seedClipHasFile(clip, filename) {
+    try {
+        var item = clip.projectItem;
+        if (!item) return false;
+        var media = new File(String(item.getMediaPath()));
+        return String(media.name) === String(filename);
+    } catch (error) {
+        return false;
+    }
+}
+
+/** The clip the artist has selected, wherever it sits. */
+function seedSelectedClip(sequence) {
+    for (var t = 0; t < sequence.videoTracks.numTracks; t++) {
+        var track = sequence.videoTracks[t];
+        for (var c = 0; c < track.clips.numItems; c++) {
+            var clip = track.clips[c];
+            try {
+                if (clip.isSelected()) return { clip: clip, trackIndex: t };
+            } catch (error) {
+                // Older builds without isSelected: treated as not selected.
+            }
+        }
+    }
+    return null;
+}
+
+/** Describes the media under the selection, so the panel can find its recipe. */
+function seedSelectedMedia() {
+    try {
+        var sequence = seedActiveSequence();
+        if (!sequence) return seedFail(seedNoSequenceMessage());
+
+        var found = seedSelectedClip(sequence);
+        if (!found) return seedFail("select the clip you want to iterate on");
+
+        var clip = found.clip;
+        var item = clip.projectItem;
+        if (!item) return seedFail(clip.name + " is not backed by a project item");
+
+        var mediaPath = "";
+        try {
+            mediaPath = String(item.getMediaPath());
+        } catch (pathError) {
+            mediaPath = "";
+        }
+        if (!mediaPath) return seedFail(clip.name + " has no file on disk");
+
+        var file = new File(mediaPath);
+
+        return seedOk({
+            path: file.fsName,
+            filename: file.name,
+            layerName: String(clip.name),
+            trackIndex: found.trackIndex,
+            trackName: "V" + (found.trackIndex + 1),
+            startSeconds: Number(clip.start.seconds),
+            endSeconds: Number(clip.end.seconds),
+            durationSeconds: Number(clip.end.seconds) - Number(clip.start.seconds),
+            scalePercent: seedClipScale(clip),
+            inRegion: false,
+            regionName: null
+        });
+    } catch (error) {
+        return seedFail(error);
+    }
+}
+
+/**
+ * Turns a clip already in the sequence into the pending placeholder.
+ *
+ * The old clip's project item goes back to the caller so a failed render can
+ * put the take back where it was — iterating must not cost the artist the
+ * version they already had.
+ */
+function seedAdoptPlaceholder(placeholderPath, label, trackIndex, startSeconds, expectedFile) {
+    try {
+        var sequence = seedActiveSequence();
+        if (!sequence) return seedFail(seedNoSequenceMessage());
+
+        var index = Number(trackIndex);
+        if (index < 0 || index >= sequence.videoTracks.numTracks) {
+            return seedFail("track V" + (index + 1) + " is no longer in the sequence");
+        }
+
+        var clip = seedFindPlaceholderClip(sequence, index, Number(startSeconds), null);
+        if (!clip) {
+            return seedFail("the clip to iterate on is no longer where it was");
+        }
+
+        /*
+         * Confirm it is still the same shot before overwriting anything.
+         *
+         * Clips are found by where they sit, and a clip that has been nudged
+         * along the track since it was selected leaves a different one at that
+         * time. Overwriting whatever is now there would destroy unrelated
+         * work, so the media is checked before the card goes down.
+         */
+        if (expectedFile && !seedClipHasFile(clip, expectedFile)) {
+            return seedFail(
+                "the clip at that point is no longer " + expectedFile +
+                    " — select the shot again so there is no doubt which one " +
+                    "to replace"
+            );
+        }
+
+        var file = new File(seedNormalizePath(placeholderPath));
+        if (!file.exists) return seedFail("placeholder media not found");
+
+        var from = Number(clip.start.seconds);
+        var to = Number(clip.end.seconds);
+        var scalePercent = seedClipScale(clip);
+        var restoreItem = clip.projectItem;
+        var restoreName = String(clip.name);
+        var restoreNodeId = null;
+        try {
+            restoreNodeId = String(restoreItem.nodeId);
+        } catch (idError) {
+            restoreNodeId = null;
+        }
+
+        // Imported per reservation, for the reason reserve gives: changeMediaPath
+        // acts on the item, so a shared card would swap every placeholder at once.
+        var card = seedImportIntoBin(file);
+        if (!card) return seedFail("could not import the placeholder card");
+        try {
+            card.name = SEED_PENDING_PREFIX + " " + label;
+        } catch (nameError) {
+            // A name is a convenience; the clip is found by position.
+        }
+
+        sequence.videoTracks[index].overwriteClip(card, from);
+
+        var placed = seedFindPlaceholderClip(sequence, index, from, label);
+        if (placed) {
+            try {
+                var end = placed.end;
+                end.seconds = to;
+                placed.end = end;
+            } catch (endError) {
+                // A still's default length stands if the end cannot be set.
+            }
+            if (scalePercent > 0 && scalePercent !== 100) {
+                seedSetClipScale(placed, scalePercent);
+            }
+        }
+
+        return seedOk({
+            label: label,
+            trackIndex: index,
+            trackName: "V" + (index + 1),
+            atSeconds: from,
+            durationSeconds: to - from,
+            scalePercent: scalePercent,
+            restoreNodeId: restoreNodeId,
+            restoreName: restoreName
+        });
+    } catch (error) {
+        return seedFail(error);
+    }
+}
+
 /** Puts a placeholder at the playhead for the length the render will be. */
 function seedReservePlaceholder(placeholderPath, durationSeconds, label) {
     try {
@@ -1347,7 +1543,7 @@ function seedFillPlaceholder(trackIndex, startSeconds, mediaPath, label, cardWid
  * deleting something they were relying on is a worse answer than leaving it
  * there saying what went wrong.
  */
-function seedFailPlaceholder(trackIndex, startSeconds, message, label) {
+function seedFailPlaceholder(trackIndex, startSeconds, message, label, restoreNodeId) {
     try {
         var sequence = seedActiveSequence();
         if (!sequence) return seedFail(seedNoSequenceMessage());
@@ -1357,13 +1553,50 @@ function seedFailPlaceholder(trackIndex, startSeconds, message, label) {
         );
         if (!clip) return seedOk({ name: null });
 
+        /*
+         * An adopted clip had a take in it before this attempt. Put it back: a
+         * failed iteration should cost the artist the wait and nothing else,
+         * and a striped card where their shot used to be is a worse outcome
+         * than the take they already had.
+         */
+        if (restoreNodeId) {
+            var previous = seedFindByNodeId(app.project.rootItem, String(restoreNodeId));
+            if (previous) {
+                var from = Number(clip.start.seconds);
+                var to = Number(clip.end.seconds);
+                var scalePercent = seedClipScale(clip);
+                try {
+                    sequence.videoTracks[Number(trackIndex)].overwriteClip(previous, from);
+                    var back = seedFindPlaceholderClip(
+                        sequence, Number(trackIndex), from, null
+                    );
+                    if (back) {
+                        try {
+                            var end = back.end;
+                            end.seconds = to;
+                            back.end = end;
+                        } catch (endError) {
+                            // The restored clip's own length stands.
+                        }
+                        if (scalePercent > 0 && scalePercent !== 100) {
+                            seedSetClipScale(back, scalePercent);
+                        }
+                    }
+                    return seedOk({ name: String(previous.name), restored: true });
+                } catch (restoreError) {
+                    // Fall through to naming: saying what happened beats
+                    // leaving the artist with neither take nor explanation.
+                }
+            }
+        }
+
         try {
             clip.projectItem.name =
                 "SEED failed - " + String(message || "generation failed").substr(0, 60);
         } catch (nameError) {
             // Naming is a courtesy; the clip staying put is the point.
         }
-        return seedOk({ name: label });
+        return seedOk({ name: label, restored: false });
     } catch (error) {
         return seedFail(error);
     }
@@ -1401,5 +1634,7 @@ var seedPpro_pickupFrame = seedPickupFrame;
 var seedPpro_reservePlaceholder = seedReservePlaceholder;
 var seedPpro_fillPlaceholder = seedFillPlaceholder;
 var seedPpro_failPlaceholder = seedFailPlaceholder;
+var seedPpro_selectedMedia = seedSelectedMedia;
+var seedPpro_adoptPlaceholder = seedAdoptPlaceholder;
 var seedPpro_import = seedImport;
 var seedPpro_insertAtPlayhead = seedInsertAtPlayhead;
