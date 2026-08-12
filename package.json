@@ -23,7 +23,8 @@
     "token": "node scripts/token.mjs",
     "watch:seedream": "node scripts/watch-seedream.mjs",
     "plugin:vectors": "tsx scripts/filmlook-vectors.ts",
-    "plugin:test": "node scripts/plugin-test.mjs"
+    "plugin:test": "node scripts/plugin-test.mjs",
+    "plugin:build": "node scripts/plugin-build.mjs"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",
