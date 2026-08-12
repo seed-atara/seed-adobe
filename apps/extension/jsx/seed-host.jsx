@@ -70,6 +70,66 @@ function seedActiveComp() {
 
 // ------------------------------------------------------------------ context
 
+/**
+ * How the project is managing colour.
+ *
+ * Read one property at a time and skip whatever this build does not have:
+ * `linearizeWorkingSpace` and `compensateForSceneReferredProfiles` arrived in
+ * AE 16.0, and reading a missing property must not cost us the whole context.
+ *
+ * Absent is reported as absent. A treatment chain that assumes sRGB when it
+ * simply could not find out produces double-gamma, and the artist sees a
+ * contrast problem rather than a colour-management one.
+ */
+function seedColorManagement() {
+    try {
+        var project = app.project;
+        var cm = {};
+        var found = false;
+
+        var depth = Number(project.bitsPerChannel);
+        if (depth === 8 || depth === 16 || depth === 32) {
+            cm.bitsPerChannel = depth;
+            found = true;
+        }
+
+        // Reading an absent property yields undefined rather than throwing, so
+        // the version differences need checking but not guarding.
+        if (project.workingSpace !== undefined) {
+            cm.workingSpace = String(project.workingSpace);
+            found = true;
+        }
+
+        var gamma = Number(project.workingGamma);
+        if (gamma > 0) {
+            cm.workingGamma = gamma;
+            found = true;
+        }
+
+        if (project.linearBlending !== undefined) {
+            cm.linearBlending = project.linearBlending ? true : false;
+            found = true;
+        }
+
+        if (project.linearizeWorkingSpace !== undefined) {
+            cm.linearizeWorkingSpace = project.linearizeWorkingSpace ? true : false;
+            found = true;
+        }
+
+        if (project.compensateForSceneReferredProfiles !== undefined) {
+            cm.compensateForSceneReferredProfiles =
+                project.compensateForSceneReferredProfiles ? true : false;
+            found = true;
+        }
+
+        return found ? cm : null;
+    } catch (error) {
+        // Colour management is provenance, not the capture. Losing it must
+        // never cost the frame.
+        return null;
+    }
+}
+
 /** Everything the panel needs to describe "what AE is showing right now". */
 function seedGetContext() {
     try {
@@ -80,6 +140,20 @@ function seedGetContext() {
         if (file) {
             context.projectName = file.name;
             context.projectPath = file.fsName;
+        }
+
+        var colour = seedColorManagement();
+        if (colour) {
+            context.colorManagement = colour;
+            /*
+             * A single readable name for the working space. An empty string is
+             * After Effects saying "None", which means untagged sRGB-ish
+             * display values — worth stating rather than leaving blank.
+             */
+            if (colour.workingSpace !== undefined) {
+                context.colorSpace =
+                    colour.workingSpace === "" ? "None" : colour.workingSpace;
+            }
         }
 
         var comp = seedActiveComp();

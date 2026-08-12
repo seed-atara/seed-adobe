@@ -38,7 +38,34 @@ export const AeContextSchema = z.object({
   durationSeconds: z.number().min(0).optional(),
   workAreaStartSeconds: z.number().min(0).optional(),
   workAreaDurationSeconds: z.number().min(0).optional(),
+  /**
+   * How the host was managing colour when this frame was made.
+   *
+   * Recorded because a treatment chain has to know what it is being handed.
+   * The film look assumes sRGB-encoded 0..1; run it against a linearised
+   * 32-bit project and the result is double-gamma, which reads as "too
+   * contrasty" and gets corrected with a grade that makes it worse. Recording
+   * this at capture time is the only chance to know — the PNG itself cannot
+   * say which working space produced it.
+   *
+   * Every field stays optional: Premiere does not expose an equivalent, and
+   * older After Effects builds lack some of these. Absent means unknown, which
+   * is a different claim from sRGB and must not be collapsed into it.
+   */
   colorSpace: z.string().optional(),
+  colorManagement: z
+    .object({
+      /** 8, 16 or 32. The optical half of a look is meaningless below 32. */
+      bitsPerChannel: z.union([z.literal(8), z.literal(16), z.literal(32)]).optional(),
+      /** Project working space profile name; empty string in AE means None. */
+      workingSpace: z.string().optional(),
+      /** 2.2 or 2.4 when a working space is set. */
+      workingGamma: z.number().positive().optional(),
+      linearBlending: z.boolean().optional(),
+      linearizeWorkingSpace: z.boolean().optional(),
+      compensateForSceneReferredProfiles: z.boolean().optional(),
+    })
+    .optional(),
   selectedLayers: z.array(AeLayerRefSchema).optional(),
   /**
    * Which part of a larger plate a region capture came from, in comp pixels.

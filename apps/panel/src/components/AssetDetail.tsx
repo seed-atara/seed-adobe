@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import type { Asset, Generation } from "@seed-ae/domain";
 import type { SeedClient } from "../api/client.ts";
 import type { CepAeBridge } from "../api/cep.ts";
+import { describeColor } from "../colorSummary.ts";
 import {
   AssetImage,
   AssetVideo,
@@ -198,7 +199,7 @@ export function AssetDetail({
               {provenance.width}×{provenance.height} · {provenance.fps} fps
             </dd>
             <dt>color</dt>
-            <dd className="mono faint">{provenance.colorSpace ?? "—"}</dd>
+            <dd className="mono faint">{describeColor(provenance)}</dd>
           </dl>
         </div>
       ) : null}
