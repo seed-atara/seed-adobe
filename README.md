@@ -1,90 +1,168 @@
-# SEED / AE Starter
+# SEED / AE
 
-A development scaffold for a generative-production layer inside Adobe After Effects.
+A generative-production layer inside After Effects and Premiere Pro.
 
-## Core idea
-
-- After Effects = creative operating system
-- Seedream / Seedance = generative renderers
-- Asset Library = project memory and provenance
-
-The first reliable vertical slice is current AE frame capture -> local asset registration -> Seedream generation -> result registration -> AE import.
-
-Seedance 2.5 is the intended hero video model for the ByteDance demonstration, but its adapter must remain behind an abstraction until its exact official API contract/access is available.
-
-## Status
-
-The V1 loop works end to end against mock providers:
+Not a prompt box bolted onto a video app. The host application stays the
+deterministic creative operating system; Seedream and Seedance act as
+renderers; a local Asset Library keeps the media, the recipe that made it, and
+its lineage. Every result can be traced back to the frame it came from, reopened
+as a recipe, and varied.
 
 ```
-AE frame -> Capture -> Asset Library -> generate -> result registered
-         -> lineage -> reopen recipe -> variation -> import / insert at playhead
+frame in your timeline
+   -> Capture          registers an immutable source asset
+   -> Generate         Seedream (image) or Seedance (video)
+   -> Library          result, recipe, provenance, parent/child lineage
+   -> Insert           back into the comp or sequence, fitted
+   -> Variation        same recipe, new seed or new references
 ```
 
-**Seedream is verified working against the live BytePlus Ark API** — the loop
-above has been run end to end on real generations. The panel ships as a CEP
-extension that docks inside After Effects. Seedance stays inert until its
-request contract is verified. See `docs/STATUS.md`.
+**Status:** Seedream and Seedance 2.0 / 2.5 are verified working against the
+live BytePlus Ark API. Capture, import, insert, timeline reservation, regions
+and the direction agent have all been run end to end in both After Effects and
+Premiere Pro on Windows. See `docs/STATUS.md`.
 
-## Quick start
+---
 
-Requires Node >= 22.13 (the service uses the built-in `node:sqlite`).
+## Requirements
+
+- **Node.js 22.13 or newer** — the service uses the built-in `node:sqlite`.
+- **After Effects 22+** or **Premiere Pro 22+**.
+- **A BytePlus / Volcengine Ark account** with access to the Seedream and
+  Seedance models. Without a key the panel runs but has nothing to generate
+  with.
+- Windows or macOS. Windows is the more heavily tested of the two.
+
+## Install
 
 ```bash
+git clone https://github.com/seed-atara/seed-adobe.git
+cd seed-adobe
 npm install
-npm test          # 148 tests, no Adobe application needed
-npm run typecheck
-npm run dev       # local service; prints a session token
+npm run setup             # asks for your keys, writes a git-ignored .env
+npm run install:extension # builds the panel and installs it for Adobe
 ```
 
-Then either dock it in After Effects:
+`npm run setup` is the only place credentials are entered. It writes `.env` in
+the project root, which is git-ignored — **no key belongs in a commit, a
+screenshot, or a `.aep` file.** Nothing you type is echoed to the terminal or
+sent anywhere. Re-run it any time to change a key; see `.env.example` for the
+full set of settings and what each one does.
+
+### Allow the unsigned extension
+
+CEP refuses to load unsigned extensions unless `PlayerDebugMode` is set. The
+installer checks and tells you if it is missing — it deliberately does not set
+it for you, because it is a machine-wide "allow unsigned code" flag and that
+should be your decision:
+
+```powershell
+reg add "HKCU\Software\Adobe\CSXS.11" /v PlayerDebugMode /t REG_SZ /d 1 /f
+reg add "HKCU\Software\Adobe\CSXS.12" /v PlayerDebugMode /t REG_SZ /d 1 /f
+```
+
+macOS:
 
 ```bash
-npm run install:extension
-# restart AE, then Window > Extensions > SEED / AE
+defaults write com.adobe.CSXS.11 PlayerDebugMode 1
+defaults write com.adobe.CSXS.12 PlayerDebugMode 1
 ```
 
-or run it in a browser against the mock AE host:
+Restart the Adobe application afterwards.
+
+## Run
+
+```bash
+npm run dev     # the local service, on 127.0.0.1:47831
+npm run token   # prints the session token and copies it to your clipboard
+```
+
+Then in After Effects or Premiere Pro: **Window > Extensions > SEED / AE**.
+Paste the token into the panel's token field. The service must be running
+whenever the panel is used — it holds the database, the credentials, and the
+jobs.
+
+To remove the extension again: `npm run uninstall:extension`.
+
+## Using it
+
+1. Park the playhead on the frame you want and press **Capture current frame**.
+   It lands in the Library as an immutable source asset, with the comp or
+   sequence, the time, and the dimensions recorded alongside it.
+2. Pick references from the Library. Roles are explicit: a reference image, a
+   first frame, a last frame, a reference video or audio.
+3. Write a prompt — or describe the shot and press **Direct**, and the
+   direction agent writes one from your description and the references in front
+   of it. It refers to references by position ("Image 1"), because models do not
+   resolve asset ids in prose.
+4. **Generate**. Video jobs can reserve their space on the timeline first: a
+   striped placeholder clip appears at the playhead, and the render replaces it
+   in place when it lands, at the right scale, wherever you have since moved it.
+5. **Insert at playhead**, or open any result to see its full recipe —
+   provider, model, seed, parameters, references, and the frame it came from —
+   and branch a variation from it.
+
+Assets are never overwritten. A variation is a child, not a replacement.
+
+### Regions
+
+For work on a large plate: select a region of the composition, and SEED builds
+a sub-composition for it, generates into it, and soft-mattes the result back
+into the plate with scale and position you can keep animating. Useful for a 2K
+by 6K strip where the shot you actually want is a 1K square inside it.
+
+## Development
+
+```bash
+npm test          # 205 tests, no Adobe application required
+npm run typecheck # service, panel, packages
+npm run build
+```
+
+The panel also runs in a browser against a mock host, which is the fastest way
+to work on UI:
 
 ```bash
 cd apps/panel && npm run dev    # http://localhost:47830
 ```
 
-Get the session token onto your clipboard with:
+Everything that is not host-specific is testable outside Adobe — that is a
+design rule, not an accident. Host-specific logic lives behind `AeHostAdapter`
+and nothing else depends on ExtendScript globals.
 
-```bash
-npm run token
-```
-
-Paste it into the panel, press **Capture current frame**, write a prompt, and
-press **Generate**.
-
-To verify the whole loop headlessly against a running service:
-
-```bash
-npx tsx apps/panel/test/loop.e2e.ts http://127.0.0.1:47831 <token>
-```
-
-The service creates `<workspace>/.seed-ae/` for its SQLite database and media.
-API reference: `apps/service/README.md`.
-
-## Layout
+### Layout
 
 | Path | Contents |
 | --- | --- |
 | `apps/service` | Local HTTP service — assets, jobs, providers, credentials |
-| `apps/panel` | Panel UI — Generate / Library / Lineage (React + Vite, Win95) |
-| `apps/extension` | CEP extension: manifest + ExtendScript host for AE |
+| `apps/panel` | Panel UI — Generate / Library / Lineage (React + Vite) |
+| `apps/extension` | CEP extension: manifest + ExtendScript hosts for AE and Premiere |
 | `packages/domain` | Shared schemas, wire contracts, error codes |
 | `packages/storage` | SQLite, migrations, repositories, workspace layout |
 | `packages/ae-host` | `AeHostAdapter` contract + mock implementation |
-| `packages/providers` | Provider contract, mocks, Seedream, Seedance (inert) |
-| `packages/media` | Dependency-free PNG codec and resize |
+| `packages/providers` | Provider contract, Seedream, Seedance |
+| `packages/media` | Dependency-free PNG codec, resize, MP4 probing |
 
-## Start here
+### Docs
 
-1. Read `CLAUDE.md`.
-2. Read `docs/architecture/OVERVIEW.md`.
-3. Read `docs/research/MODEL_API_NOTES.md`.
-4. Follow `docs/roadmap/V0_PLAN.md`.
-5. Use `SYSTEM_PROMPT.md` to start a coding agent.
+- `docs/STATUS.md` — what works today, verified against live APIs
+- `docs/architecture/OVERVIEW.md` — how the pieces fit
+- `docs/research/MODEL_API_NOTES.md` — what the Ark API actually accepts, and
+  how that was measured rather than assumed
+- `docs/research/ADOBE_INTEGRATION_NOTES.md` — CEP and ExtendScript findings,
+  including the ones that cost a day
+- `docs/decisions/` — architectural decisions
+- `docs/roadmap/FUTURE_FEATURES.md` — what is next
+- `apps/service/README.md` — HTTP API reference
+
+## Security
+
+- Credentials live in `.env` only. Never in SQLite, logs, generation metadata,
+  Adobe projects, or git.
+- The panel never talks to a model provider directly. It calls the local
+  service, which holds the keys.
+- The service binds to `127.0.0.1` and requires a session token.
+- Authorization headers are redacted in logs.
+
+If a key is ever pasted somewhere it should not be, rotate it. That is cheaper
+than being sure it was not seen.

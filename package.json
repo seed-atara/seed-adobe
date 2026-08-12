@@ -17,6 +17,7 @@
     "test:watch": "vitest",
     "typecheck": "tsc -p tsconfig.json && tsc -p apps/panel/tsconfig.json --noEmit",
     "lint": "npm run typecheck",
+    "setup": "node scripts/setup.mjs",
     "install:extension": "node scripts/install-extension.mjs",
     "uninstall:extension": "node scripts/install-extension.mjs --uninstall",
     "token": "node scripts/token.mjs",
