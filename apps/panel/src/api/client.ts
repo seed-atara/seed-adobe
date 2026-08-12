@@ -177,6 +177,14 @@ export class SeedClient {
     return this.request("/v1/generations", { method: "POST", body: request });
   }
 
+  /** Writes the look as a .cube and reports where, and what it cannot carry. */
+  lookLut(request: {
+    preset: string;
+    intensity: number;
+  }): Promise<{ path: string; filename: string; missing: string[] }> {
+    return this.request("/v1/look/lut", { method: "POST", body: request });
+  }
+
   job(id: string): Promise<JobView> {
     return this.request(`/v1/jobs/${id}`);
   }

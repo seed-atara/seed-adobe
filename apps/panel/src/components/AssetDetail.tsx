@@ -125,6 +125,7 @@ export function AssetDetail({
 
       <LookPanel
         client={client}
+        bridge={bridge}
         asset={asset}
         {...(lookProvider ? { provider: lookProvider } : {})}
         onApplied={onSelectAsset}

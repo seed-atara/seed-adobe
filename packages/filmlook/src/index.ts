@@ -4,6 +4,7 @@ export * from "./color.js";
 export * from "./config.js";
 export * from "./grain.js";
 export * from "./image.js";
+export * from "./lut.js";
 export * from "./presets.js";
 export * from "./resolve.js";
 export * from "./stocks.js";

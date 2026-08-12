@@ -4,6 +4,7 @@ import type { SeedClient, JobView } from "../api/client.ts";
 import type { ProviderCapabilitiesDto } from "../api/client.ts";
 import { AssetImage, SectionLabel } from "./primitives.tsx";
 import { colorWarning } from "../colorSummary.ts";
+import { hostApp, type CepAeBridge } from "../api/cep.ts";
 
 const SETTLED = ["succeeded", "failed", "cancelled"];
 
@@ -17,6 +18,8 @@ const PRESET_LABELS: Record<string, string> = {
 
 interface Props {
   client: SeedClient;
+  /** Present only inside After Effects, where a rig can be built. */
+  bridge?: CepAeBridge | undefined;
   asset: Asset;
   /** Absent when the service has not registered the look provider. */
   provider?: ProviderCapabilitiesDto;
@@ -36,13 +39,23 @@ interface Props {
  * original in their memory is how looks get approved that should not have
  * been.
  */
-export function LookPanel({ client, asset, provider, onApplied, onError }: Props) {
+export function LookPanel({
+  client,
+  bridge,
+  asset,
+  provider,
+  onApplied,
+  onError,
+}: Props) {
   const [preset, setPreset] = useState("show-match");
   const [intensity, setIntensity] = useState(1);
   const [job, setJob] = useState<JobView | undefined>();
   const [result, setResult] = useState<Asset | undefined>();
   const [comparing, setComparing] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [rig, setRig] = useState<
+    { lutPath: string; applied: string[]; skipped: string[]; missing: string[] } | undefined
+  >();
   const pollRef = useRef<number | undefined>(undefined);
 
   // A new selection is a new subject; the previous result is not about it.
@@ -87,6 +100,40 @@ export function LookPanel({ client, asset, provider, onApplied, onError }: Props
       poll(started.job.id);
     } catch (cause) {
       onError(cause);
+      setBusy(false);
+    }
+  };
+
+  /**
+   * Writes the LUT and builds the rig in one gesture.
+   *
+   * Two calls rather than one because they belong to different processes: the
+   * service owns the maths and the filesystem, the panel owns the comp.
+   */
+  const buildRig = async () => {
+    if (!bridge) return;
+    setBusy(true);
+    setRig(undefined);
+    try {
+      const lut = await client.lookLut({ preset, intensity });
+      const built = await bridge.buildLookRig(preset, lut.path, {
+        // The spatial half, in the units After Effects' own effects want.
+        grain: intensity * 0.4,
+        grainSize: 1,
+        vignette: intensity * 0.15,
+        halation: intensity * 0.6,
+        halationRadius: 24,
+        distortion: 0,
+      });
+      setRig({
+        lutPath: lut.path,
+        applied: built.applied,
+        skipped: built.skipped,
+        missing: lut.missing,
+      });
+    } catch (cause) {
+      onError(cause);
+    } finally {
       setBusy(false);
     }
   };
@@ -162,8 +209,56 @@ export function LookPanel({ client, asset, provider, onApplied, onError }: Props
 
       <div style={{ height: 8 }} />
       <button className="btn primary wide" onClick={apply} disabled={busy}>
-        {busy ? "Treating…" : "Apply look"}
+        {busy ? "Treating…" : "Bake onto this frame"}
       </button>
+
+      {bridge && hostApp() === "AEFT" ? (
+        <>
+          <button
+            className="btn wide"
+            style={{ marginTop: 6 }}
+            onClick={buildRig}
+            disabled={busy}
+          >
+            Add as effects in the comp
+          </button>
+          <div className="hint faint" style={{ marginTop: 6 }}>
+            Puts an adjustment layer over the comp: the look as a LUT, plus
+            grain, halation and vignette as ordinary effects you can keyframe.
+            Works on moving footage, not just this frame.
+          </div>
+        </>
+      ) : null}
+
+      {rig ? (
+        <div className="notice">
+          <b>One step left.</b> Select the SEED Look layer, find{" "}
+          <b>Apply Color LUT</b>, click <b>Choose LUT</b> and pick:
+          <div className="mono" style={{ wordBreak: "break-all", marginTop: 4 }}>
+            {rig.lutPath}
+          </div>
+          <div style={{ marginTop: 6 }}>
+            After Effects will not let a script attach a LUT file — the
+            parameter takes a number, not a path — so this one click is yours.
+          </div>
+          {rig.applied.length > 0 ? (
+            <div style={{ marginTop: 6 }}>Added: {rig.applied.join(", ")}.</div>
+          ) : null}
+          {rig.skipped.length > 0 ? (
+            <div style={{ marginTop: 6 }}>
+              This build of After Effects had no effect for:{" "}
+              {rig.skipped.join(", ")}.
+            </div>
+          ) : null}
+          {rig.missing.length > 0 ? (
+            <div style={{ marginTop: 6 }}>
+              The LUT carries the colour only. {rig.missing.join(", ")} are
+              spatial, so they come from the effects above it — or from the bake
+              if you want them exactly.
+            </div>
+          ) : null}
+        </div>
+      ) : null}
 
       {busy && job ? (
         <div className="hint faint" style={{ marginTop: 6 }}>

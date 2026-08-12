@@ -21,6 +21,7 @@ import type { MediaIngestor } from "./generation/mediaIngestor.js";
 import { isJsonResult, sendError, sendJson } from "./http/respond.js";
 import { PromptDirector } from "./agent/director.js";
 import { Router, type RequestContext } from "./http/router.js";
+import { lookLutRoute } from "./routes/look.js";
 import { createLogger, type Logger } from "./logger.js";
 import {
   aeContextRoute,
@@ -89,6 +90,7 @@ export function buildRouter(deps: AppDeps): Router {
     .get("/v1/assets/:id/path", getAssetPathRoute(deps))
     .get("/v1/assets/:id/lineage", lineageRoute(deps))
     .get("/v1/assets/:id/recipe", recipeRoute(deps))
+    .post("/v1/look/lut", lookLutRoute(deps))
     .get("/v1/workspace", workspaceRoute(deps))
     .get("/v1/placeholder", placeholderRoute(deps))
     .get("/v1/providers", listProvidersRoute(deps))

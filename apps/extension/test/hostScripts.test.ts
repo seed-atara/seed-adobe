@@ -90,6 +90,16 @@ const HOST_SPECIFIC: Record<string, { host: string; because: string }> = {
   // so listRegions fails there, and the panel reads that failure as "no
   // regions" and hides the whole section rather than offering something that
   // cannot work.
+  /*
+   * The look rig builds an adjustment layer and adds effects to it by match
+   * name. Premiere has no adjustment layers, and adding an effect there is not
+   * in the documented API at all — only through the undocumented QE DOM. The
+   * panel offers the button in After Effects only.
+   */
+  seedBuildLookRig: {
+    host: "seed-host.jsx",
+    because: "adjustment layers and scriptable effects are After Effects only",
+  },
   seedListRegions: { host: "seed-host.jsx", because: "regions are compositions" },
   seedCreateRegion: { host: "seed-host.jsx", because: "regions are compositions" },
   seedCaptureRegion: { host: "seed-host.jsx", because: "regions are compositions" },

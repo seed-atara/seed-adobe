@@ -578,6 +578,31 @@ export class CepAeBridge {
     return { ...adopted, label, cardWidth: width, sourceWidth: take };
   }
 
+  /**
+   * Builds the look as effects on an adjustment layer in the comp.
+   *
+   * The answer to "where is my filter": the tonal half arrives as a LUT the
+   * artist points at once, and the spatial half as real After Effects effects
+   * with real controls, in the same order the engine uses.
+   */
+  async buildLookRig(
+    name: string,
+    lutPath: string,
+    settings: Record<string, number>,
+  ): Promise<{
+    name: string;
+    compName: string;
+    applied: string[];
+    skipped: string[];
+  }> {
+    await this.ensureHost();
+    return evalHost(
+      `${hostPrefix()}buildLookRig(${quote(name)}, ${quote(lutPath)}, ${JSON.stringify(
+        settings,
+      )})`,
+    );
+  }
+
   /** Swaps the finished render in underneath a placeholder. */
   async fillPlaceholder(
     handle: PlaceholderHandle,

@@ -1068,6 +1068,168 @@ function seedInsertRegion(projectItemId, options) {
     }
 }
 
+// ------------------------------------------------------------------ the look
+
+/*
+ * The film look as effects on a layer, rather than a baked file.
+ *
+ * This is what an artist actually wants: something on the layer, live in the
+ * viewer, keyframeable, rendering with the comp, and adjustable without going
+ * back to a panel. The bake treats one still; this treats a shot.
+ *
+ * It arrives in two parts because the chain divides in two. The tonal half —
+ * exposure, both tonemaps, stock colour, the grade — is per-pixel and is
+ * carried exactly by a 3D LUT that SEED generates from the same config. The
+ * spatial half — grain, vignette, halation, distortion — cannot be a lookup at
+ * any size, so it is built from After Effects' own effects, set from the same
+ * numbers.
+ *
+ * The LUT file cannot be attached by script: the parameter takes an integer
+ * rather than a path. So the effect is applied and left pointing at nothing,
+ * and the artist chooses the file once. Everything else is set for them.
+ */
+
+/**
+ * Adds an effect by trying each candidate match name in turn.
+ *
+ * Match names are version- and locale-dependent and are not something to
+ * assume. Probing is the same approach the Premiere exporter takes for the
+ * same reason: an assumption that is wrong here throws, and the artist sees
+ * "EvalScript error" with nothing to act on.
+ */
+function seedAddEffect(layer, candidates) {
+    var effects = layer.property("ADBE Effect Parade");
+    for (var i = 0; i < candidates.length; i++) {
+        try {
+            if (effects.canAddProperty(candidates[i])) {
+                return effects.addProperty(candidates[i]);
+            }
+        } catch (error) {
+            // Try the next spelling.
+        }
+    }
+    return null;
+}
+
+/** Sets an effect parameter by name, quietly skipping one that is not there. */
+function seedSetParam(effect, name, value) {
+    if (!effect) return false;
+    try {
+        var property = effect.property(name);
+        if (!property) return false;
+        property.setValue(value);
+        return true;
+    } catch (error) {
+        return false;
+    }
+}
+
+/**
+ * Builds the look rig above the selected layer, or at the top of the comp.
+ *
+ * An adjustment layer rather than effects on the footage: the look belongs to
+ * the shot, not to one piece of media, and an adjustment layer can be soloed,
+ * disabled, trimmed and re-ordered without touching what is underneath.
+ */
+function seedBuildLookRig(name, lutPath, settings) {
+    try {
+        var comp = seedActiveComp();
+        if (!comp) return seedFail("no active composition");
+
+        var config = settings || {};
+        var applied = [];
+        var skipped = [];
+
+        app.beginUndoGroup("SEED: build look rig");
+
+        var layer = comp.layers.addSolid(
+            [0, 0, 0], "SEED Look - " + (name || "look"),
+            comp.width, comp.height, 1, comp.duration
+        );
+        layer.adjustmentLayer = true;
+        layer.moveToBeginning();
+        layer.label = 11;
+
+        /*
+         * Order matters here exactly as it does in the engine. Distortion and
+         * aberration are camera geometry and come first; the LUT is the
+         * developed image; grain is last, because grain applied before a grade
+         * gets graded and then reads as digital noise.
+         */
+
+        if (Number(config.distortion) !== 0) {
+            var optics = seedAddEffect(layer, ["ADBE Optics Compensation"]);
+            if (optics) {
+                // Positive field of view bulges; the sign follows k1.
+                seedSetParam(optics, "Field Of View", Math.abs(Number(config.distortion)) * 1000);
+                seedSetParam(optics, "Reverse Lens Distortion", Number(config.distortion) > 0);
+                applied.push("distortion (Optics Compensation)");
+            } else {
+                skipped.push("distortion");
+            }
+        }
+
+        var lut = seedAddEffect(layer, [
+            "ADBE Apply Color LUT2",
+            "ADBE Apply Color LUT",
+            "ADBE Lumetri"
+        ]);
+        if (lut) {
+            applied.push("the look (Apply Color LUT — choose the .cube once)");
+        } else {
+            skipped.push("the LUT");
+        }
+
+        if (Number(config.halation) > 0) {
+            var glow = seedAddEffect(layer, ["ADBE Glo2", "ADBE Glow"]);
+            if (glow) {
+                seedSetParam(glow, "Glow Threshold", 80);
+                seedSetParam(glow, "Glow Radius", Number(config.halationRadius) || 20);
+                seedSetParam(glow, "Glow Intensity", Number(config.halation));
+                applied.push("halation (Glow)");
+            } else {
+                skipped.push("halation");
+            }
+        }
+
+        if (Number(config.vignette) > 0) {
+            var vignette = seedAddEffect(layer, ["CC Vignette"]);
+            if (vignette) {
+                seedSetParam(vignette, "Amount", Number(config.vignette) * 100);
+                applied.push("vignette (CC Vignette)");
+            } else {
+                skipped.push("vignette");
+            }
+        }
+
+        // Grain last, always.
+        if (Number(config.grain) > 0) {
+            var grain = seedAddEffect(layer, ["ADBE Add Grain2", "ADBE Add Grain"]);
+            if (grain) {
+                seedSetParam(grain, "Intensity", Number(config.grain));
+                seedSetParam(grain, "Size", Number(config.grainSize) || 1);
+                applied.push("grain (Add Grain)");
+            } else {
+                skipped.push("grain");
+            }
+        }
+
+        app.endUndoGroup();
+
+        return seedOk({
+            name: layer.name,
+            compName: comp.name,
+            layerIndex: layer.index,
+            lutPath: lutPath || null,
+            applied: applied,
+            skipped: skipped
+        });
+    } catch (error) {
+        try { app.endUndoGroup(); } catch (ignored) {}
+        return seedFail(error);
+    }
+}
+
 // -------------------------------------------------------------- placeholders
 
 /*
@@ -1524,3 +1686,4 @@ var seedAeft_fillPlaceholder = seedFillPlaceholder;
 var seedAeft_failPlaceholder = seedFailPlaceholder;
 var seedAeft_selectedMedia = seedSelectedMedia;
 var seedAeft_adoptPlaceholder = seedAdoptPlaceholder;
+var seedAeft_buildLookRig = seedBuildLookRig;
