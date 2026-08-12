@@ -13,3 +13,7 @@ Thumbs.db
 local-assets/
 tmp/
 .seed-watchdog.log
+
+# Local reference material — look-dev plates, stills, anything gathered
+# for a shot. Yours, not the product's.
+reference/
