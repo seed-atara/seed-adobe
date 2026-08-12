@@ -494,3 +494,44 @@ Somewhere Ark's servers can fetch from over https. Any of:
 
 The lifetime only has to cover the request: Ark fetches the media when the task
 is submitted, not while it renders.
+
+### The asset-id route does not avoid it either — VERIFIED (2026-08-13)
+
+Registering the clip as an Ark asset and referencing it by id is the obvious
+way around a hosting requirement, and it does not work: `CreateAsset` fetches
+from a URL too, so it needs the same thing the reference needed.
+
+Probing the OpenAPI for an upload flow — Volcengine's other media services use
+apply/upload/commit — shows the asset library has three operations and no way
+to hand it bytes at all. `scripts/probe-ark-actions.ts` reproduces this; the
+API distinguishes the two cases clearly, which is what makes the probe
+conclusive:
+
+```
+CreateAsset      MissingParameter.GroupId          <- exists
+ListAssets       MissingParameter.Filter           <- exists
+GetAsset         MissingParameter.Id               <- exists
+ApplyUploadInfo  InvalidActionOrVersion: Could not find operation
+CommitUpload     InvalidActionOrVersion: Could not find operation
+GetUploadAuth    InvalidActionOrVersion: Could not find operation
+ApplyUpload / UploadAsset / CreateUploadTask /
+GetAssetUploadURL / CreateAssetUpload   — all absent
+```
+
+### Seedance's own URLs work, but not for long
+
+Every generated clip is served from Volcengine object storage and SEED already
+keeps that URL in the generation's raw response:
+
+```
+https://ark-acg-ap-southeast-1.tos-ap-southeast-1.volces.com/dreamina-seedance-2-5/...
+```
+
+So a clip generated in this session can be referenced without hosting anything.
+A clip from yesterday cannot: the same URL answers **HTTP 403** roughly a day
+later. `scripts/probe-video-ref-url.ts` checks the newest generation's URL and
+reports which case it is in.
+
+That makes it a genuine route with a stated limit rather than a solution:
+worth taking when the URL is alive, because it costs nothing, and worth
+falling back from when it is not.
