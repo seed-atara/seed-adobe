@@ -26,6 +26,7 @@
  */
 #include "AEConfig.h"
 #include "AE_EffectVers.h"
+#include "SeedFilmLookVersion.h"
 
 #ifndef AE_OS_WIN
 	#include "AE_General.r"
@@ -61,7 +62,7 @@ resource 'PiPL' (16000) {
 			PF_PLUG_IN_SUBVERS
 		},
 		AE_Effect_Version {
-			524289 /* 0.1 */
+			SEED_VERSION_PACKED
 		},
 		AE_Effect_Info_Flags {
 			0

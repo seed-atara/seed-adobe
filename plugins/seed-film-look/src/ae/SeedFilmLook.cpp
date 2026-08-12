@@ -4,6 +4,18 @@
 
 #include "../core/look.h"
 
+/*
+ * The resource and this file must announce the same version or After Effects
+ * refuses to load the effect with error 8001. Both derive from
+ * SeedFilmLookVersion.h; this proves the hand-packed value the resource has to
+ * use is identical to what PF_VERSION produces.
+ */
+static_assert(SEED_VERSION_PACKED ==
+                  PF_VERSION(SEED_MAJOR_VERSION, SEED_MINOR_VERSION,
+                             SEED_BUG_VERSION, SEED_STAGE_VERSION,
+                             SEED_BUILD_VERSION),
+              "PiPL version and code version must match, or AE reports 8001");
+
 namespace {
 
 // ---------------------------------------------------------------- presets

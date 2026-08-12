@@ -32,11 +32,13 @@
 #include <Windows.h>
 #endif
 
-#define MAJOR_VERSION 0
-#define MINOR_VERSION 1
-#define BUG_VERSION 0
-#define STAGE_VERSION PF_Stage_DEVELOP
-#define BUILD_VERSION 1
+#include "SeedFilmLookVersion.h"
+
+#define MAJOR_VERSION SEED_MAJOR_VERSION
+#define MINOR_VERSION SEED_MINOR_VERSION
+#define BUG_VERSION SEED_BUG_VERSION
+#define STAGE_VERSION SEED_STAGE_VERSION
+#define BUILD_VERSION SEED_BUILD_VERSION
 
 // Parameter ids. The order here is the order in the Effect Controls panel, and
 // it follows the order an artist reaches for them rather than the order the
