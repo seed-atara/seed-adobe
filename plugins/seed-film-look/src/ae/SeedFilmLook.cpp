@@ -328,7 +328,33 @@ seed::Config ConfigFromParams(PF_ParamDef* params[], Preset& preset) {
   config.ca_lateral = float(params[SEED_CA]->u.fs_d.value) * intensity;
   config.vignette = float(params[SEED_VIGNETTE]->u.fs_d.value) * intensity;
   config.vignette_mech = config.vignette / 3.0f;
-  config.halation_scale = float(params[SEED_HALATION]->u.fs_d.value) * intensity;
+  /*
+   * Halation is an absolute strength here, not a multiple of the stock's own.
+   *
+   * The engine computes `stock.halation * halation_scale`, because halation is
+   * a property of an emulsion that the artist then dials. That is right for a
+   * recipe and wrong for a control: kodak_5217 — the show stock, and the
+   * default preset — has halation 0, so the slider was multiplied by nothing
+   * and did exactly nothing, on the one preset most people will use.
+   *
+   * So the slider states the strength it wants and this expresses it through
+   * the engine's model. Worth knowing: it means the plugin's Show match can
+   * halate where the bake's cannot, because the bake follows the recipe.
+   */
+  const float halation = float(params[SEED_HALATION]->u.fs_d.value) * intensity;
+  if (preset.stock.halation > 0.0f) {
+    config.halation_scale = halation / preset.stock.halation;
+  } else {
+    preset.stock.halation = 1.0f;
+    config.halation_scale = halation;
+  }
+
+  // Clean optics means clean: no stock character and no artefacts, whatever
+  // the sliders happen to be left at.
+  if (params[SEED_PRESET]->u.pd.value == PRESET_CLEAN_OPTICS) {
+    config.halation_scale = 0.0f;
+  }
+
   config.glare_intensity = preset.look.glare_intensity * intensity;
 
   config.grain_scale = float(params[SEED_GRAIN_AMOUNT]->u.fs_d.value) * intensity;

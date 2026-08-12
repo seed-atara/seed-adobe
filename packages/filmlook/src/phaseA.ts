@@ -205,7 +205,8 @@ function applyStreak(image: FloatImage, config: FilmLookConfig): FloatImage {
 /** Bloom — achromatic scatter around bright areas. INTERPRETED threshold. */
 function applyBloom(image: FloatImage, config: FilmLookConfig): FloatImage {
   if (config.bloom <= 0) return image;
-  const highlights = thresholdCopy(image, 1);
+  // Thresholded where highlights begin; see the note on halation below.
+  const highlights = thresholdCopy(image, config.glare_threshold);
   const scattered = gaussianBlur(highlights, radiusPixels(image, config.bloom_radius));
   addScaled(image, scattered, config.bloom);
   return image;
@@ -236,7 +237,20 @@ function applyHalation(
   const strength = stock.halation * config.halation_scale;
   if (strength <= 0) return image;
 
-  const highlights = thresholdCopy(image, 1);
+  /*
+   * Thresholded where highlights begin, not at display white.
+   *
+   * This used to threshold at 1.0 in linear. A maximum-white sRGB pixel is
+   * exactly 1.0 there, and the show preset's exposure of 0.97 pulls it below —
+   * so nothing ever exceeded the threshold and halation never fired on any
+   * ordinary footage. It only worked on input that was already above display
+   * white, which an After Effects layer usually is not.
+   *
+   * The specification says to threshold the bright areas without saying where,
+   * so `glare_threshold` is used: it is already the config's answer to the
+   * question "where do highlights start".
+   */
+  const highlights = thresholdCopy(image, config.glare_threshold);
   const halo = gaussianBlur(highlights, radiusPixels(image, config.halation_radius));
 
   const [tr, tg, tb] = config.halation_tint;

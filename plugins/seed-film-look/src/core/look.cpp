@@ -288,7 +288,12 @@ void ApplyPhaseA(Image& image, const Config& config, const Stock& stock) {
 
   const float halation = stock.halation * config.halation_scale;
   if (halation > 0.0f) {
-    const Image highlights = ThresholdCopy(image, 1.0f);
+    // Thresholded where highlights begin, not at display white. Thresholding
+    // at 1.0 meant halation never fired on ordinary footage: a maximum-white
+    // sRGB pixel is exactly 1.0 in linear and the show exposure of 0.97 pulls
+    // it below. The specification says to threshold the bright areas without
+    // saying where, so this uses the config's own answer to that question.
+    const Image highlights = ThresholdCopy(image, config.glare_threshold);
     const Image halo = GaussianBlur(
         highlights,
         RadiusPixels(image.width, image.height, config.halation_radius));

@@ -14,6 +14,7 @@ reference frame, which we do not have.
 
 | Stage | Note |
 | --- | --- |
+| Halation threshold | **Where highlights begin (`glare_threshold`), not display white.** Thresholding at 1.0 linear looks obviously right and is wrong for anything a compositor will feed it: a maximum-white sRGB pixel is exactly 1.0 in linear, and the show exposure of 0.97 pulls it below, so halation never fired on ordinary footage at all. The specification says to threshold the bright areas without saying where. |
 | Whitepoint tonemap | `x = wp_gain·c`, `out = x(1+x/wp²)/(1+x)`, `out^(1/wp_gamma)`, lerped by `wp_tonemap`. Verified to map `wp/wp_gain` to exactly 1.0. The signature stage; check here first if a comparison fails. |
 | Distortion + lateral CA | One combined gather. `scale(r) = 1 + k1·r² + k2·r⁴`, R and B at `scale(r)·(1 ± ca·r)`, G at `scale(r)`. Never two passes. |
 | Halation | Threshold, blur at `halation_radius`, tint by `halation_tint`, add back scaled by the stock's `halation` × `halation_scale`; `halation_color` leaks green. |
@@ -34,7 +35,7 @@ marked `INTERPRETED` in the source.
 | Optical vignette | cos⁴ via the identity `1/(1+r²)²` with `r` normalised to the half-diagonal, plus a smooth mechanical term biting only outside `r = 0.66`. Applied in linear as illumination falloff, never as a dark ellipse in display space. |
 | Diffusion | A broad blur screened back over the original — a pro-mist lays a low-contrast copy over the picture rather than softening it. |
 | Anamorphic streak | Highlights, blurred horizontally only, added back. Horizontal-only is specified; the threshold and radius are not. |
-| Bloom | Threshold at 1.0, blur, add. Achromatic. |
+| Bloom | Threshold at `glare_threshold`, blur, add. Achromatic. |
 | Veiling glare | Threshold at `glare_threshold`, wide blur, add. |
 | Auto levels | 0.1st and 99.9th percentiles per channel, so a few hot pixels cannot drag the match. Default 0, and the spec warns it is easy to overdo. |
 | Split tone | Teal shadows and warm highlights weighted by luminance. Coefficients are a judgement. |
