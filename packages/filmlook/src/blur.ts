@@ -16,7 +16,23 @@ import { cloneImage, createImage } from "./image.js";
  * of a given sigma with n boxes.
  */
 export function gaussianBlur(image: FloatImage, sigma: number): FloatImage {
-  if (!(sigma > 0.3)) return cloneImage(image);
+  if (!(sigma > 0.01)) return cloneImage(image);
+
+  /*
+   * Sub-pixel blurs get a real kernel rather than nothing.
+   *
+   * Iterated boxes cannot go below one pixel — the radii are integers — so the
+   * cheap thing to do is bail, and this used to. That left grain's Size
+   * control dead across the bottom of its range: at a 1920 frame with grain
+   * referred to 4096, every size below about 0.64 produced a sigma under the
+   * cutoff and clumping simply did not happen. The control looked broken
+   * because it was, and only at some resolutions, which is worse.
+   *
+   * A three-tap kernel with weights [s²/2, 1-s², s²/2] is exactly right for
+   * variance s² and is valid to s = 1, which is where the box path becomes
+   * usable.
+   */
+  if (sigma <= 1) return threeTap(image, sigma);
 
   const widths = boxSizesForGaussian(sigma, 3);
   let current = cloneImage(image);
@@ -27,9 +43,46 @@ export function gaussianBlur(image: FloatImage, sigma: number): FloatImage {
   return current;
 }
 
+/**
+ * Separable three-tap Gaussian, for sigma up to one pixel.
+ *
+ * Weights [s²/2, 1-s², s²/2] carry variance s² exactly, which is what makes
+ * this the right kernel rather than an approximation of one.
+ */
+function threeTap(image: FloatImage, sigma: number): FloatImage {
+  const side = (sigma * sigma) / 2;
+  const centre = 1 - 2 * side;
+  const { width, height } = image;
+
+  const pass = (src: FloatImage, horizontal: boolean): FloatImage => {
+    const out = createImage(width, height);
+    for (let y = 0; y < height; y++) {
+      for (let x = 0; x < width; x++) {
+        const back = horizontal
+          ? (y * width + Math.max(0, x - 1)) * 4
+          : (Math.max(0, y - 1) * width + x) * 4;
+        const here = (y * width + x) * 4;
+        const forward = horizontal
+          ? (y * width + Math.min(width - 1, x + 1)) * 4
+          : (Math.min(height - 1, y + 1) * width + x) * 4;
+        for (let c = 0; c < 4; c++) {
+          out.data[here + c] =
+            src.data[back + c]! * side +
+            src.data[here + c]! * centre +
+            src.data[forward + c]! * side;
+        }
+      }
+    }
+    return out;
+  };
+
+  return pass(pass(image, true), false);
+}
+
 /** Horizontal-only blur, for the anamorphic streak. */
 export function horizontalBlur(image: FloatImage, sigma: number): FloatImage {
-  if (!(sigma > 0.3)) return cloneImage(image);
+  if (!(sigma > 0.01)) return cloneImage(image);
+  if (sigma <= 1) return threeTap(image, sigma);
   const widths = boxSizesForGaussian(sigma, 3);
   let current = cloneImage(image);
   for (const width of widths) {

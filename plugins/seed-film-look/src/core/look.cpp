@@ -140,6 +140,38 @@ std::vector<float> Clump(const std::vector<float>& noise, int width, int height,
   return out;
 }
 
+// Separable three-tap Gaussian, for sigma up to one pixel.
+//
+// Weights [s^2/2, 1-s^2, s^2/2] carry variance s^2 exactly. Iterated boxes
+// cannot go below a pixel because their radii are integers, and bailing out
+// instead left grain's Size control dead across the bottom of its range at any
+// frame smaller than the grain reference.
+Image ThreeTap(const Image& src, float sigma) {
+  const float side = (sigma * sigma) * 0.5f;
+  const float centre = 1.0f - 2.0f * side;
+
+  auto pass = [&](const Image& in, bool horizontal) {
+    Image out(in.width, in.height);
+    for (int y = 0; y < in.height; ++y) {
+      for (int x = 0; x < in.width; ++x) {
+        const float* back = horizontal ? in.At(std::max(0, x - 1), y)
+                                       : in.At(x, std::max(0, y - 1));
+        const float* here = in.At(x, y);
+        const float* forward = horizontal
+                                   ? in.At(std::min(in.width - 1, x + 1), y)
+                                   : in.At(x, std::min(in.height - 1, y + 1));
+        float* o = out.At(x, y);
+        for (int c = 0; c < 4; ++c) {
+          o[c] = back[c] * side + here[c] * centre + forward[c] * side;
+        }
+      }
+    }
+    return out;
+  };
+
+  return pass(pass(src, true), false);
+}
+
 }  // namespace
 
 float SampleChannelBilinear(const Image& img, float x, float y, int channel) {
@@ -159,7 +191,8 @@ float SampleChannelBilinear(const Image& img, float x, float y, int channel) {
 }
 
 Image GaussianBlur(const Image& src, float sigma) {
-  if (!(sigma > 0.3f)) return src;
+  if (!(sigma > 0.01f)) return src;
+  if (sigma <= 1.0f) return ThreeTap(src, sigma);
   Image current = src;
   for (int width : BoxSizes(sigma, 3)) {
     current = BoxBlurH(current, (width - 1) / 2);
@@ -338,7 +371,7 @@ void ApplyGrain(Image& image, const Config& config, const Stock& stock,
 
     std::vector<float> mono = monoRaw;
     std::vector<float> own = ownRaw;
-    if (sigma > 0.3f) {
+    if (sigma > 0.01f) {
       mono = Clump(monoRaw, image.width, image.height, sigma);
       own = Clump(ownRaw, image.width, image.height, sigma);
     }

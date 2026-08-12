@@ -98,7 +98,7 @@ function channelNoise(
   const mono = whiteNoise(width, height, seed, frame, 0);
   const own = channel === 0 ? mono : whiteNoise(width, height, seed, frame, channel);
 
-  if (sigma > 0.3) {
+  if (sigma > 0.01) {
     return {
       mono: clump(mono, width, height, sigma),
       own: channel === 0 ? clump(mono, width, height, sigma) : clump(own, width, height, sigma),
