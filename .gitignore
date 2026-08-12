@@ -17,3 +17,6 @@ tmp/
 # Local reference material — look-dev plates, stills, anything gathered
 # for a shot. Yours, not the product's.
 reference/
+
+# Plugin build output
+plugins/*/build/

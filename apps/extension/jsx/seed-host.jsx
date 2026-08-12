@@ -1111,36 +1111,27 @@ function seedAddEffect(layer, candidates) {
     return null;
 }
 
-/** Sets an effect parameter by name, quietly skipping one that is not there. */
-function seedSetParam(effect, name, value) {
-    if (!effect) return false;
-    try {
-        var property = effect.property(name);
-        if (!property) return false;
-        property.setValue(value);
-        return true;
-    } catch (error) {
-        return false;
-    }
-}
-
 /**
- * Builds the look rig above the selected layer, or at the top of the comp.
+ * Puts SEED's own LUT on an adjustment layer over the comp.
  *
- * An adjustment layer rather than effects on the footage: the look belongs to
- * the shot, not to one piece of media, and an adjustment layer can be soloed,
- * disabled, trimmed and re-ordered without touching what is underneath.
+ * Only the LUT. An earlier version of this also added After Effects' stock
+ * Glow, CC Vignette and Add Grain with numbers scaled off the config, and
+ * called that the look — it was not. Those effects are not this chain's
+ * halation, vignette or grain; they are different maths wearing the same
+ * words, and dressing them up as SEED's would have made the tool lie about
+ * what it was doing.
+ *
+ * So this applies the one thing that genuinely is ours and genuinely is exact:
+ * the tonal half, as a cube built from the same engine the bake uses. The
+ * spatial half belongs in a real SEED plugin, and until that exists the bake
+ * is where to get it.
  */
 function seedBuildLookRig(name, lutPath, settings) {
     try {
         var comp = seedActiveComp();
         if (!comp) return seedFail("no active composition");
 
-        var config = settings || {};
-        var applied = [];
-        var skipped = [];
-
-        app.beginUndoGroup("SEED: build look rig");
+        app.beginUndoGroup("SEED: add look");
 
         var layer = comp.layers.addSolid(
             [0, 0, 0], "SEED Look - " + (name || "look"),
@@ -1150,69 +1141,10 @@ function seedBuildLookRig(name, lutPath, settings) {
         layer.moveToBeginning();
         layer.label = 11;
 
-        /*
-         * Order matters here exactly as it does in the engine. Distortion and
-         * aberration are camera geometry and come first; the LUT is the
-         * developed image; grain is last, because grain applied before a grade
-         * gets graded and then reads as digital noise.
-         */
-
-        if (Number(config.distortion) !== 0) {
-            var optics = seedAddEffect(layer, ["ADBE Optics Compensation"]);
-            if (optics) {
-                // Positive field of view bulges; the sign follows k1.
-                seedSetParam(optics, "Field Of View", Math.abs(Number(config.distortion)) * 1000);
-                seedSetParam(optics, "Reverse Lens Distortion", Number(config.distortion) > 0);
-                applied.push("distortion (Optics Compensation)");
-            } else {
-                skipped.push("distortion");
-            }
-        }
-
         var lut = seedAddEffect(layer, [
             "ADBE Apply Color LUT2",
-            "ADBE Apply Color LUT",
-            "ADBE Lumetri"
+            "ADBE Apply Color LUT"
         ]);
-        if (lut) {
-            applied.push("the look (Apply Color LUT — choose the .cube once)");
-        } else {
-            skipped.push("the LUT");
-        }
-
-        if (Number(config.halation) > 0) {
-            var glow = seedAddEffect(layer, ["ADBE Glo2", "ADBE Glow"]);
-            if (glow) {
-                seedSetParam(glow, "Glow Threshold", 80);
-                seedSetParam(glow, "Glow Radius", Number(config.halationRadius) || 20);
-                seedSetParam(glow, "Glow Intensity", Number(config.halation));
-                applied.push("halation (Glow)");
-            } else {
-                skipped.push("halation");
-            }
-        }
-
-        if (Number(config.vignette) > 0) {
-            var vignette = seedAddEffect(layer, ["CC Vignette"]);
-            if (vignette) {
-                seedSetParam(vignette, "Amount", Number(config.vignette) * 100);
-                applied.push("vignette (CC Vignette)");
-            } else {
-                skipped.push("vignette");
-            }
-        }
-
-        // Grain last, always.
-        if (Number(config.grain) > 0) {
-            var grain = seedAddEffect(layer, ["ADBE Add Grain2", "ADBE Add Grain"]);
-            if (grain) {
-                seedSetParam(grain, "Intensity", Number(config.grain));
-                seedSetParam(grain, "Size", Number(config.grainSize) || 1);
-                applied.push("grain (Add Grain)");
-            } else {
-                skipped.push("grain");
-            }
-        }
 
         app.endUndoGroup();
 
@@ -1221,8 +1153,8 @@ function seedBuildLookRig(name, lutPath, settings) {
             compName: comp.name,
             layerIndex: layer.index,
             lutPath: lutPath || null,
-            applied: applied,
-            skipped: skipped
+            applied: lut ? ["the look (Apply Color LUT)"] : [],
+            skipped: lut ? [] : ["Apply Color LUT — this build does not have it"]
         });
     } catch (error) {
         try { app.endUndoGroup(); } catch (ignored) {}

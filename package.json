@@ -21,7 +21,9 @@
     "install:extension": "node scripts/install-extension.mjs",
     "uninstall:extension": "node scripts/install-extension.mjs --uninstall",
     "token": "node scripts/token.mjs",
-    "watch:seedream": "node scripts/watch-seedream.mjs"
+    "watch:seedream": "node scripts/watch-seedream.mjs",
+    "plugin:vectors": "tsx scripts/filmlook-vectors.ts",
+    "plugin:test": "node scripts/plugin-test.mjs"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",
