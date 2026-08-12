@@ -49,7 +49,86 @@ screenshot, or a `.aep` file.** Nothing you type is echoed to the terminal or
 sent anywhere. Re-run it any time to change a key; see `.env.example` for the
 full set of settings and what each one does.
 
-### Allow the unsigned extension
+## API keys
+
+Keys live in exactly one place: **`.env` in the project root.** The service
+reads them at startup and holds them; the panel never sees them, and neither
+does the Adobe project file. `.env` is git-ignored, and nothing else — not the
+database, not the generation metadata, not the logs — is allowed to contain a
+key.
+
+Run `npm run setup` and it asks for each of these in turn. Editing `.env` by
+hand does the same job if you prefer; `.env.example` documents every setting.
+
+| Variable | What it unlocks | Where it comes from | Needed? |
+| --- | --- | --- | --- |
+| `ARK_API_KEY` | All image and video generation | Ark console → **API Keys** | **Yes.** Without it no providers are registered and the panel has nothing to generate with |
+| `SEED_ARK_AK` + `SEED_ARK_SK` | The asset-library reference route, and model-id discovery | Account console → **Access Keys** | Optional but recommended |
+| `ANTHROPIC_API_KEY` | The **Direct** button — the direction agent that writes a prompt from a described shot | `console.anthropic.com` → API keys | Optional; the button is hidden without it |
+
+### The two Ark credentials are not alternatives
+
+This trips everyone up once. Ark has two separate auth systems and they are
+different credentials from different console pages:
+
+- **`ARK_API_KEY`** is a single string, sent as `Authorization: Bearer …`. It
+  authenticates *inference* — the actual generating.
+- **`SEED_ARK_AK` / `SEED_ARK_SK`** are an access-key pair used to HMAC-sign
+  asset-library calls. They authenticate *registering a reference image* so it
+  can be passed as `asset://…` rather than inlined.
+
+An AK/SK pair cannot generate an image, and an API key cannot sign an
+asset-library call. Full detail in `docs/research/MODEL_API_NOTES.md`.
+
+Without AK/SK, references are sent inline, which works — but the asset route is
+the sanctioned one when references contain recognisable real people, and the
+inline path is intercepted for those. Set `ARK_REFERENCE_POLICY=asset` to fail
+loudly rather than quietly fall back.
+
+### Getting an Ark key
+
+Ark reveals an API key **once, at creation**. It cannot be read back later — the
+API returns existing keys masked — so if it was not captured at the time, mint a
+new one rather than hunting for the old.
+
+Pick the base URL that matches your account, since the CN and global routes are
+separate deployments with separate keys:
+
+```
+ARK_BASE_URL=https://ark.ap-southeast.bytepluses.com/api/v3   # BytePlus, global
+ARK_BASE_URL=https://ark.cn-beijing.volces.com/api/v3         # Volcengine, CN
+```
+
+### Model ids
+
+Model ids are per-account, and the console shows a friendly display name rather
+than the id the API wants. Once the keys are in `.env`, list what your account
+actually has:
+
+```bash
+npx tsx --env-file=.env scripts/ark-models.ts
+npx tsx --env-file=.env scripts/ark-models.ts seedance
+```
+
+Put the results in `SEEDREAM_MODEL_ID` and `SEEDANCE_MODEL_ID` (the latter takes
+a comma-separated list — each becomes its own entry in the panel, because 2.0
+and 2.5 accept different things). Mind the per-model minimum output area noted
+in `.env.example`: the 3.7MP Seedream models reject `1024x1024` outright.
+
+### Session token
+
+`SEED_AE_SESSION_TOKEN` is not a provider credential — it is a local shared
+secret between the panel and the service, generated for you by `npm run setup`.
+`npm run token` prints it and copies it to the clipboard for pasting into the
+panel. Left unset, the service mints a fresh one per process and prints it at
+startup.
+
+### If a key leaks
+
+Rotate it in the provider console. That is cheaper than establishing whether
+anyone saw it. Since `.env` is the only copy, there is nothing else to clean up.
+
+## Allow the unsigned extension
 
 CEP refuses to load unsigned extensions unless `PlayerDebugMode` is set. The
 installer checks and tells you if it is missing — it deliberately does not set
@@ -157,12 +236,12 @@ and nothing else depends on ExtendScript globals.
 
 ## Security
 
-- Credentials live in `.env` only. Never in SQLite, logs, generation metadata,
-  Adobe projects, or git.
+Where the keys go and how to rotate them is under [API keys](#api-keys). The
+shape that keeps them there:
+
 - The panel never talks to a model provider directly. It calls the local
-  service, which holds the keys.
+  service, which is the only process holding a key.
+- Credentials live in `.env` only — never in SQLite, logs, generation metadata,
+  Adobe projects, or git.
 - The service binds to `127.0.0.1` and requires a session token.
 - Authorization headers are redacted in logs.
-
-If a key is ever pasted somewhere it should not be, rotate it. That is cheaper
-than being sure it was not seen.
