@@ -65,11 +65,19 @@ const same =
 console.log(`content-type: ${response.headers.get("content-type")}`);
 console.log(`bytes back:   ${returned.length} — ${same ? "identical" : "DIFFERENT"}`);
 
-// An unsigned URL must not work, or the bucket is public and the trust
-// boundary is not what the design claims.
+/*
+ * An unsigned URL must not work, or the bucket is public and the trust boundary
+ * is not what the design claims. Any refusal will do — R2 answers 400 to a
+ * request carrying no credentials at all, where S3 would say 403.
+ */
 const naked = `${endpoint.replace(/\/+$/, "")}${publisher.objectPath(key)}`;
 const anonymous = await fetch(naked);
-console.log(`\nGET without a signature: HTTP ${anonymous.status} (expected 401/403)`);
+console.log(
+  `\nGET without a signature: HTTP ${anonymous.status} — ` +
+    (anonymous.ok
+      ? "SERVED. The bucket is public; it should not be."
+      : "refused, which is what we want"),
+);
 
 await publisher.remove(key);
 console.log(`\ndeleted ${key}`);
