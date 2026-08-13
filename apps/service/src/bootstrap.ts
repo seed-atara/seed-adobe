@@ -101,6 +101,22 @@ export async function bootstrap({
     // they were generated from.
     let posters = 0;
     for (const video of assets.listMissingThumbnails(200, "video")) {
+      /*
+       * A captured clip carries the still that was rendered with it. Prefer it
+       * over anything borrowed: it is this clip's own first frame, and the
+       * only reason it would be missing a thumbnail is that the file had not
+       * finished being written when it was registered.
+       */
+      const recorded =
+        video.source.type === "after-effects" ? video.source.posterUri : undefined;
+      if (recorded) {
+        const written = await ingestor.thumbnailFromPoster(video.id, recorded);
+        if (written) {
+          posters += 1;
+          continue;
+        }
+      }
+
       const generation = video.generationId
         ? generations.getById(video.generationId)
         : undefined;

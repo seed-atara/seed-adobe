@@ -28,6 +28,14 @@ export const AeAssetSourceSchema = z.object({
   context: AeContextSchema,
   captureFormat: z.enum(["png", "exr", "jpg", "mov", "mp4", "other"]).optional(),
   includesAlpha: z.boolean().optional(),
+  /**
+   * The still rendered alongside a captured clip, as a storage URI.
+   *
+   * Recorded rather than inferred from the filename: nothing here can decode a
+   * video, so this is the only honest first frame a clip has, and a thumbnail
+   * that failed to be written at registration can be recovered from it later.
+   */
+  posterUri: z.string().optional(),
 });
 
 /** Media the user pointed at on disk. */

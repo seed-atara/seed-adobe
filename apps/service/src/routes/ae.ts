@@ -69,8 +69,11 @@ function describePartialRender(bytes: Buffer): string | undefined {
  * growing. This waits for the size to settle, then reads, retrying while the
  * writer keeps its lock.
  */
-async function readWhenSettled(filePath: string): Promise<Buffer> {
-  const attempts = 60;
+async function readWhenSettled(
+  filePath: string,
+  options: { attempts?: number } = {},
+): Promise<Buffer> {
+  const attempts = options.attempts ?? 60;
   const delayMs = 250;
   let previousSize = -1;
 
@@ -281,6 +284,13 @@ export function registerClipRoute(deps: AppDeps) {
     // agree unless the render was cut short, so the file wins.
     const durationSeconds = probed?.durationSeconds ?? request.durationSeconds;
 
+    // Recorded on the asset, so a poster that could not be turned into a
+    // thumbnail now is still findable later. It is the only first frame a clip
+    // has here — nothing in this process can decode one out of the video.
+    const posterUri = request.posterPath
+      ? toStorageUri(deps.workspace, request.posterPath)
+      : undefined;
+
     const draft: AssetDraft = {
       kind: "video",
       filename: path.basename(absolutePath),
@@ -296,21 +306,31 @@ export function registerClipRoute(deps: AppDeps) {
         context: request.context,
         captureFormat: "mp4",
         includesAlpha: false,
+        ...(posterUri ? { posterUri } : {}),
       },
     };
 
     const asset = deps.assets.create(draft);
 
     let registered = asset;
-    if (request.posterPath) {
-      const posterUri = toStorageUri(deps.workspace, request.posterPath);
-      const poster = await readFile(resolveStorageUri(deps.workspace, posterUri)).catch(
-        () => undefined,
-      );
+    if (posterUri) {
+      // Settle rather than read once: the host writes the poster immediately
+      // before answering, and a still being flushed is not a missing one.
+      const poster = await readWhenSettled(
+        resolveStorageUri(deps.workspace, posterUri),
+        { attempts: 12 },
+      ).catch(() => undefined);
       const thumbnailUri = poster
         ? await deps.ingestor.writeThumbnail(poster, asset.id)
         : undefined;
       if (thumbnailUri) registered = deps.assets.setThumbnail(asset.id, thumbnailUri);
+      else {
+        deps.logger.warn("ae.clip.poster_unusable", {
+          assetId: asset.id,
+          posterUri,
+          reason: poster ? "no thumbnail could be written" : "the file never settled",
+        });
+      }
     }
 
     deps.logger.info("ae.clip.captured", {

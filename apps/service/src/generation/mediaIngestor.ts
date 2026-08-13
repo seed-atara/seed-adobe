@@ -154,6 +154,26 @@ export class MediaIngestor {
   }
 
   /**
+   * Gives a clip the thumbnail of the still captured alongside it.
+   *
+   * Unlike a borrowed poster this one genuinely is the clip's first frame —
+   * After Effects rendered both from the same comp at the same time — so it is
+   * tried first. Missing or unreadable is not an error: the poster may have
+   * been removed, and a clip without a thumbnail is a cosmetic loss.
+   */
+  async thumbnailFromPoster(assetId: string, posterUri: string): Promise<boolean> {
+    try {
+      const bytes = await readFile(resolveStorageUri(this.workspace, posterUri));
+      const uri = await this.writeThumbnail(bytes, assetId);
+      if (!uri) return false;
+      this.assets.setThumbnail(assetId, uri);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  /**
    * Gives a video the thumbnail of the frame it was generated from.
    *
    * There is no video decoder here, so a generated clip would otherwise sit in

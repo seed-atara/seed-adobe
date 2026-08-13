@@ -87,7 +87,16 @@ export function AssetImage({
   const [url, setUrl] = useState<string | undefined>();
   const [failed, setFailed] = useState(false);
 
+  /*
+   * A clip with no poster has nothing to show, and asking for it anyway is
+   * worse than showing nothing: the request falls back to the media itself, so
+   * the panel downloads an entire video in order to put an mp4 in an <img> and
+   * render the browser's broken-image glyph. Say "video" instead.
+   */
+  const showable = asset.kind === "image" || asset.thumbnailUri !== undefined;
+
   useEffect(() => {
+    if (!showable) return;
     let cancelled = false;
     let objectUrl: string | undefined;
     setUrl(undefined);
@@ -108,8 +117,9 @@ export function AssetImage({
       cancelled = true;
       if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
-  }, [client, asset.id, asset.thumbnailUri, variant]);
+  }, [client, asset.id, asset.thumbnailUri, variant, showable]);
 
+  if (!showable) return <span className="placeholder">{asset.kind}</span>;
   if (failed) return <span className="placeholder">no preview</span>;
   if (!url) return <span className="placeholder">...</span>;
   return <img className={className} src={url} alt={asset.filename} />;

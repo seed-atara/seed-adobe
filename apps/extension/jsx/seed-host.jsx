@@ -490,10 +490,28 @@ function seedCaptureRange(outputDir, basename, startSeconds, durationSeconds) {
             if (typeof comp.saveFrameToPng === "function") {
                 var poster = seedUniqueFile(folder, safe, "_f" + stamp + "_poster", ".png");
                 comp.saveFrameToPng(start, poster);
-                var posterProbe = new File(poster.fsName);
-                if (posterProbe.exists && posterProbe.length > 0) {
-                    posterPath = posterProbe.fsName;
+                /*
+                 * Re-stat through a NEW File, and give it a moment: an
+                 * ExtendScript File caches what it knew at construction, so a
+                 * single immediate check answers a stale "no" and silently
+                 * costs the clip its poster. seedCaptureFrame learned this the
+                 * same way.
+                 */
+                var posterFsName = poster.fsName;
+                for (var wait = 0; wait < 20; wait++) {
+                    var posterProbe = new File(posterFsName);
+                    if (posterProbe.exists && posterProbe.length > 0) {
+                        posterPath = posterProbe.fsName;
+                        break;
+                    }
+                    $.sleep(50);
                 }
+                /*
+                 * Hand the path over even if it never appeared here. The
+                 * service reads it with its own settle-and-retry, and it is in
+                 * a better position to wait than a blocked host is.
+                 */
+                if (!posterPath) posterPath = posterFsName;
             }
         } catch (posterError) {
             posterPath = null;
