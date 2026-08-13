@@ -98,6 +98,56 @@ export function removeAssetRoute(deps: AppDeps) {
   };
 }
 
+const PosterSchema = z.object({
+  /** A PNG of the clip's first frame, base64, decoded by whoever can. */
+  png: z.string().min(1),
+});
+
+/**
+ * Gives a clip a poster extracted from the clip itself.
+ *
+ * Nothing in this process can decode H.264 — there is no video decoder here
+ * and adding one to write a thumbnail would be absurd. The panel, however, is
+ * Chromium: it already has a decoder, it already has the bytes, and a `<video>`
+ * seeked to its first frame and drawn into a canvas is a real extract rather
+ * than a borrowed still. So the decoding happens where the decoder is, and
+ * this route stores the result.
+ *
+ * That matters most for a reskin: the borrowed poster shows the *source* clip,
+ * which is precisely the thing the generation was asked to change.
+ */
+export function setPosterRoute(deps: AppDeps) {
+  return async ({ req, params }: RequestContext) => {
+    const asset = deps.assets.requireById(params.id as string);
+    if (asset.kind !== "video") {
+      throw new SeedError(
+        "bad_request",
+        `asset ${asset.id} is ${asset.kind}; only a clip needs a poster`,
+      );
+    }
+
+    const body = await readJsonBody(req);
+    const { png } = parseWith(PosterSchema, body);
+    const bytes = Buffer.from(png, "base64");
+
+    // Trust the bytes: a poster is only ever a PNG the panel drew.
+    if (sniffMimeType(bytes) !== "image/png") {
+      throw new SeedError("bad_request", "a poster has to be a PNG");
+    }
+
+    const thumbnailUri = await deps.ingestor.writeThumbnail(bytes, asset.id);
+    if (!thumbnailUri) {
+      throw new SeedError("storage_error", "the poster could not be written");
+    }
+
+    deps.logger.info("asset.poster_extracted", {
+      assetId: asset.id,
+      byteSize: bytes.length,
+    });
+    return json({ asset: deps.assets.setThumbnail(asset.id, thumbnailUri) });
+  };
+}
+
 const AdoptFileSchema = z.object({
   /** Any absolute path the user picked; copied in, never referenced in place. */
   path: z.string().min(1),

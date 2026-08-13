@@ -39,6 +39,7 @@ import {
   registerAssetRoute,
   placeholderRoute,
   removeAssetRoute,
+  setPosterRoute,
   workspaceRoute,
 } from "./routes/assets.js";
 import {
@@ -92,6 +93,7 @@ export function buildRouter(deps: AppDeps): Router {
     .delete("/v1/assets/:id", removeAssetRoute(deps))
     .get("/v1/assets/:id/file", getAssetFileRoute(deps))
     .get("/v1/assets/:id/path", getAssetPathRoute(deps))
+    .post("/v1/assets/:id/poster", setPosterRoute(deps))
     .get("/v1/assets/:id/lineage", lineageRoute(deps))
     .get("/v1/assets/:id/recipe", recipeRoute(deps))
     .post("/v1/look/lut", lookLutRoute(deps))

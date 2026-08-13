@@ -151,6 +151,19 @@ export class SeedClient {
     });
   }
 
+  /**
+   * Stores a poster the panel extracted from a clip.
+   *
+   * The service has no video decoder; this browser does. Sending the frame
+   * back is what turns a borrowed still into a real one.
+   */
+  setPoster(assetId: string, pngBase64: string): Promise<{ asset: Asset }> {
+    return this.request(`/v1/assets/${assetId}/poster`, {
+      method: "POST",
+      body: { png: pngBase64 },
+    });
+  }
+
   /** Registers a span of the timeline the panel rendered to an mp4. */
   registerClip(input: {
     path: string;

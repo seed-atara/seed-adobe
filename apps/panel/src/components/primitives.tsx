@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { Asset, JobStatus } from "@seed-ae/domain";
 import type { SeedClient } from "../api/client.ts";
+import { extractPoster, posterAttempted } from "../poster.ts";
 
 export function SectionLabel({ children }: { children: ReactNode }) {
   return <div className="section-label">{children}</div>;
@@ -86,14 +87,28 @@ export function AssetImage({
 }) {
   const [url, setUrl] = useState<string | undefined>();
   const [failed, setFailed] = useState(false);
+  /** A poster this panel extracted, shown before the library knows about it. */
+  const [extracted, setExtracted] = useState<string | undefined>();
 
   /*
    * A clip with no poster has nothing to show, and asking for it anyway is
    * worse than showing nothing: the request falls back to the media itself, so
    * the panel downloads an entire video in order to put an mp4 in an <img> and
-   * render the browser's broken-image glyph. Say "video" instead.
+   * render the browser's broken-image glyph. Say "video" instead — and, since
+   * this browser can decode what the service cannot, go and make one.
    */
   const showable = asset.kind === "image" || asset.thumbnailUri !== undefined;
+
+  useEffect(() => {
+    if (showable || asset.kind !== "video" || posterAttempted(asset.id)) return;
+    let cancelled = false;
+    void extractPoster(client, asset).then((dataUrl) => {
+      if (!cancelled && dataUrl) setExtracted(dataUrl);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [client, asset, showable]);
 
   useEffect(() => {
     if (!showable) return;
@@ -119,7 +134,13 @@ export function AssetImage({
     };
   }, [client, asset.id, asset.thumbnailUri, variant, showable]);
 
-  if (!showable) return <span className="placeholder">{asset.kind}</span>;
+  if (!showable) {
+    return extracted ? (
+      <img className={className} src={extracted} alt={asset.filename} />
+    ) : (
+      <span className="placeholder">{asset.kind}</span>
+    );
+  }
   if (failed) return <span className="placeholder">no preview</span>;
   if (!url) return <span className="placeholder">...</span>;
   return <img className={className} src={url} alt={asset.filename} />;

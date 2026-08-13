@@ -204,6 +204,63 @@ describe("clips as references", () => {
   });
 
   /**
+   * The decoder lives in the panel, so the poster arrives from there.
+   *
+   * Borrowing the source frame is wrong for exactly the generation this whole
+   * feature exists for: a reskin's poster showed the thing that was reskinned.
+   */
+  it("takes a poster the panel extracted, and refuses one for a still", async () => {
+    const service = await startTestService();
+    try {
+      const clipPath = path.join(service.deps.workspace.originalsDir, "range.mp4");
+      await writeFile(clipPath, fakeMp4(640, 360, 5));
+      const { asset } = await readJson(
+        await service.call("/v1/ae/register-clip", {
+          method: "POST",
+          body: JSON.stringify({ path: clipPath, context: {} }),
+        }),
+      );
+      expect(asset.thumbnailUri).toBeUndefined();
+
+      const response = await service.call(`/v1/assets/${asset.id}/poster`, {
+        method: "POST",
+        body: JSON.stringify({ png: fakePng(64, 36).toString("base64") }),
+      });
+      expect(response.status).toBe(200);
+      const { asset: withPoster } = await readJson(response);
+      expect(withPoster.thumbnailUri).toBeDefined();
+
+      // The bytes have to be a PNG the panel drew, not whatever was posted.
+      const junk = await service.call(`/v1/assets/${asset.id}/poster`, {
+        method: "POST",
+        body: JSON.stringify({ png: Buffer.from("not a png").toString("base64") }),
+      });
+      expect(junk.status).toBe(400);
+
+      // A still already is its own poster.
+      const frame = await readJson(
+        await service.call("/v1/assets", {
+          method: "POST",
+          body: JSON.stringify({
+            kind: "image",
+            filename: "frame.png",
+            mimeType: "image/png",
+            storageUri: "assets/originals/frame.png",
+            source: { type: "imported" },
+          }),
+        }),
+      );
+      const refused = await service.call(`/v1/assets/${frame.asset.id}/poster`, {
+        method: "POST",
+        body: JSON.stringify({ png: fakePng(8, 8).toString("base64") }),
+      });
+      expect(refused.status).toBe(400);
+    } finally {
+      await service.close();
+    }
+  });
+
+  /**
    * A recipe records what was asked for. Only the raw request records what was
    * sent, and the two differ exactly where debugging happens — which reference
    * form travelled, which parameters the adapter dropped. It was returned by

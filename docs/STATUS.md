@@ -142,10 +142,12 @@ into a running task, to produce what saying nothing would have produced.
 
 ## Known gaps
 
-- **Video posters are borrowed, not extracted.** There is no video decoder
-  here, so a generated clip shows the thumbnail of the frame it was generated
-  from. For image-to-video that frame *is* the first frame, so it is honest —
-  but it is not a real extract, and a text-to-video result gets no poster.
+- **Video posters are extracted by the panel.** The service has no decoder;
+  Chromium does, so a clip with no poster is drawn from its own first frame in
+  the panel and posted back to `/v1/assets/:id/poster`. Borrowing the source
+  frame survives only as the fallback, which matters because a reskin's
+  borrowed poster showed the very thing that was reskinned. Best-effort: a
+  codec the browser will not open leaves the card saying "video".
 - **Image references now travel as links, not base64.** `ARK_REFERENCE_POLICY`
   is `hosted` / `hosted-or-inline` / `inline`, verified live with the strict
   option: the stored request carries a bucket URL and no data URL anywhere.
@@ -388,8 +390,8 @@ Verified end to end at the time of writing:
    travel as links. Both work; the asset id is permanent and costs 10-30s of
    registration before the job starts, the link costs half a second and expires.
    Currently links, which is what a demo wants.
-3. Extract a real first frame for video posters, or accept the borrowed one
-   and say so in the UI. A clip adopted from disk has no poster at all.
+3. Premiere parity: it has no scripted range export, so a clip reference
+   there is the manual route only.
 4. Confirm Seedance text-to-video parameters, and whether `audio_url` content
    parts are usable. `video_url` is answered — see above.
 5. Milestone 5 continued: the direction agent plans but does not act. Tool use

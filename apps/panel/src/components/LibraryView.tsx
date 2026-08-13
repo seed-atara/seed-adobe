@@ -53,10 +53,10 @@ export function LibraryView({
             <div className="thumb">
               {asset.status === "missing" ? (
                 <span className="placeholder">media missing</span>
-              ) : asset.thumbnailUri || asset.kind === "image" ? (
-                <AssetImage client={client} asset={asset} variant="thumbnail" />
               ) : (
-                <span className="placeholder">{asset.kind}</span>
+                // Including clips with no poster: AssetImage extracts one
+                // rather than showing a grey card forever.
+                <AssetImage client={client} asset={asset} variant="thumbnail" />
               )}
               {asset.kind === "video" ? (
                 <span className="play-marker" aria-hidden="true">
