@@ -108,18 +108,37 @@ Three pieces were missing and are now built:
   application, copied into the library and registered by what its bytes
   actually are.
 - **The rules a clip brings with it.** Ark reads a request carrying a
-  `reference_video` as *video editing* and refuses to be told the length or the
-  shape: `duration` must be `-1` and no `ratio` may be sent. Both were measured
-  live — the refusal arrives twenty seconds into a running task, not at
-  submission — and both prompt classifications accept `-1`. The clip itself
-  must be 4–30s, which the panel checks before offering Generate.
+  `reference_video` as *video editing* when the prompt describes a change to
+  the clip, and then refuses to be told the length or the shape: `duration`
+  must be `-1` and `ratio` must be `adaptive` (or both simply absent, which is
+  what SEED sends). When the prompt describes a new shot, an ordinary duration
+  and ratio are accepted — measured both ways, six live runs. So the panel
+  defaults rather than dictates: silence follows the clip, asking is allowed
+  and may be refused. The clip itself must be 4–30s, which the panel checks
+  before offering Generate.
 
 A clip can never be a first frame, at either layer: the service will not give a
 video a frame role and the adapter will not put one in an `image_url` part.
 
-Not yet run inside After Effects: `seedCaptureRange` parses and the panel
-builds, but no work area has been rendered through it in a real project. The
-manual route (`Add a clip or image from disk…`) does not depend on it.
+**Verified inside After Effects (2026-08-13).** A work area rendered through
+the render queue, registered with a real poster, and generated from. Two faults
+were found by running it that no test would have caught:
+
+- The host wrote the poster and checked for it once, immediately —
+  ExtendScript's `File` caches what it knew at construction, so the check
+  answered a stale "no" and the path was dropped. It retries now, and hands the
+  path over regardless, because the service waits better than a blocked host
+  can. The poster is also recorded as `source.posterUri`, so a thumbnail that
+  fails to be written is recovered on the next start.
+- The panel asked for a thumbnail that did not exist, which falls back to the
+  media — downloading a whole mp4 to put in an `<img>` and render the browser's
+  broken-image glyph. A clip with no poster now says "video" and fetches
+  nothing.
+
+And one rule, from a real failed generation: a duration or ratio that merely
+restates the clip is now dropped rather than sent. Typing "4" next to a
+four-second clip is the obvious thing to do and Ark refuses it, twenty seconds
+into a running task, to produce what saying nothing would have produced.
 
 ## Known gaps
 
