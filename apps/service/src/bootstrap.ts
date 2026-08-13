@@ -6,6 +6,7 @@ import {
   MockImageProvider,
   MockVideoProvider,
   ProviderRegistry,
+  R2Publisher,
   SeedanceProvider,
   seedanceProviderId,
   SeedreamProvider,
@@ -54,14 +55,18 @@ export async function bootstrap({
   const ingestor = new MediaIngestor(workspace, assets, (reason, assetId) => {
     activeLogger.warn("asset.thumbnail_failed", { assetId, reason });
   });
-  const providerRegistry = registry ?? buildRegistry(config.providers, activeLogger);
+  // One publisher, shared: it remembers what it has already uploaded, and two
+  // instances would upload the same reference twice.
+  const publisher = createPublisher(config.providers, activeLogger);
+  const providerRegistry =
+    registry ?? buildRegistry(config.providers, activeLogger, publisher);
 
   const generation = new GenerationService({
     registry: providerRegistry,
     assets,
     generations,
     jobs,
-    materializer: new InputMaterializer(workspace),
+    materializer: new InputMaterializer(workspace, publisher),
     ingestor,
     logger: activeLogger,
     pollIntervalMs: config.pollIntervalMs,
@@ -141,9 +146,44 @@ export async function bootstrap({
  * credentials or its verified contract is left out rather than registered in a
  * state where the panel would offer it and then fail.
  */
+/**
+ * Builds the bucket-backed publisher, or nothing.
+ *
+ * Nothing is a working configuration: images travel inline and always have.
+ * What it costs is video references, which Ark will not accept inline, and the
+ * `asset://` route — so the absence is logged rather than left to be discovered
+ * as a failed generation.
+ */
+export function createPublisher(
+  config: ProviderConfig,
+  logger: Logger,
+): R2Publisher | undefined {
+  if (!config.r2) {
+    logger.info("publish.hosting_unconfigured", {
+      reason: "SEED_R2_* are not set; video references cannot be sent",
+    });
+    return undefined;
+  }
+  const publisher = new R2Publisher({
+    endpoint: config.r2.endpoint,
+    bucket: config.r2.bucket,
+    accessKeyId: config.r2.accessKeyId,
+    secretAccessKey: config.r2.secretAccessKey,
+    urlTtlSeconds: config.r2.urlTtlSeconds,
+    ...(config.r2.prefix ? { prefix: config.r2.prefix } : {}),
+    ...(config.r2.region ? { region: config.r2.region } : {}),
+  });
+  logger.info("publish.hosting_ready", {
+    bucket: config.r2.bucket,
+    urlTtlSeconds: config.r2.urlTtlSeconds,
+  });
+  return publisher;
+}
+
 export function buildRegistry(
   config: ProviderConfig,
   logger: Logger,
+  publisher?: R2Publisher,
 ): ProviderRegistry {
   const registry = new ProviderRegistry();
 
@@ -178,6 +218,9 @@ export function buildRegistry(
         }),
         groupName: config.arkAssetGroup,
         skipModeration: config.arkSkipModeration,
+        // CreateAsset fetches the file itself, so registration needs somewhere
+        // Ark can read from — the same bucket video references use.
+        ...(publisher ? { publisher } : {}),
       });
     }
 

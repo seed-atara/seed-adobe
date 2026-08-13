@@ -134,12 +134,14 @@ export class ArkAssetLibrary {
         throw new SeedError("provider_error", "CreateAsset returned no asset id");
       }
       assetId = created.Id;
+      // Ark fetches the file while the asset preprocesses, not at CreateAsset,
+      // so the link has to outlive the call that used it.
+      await this.waitUntilActive(assetId);
     } finally {
       // The asset persists after ingestion, so the temporary link can go.
       await published.dispose?.().catch(() => undefined);
     }
 
-    await this.waitUntilActive(assetId);
     this.cache.set(sha16, assetId);
     return { assetId, cached: false };
   }

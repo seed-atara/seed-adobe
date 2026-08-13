@@ -42,6 +42,19 @@ export interface DirectorConfig {
   fast: boolean;
 }
 
+export interface R2Settings {
+  endpoint: string;
+  bucket: string;
+  accessKeyId: string;
+  secretAccessKey: string;
+  /** Presigned link lifetime; only has to cover the provider's fetch. */
+  urlTtlSeconds: number;
+  /** Namespace inside the bucket. */
+  prefix?: string;
+  /** `auto` on R2; a real region on S3. */
+  region?: string;
+}
+
 export interface ProviderConfig {
   /**
    * Ark inference key (Bearer). Distinct from the AK/SK pair below: this one
@@ -59,6 +72,14 @@ export interface ProviderConfig {
   arkSkipModeration: boolean;
   /** How local frames reach the model — see ReferencePolicy. */
   arkReferencePolicy: "asset" | "asset-or-inline" | "inline";
+  /**
+   * S3-compatible bucket used to hand media to a provider over https.
+   *
+   * Absent unless configured, and its absence is a real capability difference
+   * rather than a detail: without it a video reference cannot be sent at all,
+   * because Ark refuses an inline one.
+   */
+  r2?: R2Settings;
   /**
    * Seedance models to offer, in panel order.
    *
@@ -110,6 +131,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServiceConfig 
   const configuredToken = env.SEED_AE_SESSION_TOKEN?.trim();
   const isPlaceholder =
     !configuredToken || configuredToken === "replace-with-random-local-token";
+  const r2 = parseR2(env);
 
   return {
     // Loopback-only by default: the service holds provider credentials.
@@ -150,6 +172,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServiceConfig 
       arkAssetGroup: env.ARK_ASSET_GROUP?.trim() || "seed-ae",
       arkSkipModeration: env.ARK_SKIP_MODERATION?.trim() === "true",
       arkReferencePolicy: parseReferencePolicy(env.ARK_REFERENCE_POLICY),
+      ...(r2 ? { r2 } : {}),
       seedanceModelIds: parseList(env.SEEDANCE_MODEL_ID),
       ...(parseList(env.SEEDANCE_SIZES).length > 0
         ? { seedanceSizes: parseList(env.SEEDANCE_SIZES) }
@@ -185,6 +208,40 @@ function readKey(
     if (value) return value;
   }
   return undefined;
+}
+
+/**
+ * Reads the bucket settings, or nothing.
+ *
+ * All four of endpoint, bucket and the key pair are required together — a
+ * half-configured bucket is a misconfiguration, and starting up as though
+ * hosting worked would turn it into a failed generation later. Say it at
+ * startup instead.
+ */
+function parseR2(env: NodeJS.ProcessEnv): R2Settings | undefined {
+  const endpoint = env.SEED_R2_ENDPOINT?.trim();
+  const bucket = env.SEED_R2_BUCKET?.trim();
+  const accessKeyId = env.SEED_R2_ACCESS_KEY_ID?.trim();
+  const secretAccessKey = env.SEED_R2_SECRET_ACCESS_KEY?.trim();
+
+  const present = [endpoint, bucket, accessKeyId, secretAccessKey].filter(Boolean);
+  if (present.length === 0) return undefined;
+  if (present.length < 4) {
+    throw new Error(
+      "R2 hosting needs SEED_R2_ENDPOINT, SEED_R2_BUCKET, SEED_R2_ACCESS_KEY_ID " +
+        "and SEED_R2_SECRET_ACCESS_KEY together; leave all four empty to disable it",
+    );
+  }
+
+  return {
+    endpoint: endpoint as string,
+    bucket: bucket as string,
+    accessKeyId: accessKeyId as string,
+    secretAccessKey: secretAccessKey as string,
+    urlTtlSeconds: parsePositiveInt(env.SEED_R2_URL_TTL_SECONDS) ?? 3600,
+    ...(env.SEED_R2_PREFIX?.trim() ? { prefix: env.SEED_R2_PREFIX.trim() } : {}),
+    ...(env.SEED_R2_REGION?.trim() ? { region: env.SEED_R2_REGION.trim() } : {}),
+  };
 }
 
 const REFERENCE_POLICIES = ["asset", "asset-or-inline", "inline"] as const;

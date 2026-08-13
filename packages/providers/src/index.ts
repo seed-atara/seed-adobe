@@ -3,6 +3,7 @@ export * from "./ark/models.js";
 export * from "./ark/openapi.js";
 export * from "./ark/signer.js";
 export * from "./mock/mockImageProvider.js";
+export * from "./publish/r2Publisher.js";
 export * from "./mock/mockVideoProvider.js";
 export * from "./mock/render.js";
 export * from "./registry.js";
