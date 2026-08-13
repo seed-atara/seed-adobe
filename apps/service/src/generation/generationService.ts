@@ -630,8 +630,22 @@ export class GenerationService {
           jobId,
           attempt,
           consecutiveErrors,
+          errorClass: error.code,
           errorMessage: error.message,
         });
+
+        /*
+         * A rejected credential is not an outage. Retrying it twenty times
+         * takes a minute and a half to reach the same answer, and the answer —
+         * "The API key status is not active" — is one only a person can act
+         * on. Waiting is for the errors that waiting fixes.
+         */
+        if (error.code === "unauthorized" || error.code === "bad_request") {
+          return {
+            status: "failed",
+            error: { class: error.code, message: error.message },
+          };
+        }
 
         if (consecutiveErrors >= maxConsecutiveErrors) {
           return {

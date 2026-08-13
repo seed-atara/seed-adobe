@@ -276,6 +276,76 @@ describe("clips as references", () => {
   });
 
   /**
+   * Waiting is for the errors that waiting fixes.
+   *
+   * A rejected credential is not an outage: twenty retries take ninety seconds
+   * to reach the same answer, and "The API key status is not active" is one
+   * only a person can act on.
+   */
+  it("gives up at once when the credential is refused", async () => {
+    let polls = 0;
+    const { SeedError } = await import("@seed-ae/domain");
+    const deadKeyProvider = {
+      id: "dead-key",
+      async capabilities() {
+        return {
+          id: "dead-key",
+          displayName: "Dead key",
+          models: ["dead-v1"],
+          operations: ["video.generate"],
+          textToImage: false,
+          imageToImage: false,
+          maxImageReferences: 0,
+          textToVideo: true,
+          imageToVideo: false,
+          videoReferences: false,
+          startEndFrames: false,
+          audioReferences: false,
+          seed: false,
+          sizes: [],
+          aspectRatios: [],
+          async: true,
+        };
+      },
+      async generateVideo() {
+        return { providerJobId: "dead-1", state: { status: "queued" as const } };
+      },
+      async getJob() {
+        polls += 1;
+        throw new SeedError(
+          "unauthorized",
+          "Seedance returned HTTP 401: The API key status is not active.",
+        );
+      },
+    };
+
+    const { ProviderRegistry } = await import("@seed-ae/providers");
+    const service = await startTestService({
+      registry: new ProviderRegistry().register(deadKeyProvider as never),
+    });
+    try {
+      const { job } = await readJson(
+        await service.call("/v1/generations", {
+          method: "POST",
+          body: JSON.stringify({
+            providerId: "dead-key",
+            operation: "video.generate",
+            prompt: "anything",
+          }),
+        }),
+      );
+      await service.deps.generation.whenSettled(job.id);
+
+      const detail = await readJson(await service.call(`/v1/jobs/${job.id}`));
+      expect(detail.job.status).toBe("failed");
+      expect(detail.job.errorMessage).toMatch(/API key status is not active/);
+      expect(polls).toBe(1);
+    } finally {
+      await service.close();
+    }
+  });
+
+  /**
    * The decoder lives in the panel, so the poster arrives from there.
    *
    * Borrowing the source frame is wrong for exactly the generation this whole
