@@ -2,7 +2,7 @@ import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { findStillPreset } from "../src/pproPresets.js";
+import { findStillPreset, findVideoPreset } from "../src/pproPresets.js";
 
 const made: string[] = [];
 
@@ -78,5 +78,48 @@ describe("ExporterFileType four-character code", () => {
       { file: "a.epr", xml: withFourCc("PNG still (honest)", 1212503619) },
     ]);
     expect(await findStillPreset(home)).toBeUndefined();
+  });
+});
+
+describe("finding an H.264 preset", () => {
+  it("identifies H.264 by its four-character code, not its name", async () => {
+    const home = await mkdtemp(path.join(tmpdir(), "seed presets "));
+    const dir = path.join(home, "Documents/Adobe/Adobe Media Encoder/26.0/Presets");
+    await mkdir(dir, { recursive: true });
+
+    /*
+     * Adobe's shipped presets carry a localisation token instead of a name, so
+     * nothing readable in the file says "H.264" — the code is the only signal.
+     * 1211250228 is 0x48323634, "H264", read off a real install.
+     */
+    await writeFile(
+      path.join(dir, "anonymous.epr"),
+      `<PresetName>($$$/AME/EncoderHost/Presets/abc/PresetName=Match Source - High bitrate)</PresetName>
+       <ExporterFileType>1211250228</ExporterFileType>`,
+    );
+    // HEVC is also an .mp4 and is not accepted: no provider has been shown to
+    // take one, and a reference that fails after upload is worse than none.
+    await writeFile(
+      path.join(dir, "tempting.epr"),
+      `<PresetName>H.264 High Quality</PresetName>
+       <ExporterFileType>1213027651</ExporterFileType>`,
+    );
+
+    const found = await findVideoPreset(home, []);
+    expect(found?.path.endsWith("anonymous.epr")).toBe(true);
+    // The readable half of the token, not the token itself.
+    expect(found?.name).toBe("Match Source - High bitrate");
+  });
+
+  it("finds nothing rather than offering a still preset as a clip exporter", async () => {
+    const home = await mkdtemp(path.join(tmpdir(), "seed presets "));
+    const dir = path.join(home, "Documents/Adobe/Premiere Pro/Presets");
+    await mkdir(dir, { recursive: true });
+    // 1347307296 is "PNG " — the still preset the other finder wants.
+    await writeFile(
+      path.join(dir, "still.epr"),
+      `<PresetName>PNG still</PresetName><ExporterFileType>1347307296</ExporterFileType>`,
+    );
+    expect(await findVideoPreset(home, [])).toBeUndefined();
   });
 });

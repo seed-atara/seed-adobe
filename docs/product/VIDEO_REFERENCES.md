@@ -75,10 +75,28 @@ plate footage, a reference film, a clip someone sent you.
 
 ### Premiere
 
-The button is After Effects only. Premiere's scripted export goes through Media
-Encoder, which already misbehaves for stills here, so there is nothing worth
-trusting yet. Export the range yourself (**File → Export → Media**) and use
-**Add a clip or image from disk…** — that path works in both applications.
+**Capture in-to-out as clip**, the same button under a name that matches what
+Premiere calls a range.
+
+Mark in and out (**I** and **O**) around the span you want first. Without them
+Premiere reports the whole sequence, and quietly encoding forty minutes because
+nobody marked anything is not a favour — so it refuses and says so.
+
+Premiere has no direct video export in scripting; the route is
+`exportAsMediaDirect` with an `.epr` preset, the same machinery as the still.
+SEED finds an H.264 preset by reading the files rather than trusting their
+names: Adobe's shipped presets carry a localisation token instead of a name, so
+the exporter's four-character code is the only reliable signal. "Match Source"
+is preferred where it exists, since it keeps the sequence's own size and frame
+rate.
+
+HEVC presets are deliberately ignored even though they are also `.mp4`. No
+provider has been shown to accept one, and a reference that fails after being
+uploaded is worse than one SEED declined to make.
+
+If nothing is found, `SEED_PPRO_VIDEO_PRESET` takes a path — or export the
+range yourself (**File → Export → Media**) and use **Add a clip or image from
+disk…**, which works in both applications.
 
 ## Where the clip goes
 

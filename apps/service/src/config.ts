@@ -22,6 +22,14 @@ export interface ServiceConfig {
    * undocumented QE exporter alone.
    */
   pproStillPreset?: string;
+  /**
+   * Optional .epr H.264 preset for Premiere range export.
+   *
+   * Same story as the still preset — per-install, so SEED cannot ship one —
+   * except that almost nobody has made a user preset for H.264, so discovery
+   * also looks where Adobe ships its own.
+   */
+  pproVideoPreset?: string;
   /** Present only when direction is configured; absent disables the feature. */
   director?: DirectorConfig;
 }
@@ -147,6 +155,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServiceConfig 
     pollIntervalMs: parsePositiveInt(env.SEED_AE_POLL_INTERVAL_MS) ?? 1000,
     ...(env.SEED_PPRO_STILL_PRESET?.trim()
       ? { pproStillPreset: path.resolve(env.SEED_PPRO_STILL_PRESET.trim()) }
+      : {}),
+    ...(env.SEED_PPRO_VIDEO_PRESET?.trim()
+      ? { pproVideoPreset: path.resolve(env.SEED_PPRO_VIDEO_PRESET.trim()) }
       : {}),
     providers: {
       ...(env.ARK_API_KEY?.trim() ? { arkApiKey: env.ARK_API_KEY.trim() } : {}),

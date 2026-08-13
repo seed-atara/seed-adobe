@@ -26,7 +26,7 @@ import { GenerationService } from "./generation/generationService.js";
 import { InputMaterializer } from "./generation/inputMaterializer.js";
 import { MediaIngestor } from "./generation/mediaIngestor.js";
 import { createLogger, type Logger } from "./logger.js";
-import { findStillPreset } from "./pproPresets.js";
+import { findStillPreset, findVideoPreset } from "./pproPresets.js";
 
 export interface BootstrapOptions {
   config: ServiceConfig;
@@ -89,6 +89,19 @@ export async function bootstrap({
     }
   }
 
+  // The same for video: without one, Premiere cannot export a range at all.
+  let videoPreset = config.pproVideoPreset;
+  if (!videoPreset) {
+    const discovered = await findVideoPreset();
+    if (discovered) {
+      videoPreset = discovered.path;
+      activeLogger.info("ppro.video_preset_found", {
+        name: discovered.name,
+        path: discovered.path,
+      });
+    }
+  }
+
   // Catch up any asset that never got a thumbnail. Not awaited: the service
   // should start serving immediately, and a missing thumbnail is cosmetic.
   void (async () => {
@@ -131,7 +144,11 @@ export async function bootstrap({
   });
 
   return {
-    config: stillPreset ? { ...config, pproStillPreset: stillPreset } : config,
+    config: {
+      ...config,
+      ...(stillPreset ? { pproStillPreset: stillPreset } : {}),
+      ...(videoPreset ? { pproVideoPreset: videoPreset } : {}),
+    },
     db,
     workspace,
     assets,

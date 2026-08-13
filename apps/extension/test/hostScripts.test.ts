@@ -100,17 +100,6 @@ const HOST_SPECIFIC: Record<string, { host: string; because: string }> = {
     host: "seed-host.jsx",
     because: "adjustment layers and scriptable effects are After Effects only",
   },
-  seedCaptureRange: {
-    host: "seed-host.jsx",
-    because:
-      "rendering a range needs the After Effects render queue; Premiere's " +
-      "equivalent goes through Media Encoder and is not built yet. The panel " +
-      "only offers the button in AEFT.",
-  },
-  seedRangeInfo: {
-    host: "seed-host.jsx",
-    because: "reports a composition's work area, which Premiere has no equivalent of",
-  },
   seedListRegions: { host: "seed-host.jsx", because: "regions are compositions" },
   seedCreateRegion: { host: "seed-host.jsx", because: "regions are compositions" },
   seedCaptureRegion: { host: "seed-host.jsx", because: "regions are compositions" },

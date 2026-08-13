@@ -1789,6 +1789,203 @@ function seedPickFile(title, filter) {
     }
 }
 
+/**
+ * Renders a span of the active sequence to an mp4.
+ *
+ * Premiere's equivalent of After Effects' work area is the in/out range, and
+ * that is what this exports — the span the editor has already marked, rather
+ * than a number typed into a panel. With no in/out set Premiere reports the
+ * whole sequence, and silently rendering forty minutes because nobody marked
+ * anything is not a favour, so that case is refused.
+ *
+ * There is no direct-to-file video export in Premiere scripting: the route is
+ * `exportAsMediaDirect` with an .epr preset, exactly as for the still, which
+ * is why this reuses that machinery rather than inventing a second one.
+ */
+function seedCaptureRange(outputDir, basename, startSeconds, durationSeconds, presetPath) {
+    var trace = [];
+    try {
+        var sequence = seedActiveSequence();
+        if (!sequence) return seedFail(seedNoSequenceMessage());
+        if (!presetPath) {
+            return seedFail(
+                "no H.264 export preset was found, so Premiere cannot render a range. " +
+                "Export the range yourself (File > Export > Media) and use " +
+                "Add a clip or image from disk, or set SEED_PPRO_VIDEO_PRESET."
+            );
+        }
+
+        var folder = seedEnsureFolder(outputDir);
+        if (!folder.exists) {
+            return seedFail("could not create output folder: " + outputDir);
+        }
+
+        var fps = seedSequenceFps(sequence);
+        var start = Number(startSeconds);
+        var duration = Number(durationSeconds);
+
+        // The marked range is the default, and the only one the editor can see.
+        if (startSeconds === null || startSeconds === undefined || isNaN(start) ||
+            durationSeconds === null || durationSeconds === undefined ||
+            isNaN(duration) || duration <= 0) {
+            var inPoint = null;
+            var outPoint = null;
+            try {
+                inPoint = Number(sequence.getInPoint());
+                outPoint = Number(sequence.getOutPoint());
+            } catch (rangeError) {
+                trace.push("could not read in/out points: " + rangeError);
+            }
+            if (inPoint === null || outPoint === null || isNaN(inPoint) ||
+                isNaN(outPoint) || outPoint - inPoint <= 0) {
+                return seedFail(
+                    "mark an in and out point (I and O) around the range you want. " +
+                    "Without them Premiere reports the whole sequence, which is not " +
+                    "what anyone means by a reference clip."
+                );
+            }
+            start = inPoint;
+            duration = outPoint - inPoint;
+        }
+
+        var safe = String(basename || sequence.name).replace(/[^A-Za-z0-9._-]+/g, "_");
+        var frame = fps > 0 ? Math.round(start * fps) : 0;
+        var stamp = String(frame);
+        while (stamp.length < 5) stamp = "0" + stamp;
+
+        var preset = new File(seedNormalizePath(presetPath));
+        if (!preset.exists) {
+            return seedFail("export preset not found at " + presetPath);
+        }
+        if (typeof sequence.exportAsMediaDirect !== "function") {
+            return seedFail("this Premiere build has no sequence.exportAsMediaDirect");
+        }
+
+        var previousIn = null;
+        var previousOut = null;
+        try {
+            previousIn = sequence.getInPoint();
+            previousOut = sequence.getOutPoint();
+        } catch (error) {
+            trace.push("could not read existing in/out points");
+        }
+
+        var startedAt = new Date().getTime() - 2000;
+        var target = seedNormalizePath(folder.fsName) + "/" + safe + "_f" + stamp + "_range";
+        var written = null;
+
+        try {
+            seedSetInOut(sequence, start, start + duration, trace);
+
+            var paths = [target + ".mp4", target];
+            for (var pi = 0; pi < paths.length && !written; pi++) {
+                for (var ti = 0; ti < SEED_WORK_AREA_TYPES.length && !written; ti++) {
+                    var workAreaType = SEED_WORK_AREA_TYPES[ti];
+                    var label = "type " + workAreaType + (pi === 0 ? " +.mp4" : " no ext");
+                    var returned;
+                    try {
+                        returned = sequence.exportAsMediaDirect(
+                            paths[pi],
+                            preset.fsName,
+                            workAreaType
+                        );
+                    } catch (callError) {
+                        trace.push(label + " threw: " + callError);
+                        continue;
+                    }
+
+                    var refused = seedExportRefused(returned);
+                    if (refused) {
+                        trace.push(label + ": " + refused);
+                        continue;
+                    }
+
+                    /*
+                     * A range is a real encode, not a frame grab, so this waits
+                     * in minutes — and waits for the file to stop growing
+                     * rather than merely to exist.
+                     */
+                    for (var wait = 0; wait < 1200 && !written; wait++) {
+                        $.sleep(500);
+                        written = seedNewestSettledFile(folder, startedAt);
+                    }
+                    trace.push(
+                        label +
+                        (written ? " wrote a file" : " returned ok but wrote nothing in 10 minutes")
+                    );
+                }
+            }
+        } catch (error) {
+            trace.push("range export failed: " + error);
+            written = null;
+        } finally {
+            try {
+                if (previousIn !== null && previousOut !== null) {
+                    seedSetInOut(
+                        sequence,
+                        Number(previousIn.seconds),
+                        Number(previousOut.seconds),
+                        trace
+                    );
+                }
+            } catch (restoreError) {
+                trace.push("could not restore in/out points: " + restoreError);
+            }
+        }
+
+        if (!written) {
+            return seedFail("Premiere did not write a clip. " + trace.join(" | "));
+        }
+
+        return seedOk({
+            path: written.fsName,
+            // No still is written beside it: Premiere's frame export is its own
+            // slow round trip, and the panel extracts a poster from the clip.
+            posterPath: null,
+            bytes: written.length,
+            width: Number(sequence.frameSizeHorizontal) || 0,
+            height: Number(sequence.frameSizeVertical) || 0,
+            frameRate: fps,
+            frameNumber: frame,
+            startSeconds: start,
+            durationSeconds: duration,
+            template: presetPath,
+            trace: trace.join(" | ")
+        });
+    } catch (error) {
+        return seedFail(error);
+    }
+}
+
+/** What the sequence currently offers as a range, without exporting anything. */
+function seedRangeInfo() {
+    try {
+        var sequence = seedActiveSequence();
+        if (!sequence) return seedFail(seedNoSequenceMessage());
+        var inPoint = 0;
+        var outPoint = 0;
+        try {
+            inPoint = Number(sequence.getInPoint());
+            outPoint = Number(sequence.getOutPoint());
+        } catch (error) {
+            // Leave both at zero; the panel reads that as nothing marked.
+        }
+        return seedOk({
+            compName: sequence.name,
+            width: Number(sequence.frameSizeHorizontal) || 0,
+            height: Number(sequence.frameSizeVertical) || 0,
+            frameRate: seedSequenceFps(sequence),
+            duration: 0,
+            time: seedPlayheadSeconds(sequence),
+            workAreaStart: inPoint,
+            workAreaDuration: Math.max(0, outPoint - inPoint),
+            hasH264: true
+        });
+    } catch (error) {
+        return seedFail(error);
+    }
+}
+
 /*
  * Host-specific aliases.
  *
@@ -1814,3 +2011,5 @@ var seedPpro_adoptPlaceholder = seedAdoptPlaceholder;
 var seedPpro_import = seedImport;
 var seedPpro_insertAtPlayhead = seedInsertAtPlayhead;
 var seedPpro_pickFile = seedPickFile;
+var seedPpro_captureRange = seedCaptureRange;
+var seedPpro_rangeInfo = seedRangeInfo;

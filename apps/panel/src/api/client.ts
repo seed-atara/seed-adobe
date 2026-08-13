@@ -130,6 +130,8 @@ export class SeedClient {
     /** Media the host uses to reserve space while a video renders. */
     placeholder: string;
     pproStillPreset?: string;
+    /** An H.264 .epr; without it Premiere cannot export a range. */
+    pproVideoPreset?: string;
   }> {
     return this.request("/v1/workspace");
   }

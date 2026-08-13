@@ -74,8 +74,9 @@ interface Props {
   onFormChange: (form: GenerateForm) => void;
   onCapture: () => void;
   /**
-   * Renders the work area to a clip. After Effects only — Premiere has no
-   * scripted export that does not go through Media Encoder.
+   * Renders a range to a clip — the work area in After Effects, the in/out
+   * points in Premiere. Absent in Premiere when no H.264 preset was found,
+   * since without one there is nothing to render through.
    */
   onCaptureRange?: () => void;
   /** Adds a file the artist exported themselves. */
@@ -384,13 +385,17 @@ export function GenerateView({
               disabled={busy}
               style={{ marginTop: 6 }}
             >
-              Capture work area as clip
+              {host === "PPRO"
+                ? "Capture in-to-out as clip"
+                : "Capture work area as clip"}
             </button>
             <div className="hint faint" style={{ marginTop: 6 }}>
-              Renders the work area to H.264 and adds it as a{" "}
-              <b>motion reference</b> — what the shot moves like, rather than
-              what one frame looks like. After Effects renders this here and
-              now, so a long range is a long wait.
+              Renders {host === "PPRO" ? "the marked range" : "the work area"} to
+              H.264 and adds it as a <b>motion reference</b> — what the shot
+              moves like, rather than what one frame looks like.{" "}
+              {host === "PPRO"
+                ? "Mark in and out (I and O) first: without them Premiere means the whole sequence."
+                : "After Effects renders it here and now, so a long range is a long wait."}
             </div>
           </>
         ) : null}

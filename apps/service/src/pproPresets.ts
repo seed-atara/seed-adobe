@@ -18,9 +18,36 @@ const PRESET_ROOTS = [
   "Documents/Adobe/Premiere Pro",
 ];
 
+/**
+ * Where Adobe ships its own presets.
+ *
+ * Searched as well as the per-user folders because a user preset for H.264 is
+ * not something most editors ever make — they pick "Match Source" from a
+ * dropdown, which lives here. Verified on this install: the folders are named
+ * `<exporter>_<filetype>` in hex, so `4E49434B_48323634` is "NICK"/"H264".
+ */
+const SYSTEM_PRESET_GLOBS = [
+  "C:/Program Files/Adobe",
+  "/Applications",
+];
+
 export interface StillPreset {
   path: string;
   name: string;
+}
+
+/**
+ * A name a person would recognise.
+ *
+ * Adobe's shipped presets carry a localisation token rather than a name —
+ * `($$$/AME/EncoderHost/Presets/<uuid>/PresetName=Match Source - High
+ * bitrate)` — which contains the readable string at the end. Failing that, the
+ * filename is what the artist sees in Premiere's own dropdown anyway.
+ */
+function readableName(raw: string, filename: string): string {
+  const localised = /PresetName=([^)]+)\)?\s*$/.exec(raw)?.[1]?.trim();
+  if (localised) return localised;
+  return raw.includes("$$$") ? filename.replace(/\.epr$/i, "") : raw;
 }
 
 /** Reads the preset name out of the XML, for logging. */
@@ -92,6 +119,88 @@ async function eprFilesUnder(root: string): Promise<string[]> {
 
   await walk(root, 0);
   return found;
+}
+
+/**
+ * Whether a preset writes H.264 video.
+ *
+ * The four-character code is the whole answer here, and unlike the still case
+ * there is no usable fallback: Adobe's shipped presets carry a localisation
+ * token as their name (`$$$/AME/EncoderHost/Presets/9bb57b43-...`), so nothing
+ * readable says "H.264" anywhere in the file. Measured against a real install.
+ *
+ * HEVC is deliberately not accepted. It is also an .mp4 and it is what this
+ * machine happens to have a shelf of, but no provider has been shown to accept
+ * one, and a reference that fails after upload is worse than one we declined
+ * to make.
+ */
+function looksLikeH264(xml: string): boolean {
+  return exporterFourCc(xml)?.trim().toUpperCase() === "H264";
+}
+
+/**
+ * Adobe's own preset folders, found by walking Program Files shallowly.
+ *
+ * The version is in the folder name ("Adobe Media Encoder 2026"), so it is
+ * discovered rather than assumed — an install a year newer would otherwise
+ * silently stop being found.
+ */
+async function systemPresetRoots(bases: string[]): Promise<string[]> {
+  const roots: string[] = [];
+  for (const base of bases) {
+    let entries: string[];
+    try {
+      entries = await readdir(base);
+    } catch {
+      continue;
+    }
+    for (const entry of entries) {
+      if (!/^Adobe (Media Encoder|Premiere Pro)/i.test(entry)) continue;
+      roots.push(path.join(base, entry, "MediaIO", "systempresets"));
+    }
+  }
+  return roots;
+}
+
+/**
+ * Looks for an H.264 preset, which is what a range export needs.
+ *
+ * "Match Source" is preferred where it exists: it keeps the sequence's own
+ * size and frame rate, which is the whole point of exporting a reference of
+ * what the timeline already looks like. That preference reads the filename,
+ * which is fine — it is a preference, not the identification.
+ */
+export async function findVideoPreset(
+  home = process.env.USERPROFILE ?? process.env.HOME ?? "",
+  /** Injectable so a test can look at a fake install rather than this one. */
+  systemBases: string[] = SYSTEM_PRESET_GLOBS,
+): Promise<StillPreset | undefined> {
+  const roots = [
+    ...(home ? PRESET_ROOTS.map((relative) => path.join(home, relative)) : []),
+    ...(await systemPresetRoots(systemBases)),
+  ];
+
+  const candidates: { path: string; name: string; preferred: boolean }[] = [];
+  for (const root of roots) {
+    for (const file of await eprFilesUnder(root)) {
+      let xml: string;
+      try {
+        xml = await readFile(file, "utf8");
+      } catch {
+        continue;
+      }
+      if (!looksLikeH264(xml)) continue;
+      const base = path.basename(file);
+      candidates.push({
+        path: file,
+        name: readableName(presetName(xml, base), base),
+        preferred: /match source/i.test(base),
+      });
+    }
+    const best = candidates.find((entry) => entry.preferred) ?? candidates[0];
+    if (best) return { path: best.path, name: best.name };
+  }
+  return undefined;
 }
 
 /**

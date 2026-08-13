@@ -160,6 +160,14 @@ export function App() {
   const [busy, setBusy] = useState(false);
   const [canDirect, setCanDirect] = useState(false);
   const [originalsDir, setOriginalsDir] = useState<string>();
+  /**
+   * Whether Premiere has an H.264 preset to render a range through.
+   *
+   * After Effects renders through its own queue and needs none; Premiere has
+   * no direct video export at all, so without one the button would only ever
+   * explain why it cannot work.
+   */
+  const [hasVideoPreset, setHasVideoPreset] = useState(false);
   /** Reserved timeline space, by job id, waiting for its render. */
   const placeholders = useRef(new Map<string, PlaceholderHandle>());
   /**
@@ -272,10 +280,11 @@ export function App() {
 
         // Direction is optional; a service without a key simply never offers it.
         try {
-          const { director, workspace } = await client.workspace();
+          const { director, workspace, pproVideoPreset } = await client.workspace();
           if (!cancelled) {
             setCanDirect(director);
             setOriginalsDir(workspace.originalsDir);
+            setHasVideoPreset(pproVideoPreset !== undefined);
           }
         } catch {
           // Not knowing means not offering, which is the safe direction.
@@ -1173,7 +1182,7 @@ export function App() {
               onRegionContain={setRegionContain}
               onInsertRegion={insertRegion}
               onCapture={captureFrame}
-              {...(bridge && hostApp() !== "PPRO"
+              {...(bridge && (hostApp() !== "PPRO" || hasVideoPreset)
                 ? { onCaptureRange: captureRange }
                 : {})}
               {...(bridge ? { onAddFile: addFileFromDisk } : {})}

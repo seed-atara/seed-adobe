@@ -420,14 +420,21 @@ export class CepAeBridge {
     durationSeconds?: number;
   }): Promise<{ asset: Asset; captured: RangeCaptureResult }> {
     await this.ensureHost();
-    const { workspace } = await this.client.workspace();
+    const { workspace, pproVideoPreset } = await this.client.workspace();
     const context = await this.getContext();
     const compName = typeof context.compName === "string" ? context.compName : "comp";
 
+    /*
+     * The fifth argument is Premiere's H.264 preset; After Effects ignores it
+     * and renders through its own queue. Both hosts take the same call, which
+     * is what keeps this method one method.
+     */
     const captured = await evalHost<RangeCaptureResult>(
       `${hostPrefix()}captureRange(${quote(workspace.originalsDir)}, ${quote(compName)}, ${
         range?.startSeconds ?? "null"
-      }, ${range?.durationSeconds ?? "null"})`,
+      }, ${range?.durationSeconds ?? "null"}, ${
+        pproVideoPreset ? quote(pproVideoPreset) : "null"
+      })`,
     );
 
     const { asset } = await this.client.registerClip({
