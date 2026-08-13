@@ -204,6 +204,78 @@ describe("clips as references", () => {
   });
 
   /**
+   * A network outage is not a failed render.
+   *
+   * One refused poll used to be the job's outcome. The render was already
+   * running and already paid for, so three finished clips were discarded by a
+   * blip — recovered afterwards from the provider, which is proof they were
+   * never lost, only abandoned.
+   */
+  it("rides out failed polls instead of discarding a running render", async () => {
+    let polls = 0;
+    const flakyProvider = {
+      id: "flaky-video",
+      async capabilities() {
+        return {
+          id: "flaky-video",
+          displayName: "Flaky",
+          models: ["flaky-v1"],
+          operations: ["video.generate"],
+          textToImage: false,
+          imageToImage: false,
+          maxImageReferences: 0,
+          textToVideo: true,
+          imageToVideo: false,
+          videoReferences: false,
+          startEndFrames: false,
+          audioReferences: false,
+          seed: false,
+          sizes: [],
+          aspectRatios: [],
+          async: true,
+        };
+      },
+      async generateVideo() {
+        return { providerJobId: "flaky-1", state: { status: "queued" as const } };
+      },
+      async getJob() {
+        polls += 1;
+        // Three outages, then the render that was there all along.
+        if (polls <= 3) throw new Error("getaddrinfo ENOTFOUND ark.example");
+        return {
+          status: "succeeded" as const,
+          outputs: [{ mimeType: "image/png", base64: fakePng(4, 4).toString("base64") }],
+        };
+      },
+    };
+
+    const { ProviderRegistry } = await import("@seed-ae/providers");
+    const service = await startTestService({
+      registry: new ProviderRegistry().register(flakyProvider as never),
+    });
+    try {
+      const { job } = await readJson(
+        await service.call("/v1/generations", {
+          method: "POST",
+          body: JSON.stringify({
+            providerId: "flaky-video",
+            operation: "video.generate",
+            prompt: "a shot worth keeping",
+          }),
+        }),
+      );
+      await service.deps.generation.whenSettled(job.id);
+
+      const detail = await readJson(await service.call(`/v1/jobs/${job.id}`));
+      expect(detail.job.status).toBe("succeeded");
+      expect(detail.outputs).toHaveLength(1);
+      expect(polls).toBe(4);
+    } finally {
+      await service.close();
+    }
+  });
+
+  /**
    * The decoder lives in the panel, so the poster arrives from there.
    *
    * Borrowing the source frame is wrong for exactly the generation this whole

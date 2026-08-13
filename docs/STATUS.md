@@ -161,7 +161,10 @@ into a running task, to produce what saying nothing would have produced.
   ingest, so a generated clip knows its own size. A poster frame still is not
   extracted — image-to-video results borrow the thumbnail of the frame they came
   from, which is honest but not a real extract.
-- Interrupted jobs are closed out as failed on startup rather than resumed.
+- Interrupted jobs are resumed on startup rather than closed out: a task that
+  reached the provider is still running there, and the process that died was
+  only the one listening. A job with no provider task, or whose provider is no
+  longer registered, is still failed as interrupted.
 - Seedance text-to-video is implemented but only image-to-video has been run
   live; accepted parameter values may differ between the two modes.
 

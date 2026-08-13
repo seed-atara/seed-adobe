@@ -37,6 +37,13 @@ export interface GenerationServiceOptions {
   logger: Logger;
   pollIntervalMs?: number;
   maxPollAttempts?: number;
+  /**
+   * How many consecutive failures to reach the provider end a job.
+   *
+   * Not one: the render is already running and already paid for, and a poll
+   * that cannot be sent says nothing about it.
+   */
+  maxPollErrors?: number;
 }
 
 export interface StartResult {
@@ -198,6 +205,15 @@ export class GenerationService {
   reconcileInterruptedJobs(): number {
     const stale = this.options.jobs.listUnfinished();
     for (const job of stale) {
+      /*
+       * A task that reached the provider is still running there. The process
+       * that died was only the one listening — the render was not cancelled
+       * (Ark cannot be), and it will be billed either way. So pick the
+       * listening back up rather than declaring a finished clip a failure,
+       * which is how three completed videos were thrown away.
+       */
+      if (job.providerJobId && job.generationId && this.resume(job)) continue;
+
       this.options.jobs.update(job.id, {
         status: "failed",
         errorClass: "interrupted",
@@ -214,9 +230,66 @@ export class GenerationService {
     if (stale.length > 0) {
       this.options.logger.warn("generation.interrupted_jobs_closed", {
         count: stale.length,
+        resumed: this.running.size,
       });
     }
     return stale.length;
+  }
+
+  /**
+   * Re-attaches to a task that outlived the process that started it.
+   *
+   * Returns false when it cannot — an unknown provider, a generation that is
+   * gone — and the caller then closes the job out as interrupted, which is the
+   * old behaviour and still the right one when there is nothing to re-attach
+   * to.
+   */
+  private resume(job: Job): boolean {
+    const generation = job.generationId
+      ? this.options.generations.getById(job.generationId)
+      : undefined;
+    if (!generation) return false;
+
+    let provider: GenerationProvider;
+    try {
+      provider = this.options.registry.get(job.provider);
+    } catch {
+      // The provider is no longer registered — credentials changed, or a model
+      // was withdrawn. Nothing here can ask about the task.
+      return false;
+    }
+
+    const inputAssets = generation.inputAssetIds
+      .map((id) => this.options.assets.getById(id))
+      .filter((asset): asset is Asset => asset !== undefined);
+
+    this.options.logger.info("generation.resumed", {
+      jobId: job.id,
+      generationId: generation.id,
+      providerJobId: job.providerJobId,
+    });
+
+    const task = this.awaitAndIngest(
+      job,
+      generation,
+      provider,
+      // Status unknown until the first poll; "running" is what it was.
+      { providerJobId: job.providerJobId as string, state: { status: "running" } },
+      inputAssets,
+      Date.now(),
+    )
+      .catch((error: unknown) => {
+        this.options.logger.error("generation.resume_crashed", {
+          jobId: job.id,
+          errorMessage: toSeedError(error).message,
+        });
+      })
+      .finally(() => {
+        this.running.delete(job.id);
+      });
+
+    this.running.set(job.id, task);
+    return true;
   }
 
   private async run(
@@ -269,6 +342,36 @@ export class GenerationService {
           : {}),
       });
 
+      await this.awaitAndIngest(job, generation, provider, submitted, inputAssets, startedAt);
+    } catch (error) {
+      const seedError = toSeedError(error);
+      this.fail(
+        job.id,
+        generation.id,
+        { class: seedError.code, message: seedError.message },
+        undefined,
+        startedAt,
+      );
+    }
+  }
+
+  /**
+   * Everything after a task exists at the provider: wait for it, download it,
+   * register it.
+   *
+   * Separate from submission because a restarted service has to do exactly
+   * this and nothing else — the task is already running, and the only thing
+   * lost with the process was whoever was listening.
+   */
+  private async awaitAndIngest(
+    job: Job,
+    generation: Generation,
+    provider: GenerationProvider,
+    submitted: ProviderJob,
+    inputAssets: Asset[],
+    startedAt: number,
+  ): Promise<void> {
+    try {
       const finalState = await this.poll(job.id, provider, submitted);
 
       if (this.cancelled.has(job.id) || finalState.status === "cancelled") {
@@ -499,11 +602,55 @@ export class GenerationService {
     const maxAttempts = this.options.maxPollAttempts ?? 600;
 
     let state = submitted.state;
+    /*
+     * Consecutive failures to *ask*, which is a different thing from a failed
+     * render.
+     *
+     * A poll is a network call against a render that is already running and
+     * already paid for. Treating one refused GET as the job's outcome is how a
+     * brief outage discarded three finished Seedance clips — they completed on
+     * Ark and nobody was listening. So asking is retried, and only a run of
+     * failures long enough to mean the provider is genuinely unreachable ends
+     * the job. The render is not harmed by us waiting.
+     */
+    let consecutiveErrors = 0;
+    const maxConsecutiveErrors = this.options.maxPollErrors ?? 20;
+
     for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
       if (this.disposed) return { status: "cancelled" };
       if (this.cancelled.has(jobId)) return { status: "cancelled" };
 
-      state = await provider.getJob(submitted.providerJobId);
+      try {
+        state = await provider.getJob(submitted.providerJobId);
+        consecutiveErrors = 0;
+      } catch (cause) {
+        consecutiveErrors += 1;
+        const error = toSeedError(cause);
+        this.options.logger.warn("generation.poll_failed", {
+          jobId,
+          attempt,
+          consecutiveErrors,
+          errorMessage: error.message,
+        });
+
+        if (consecutiveErrors >= maxConsecutiveErrors) {
+          return {
+            status: "failed",
+            error: {
+              class: "provider_error",
+              message:
+                `could not reach the provider for ${consecutiveErrors} polls in a row: ` +
+                `${error.message}. The render may still have finished — ` +
+                "scripts/recover-orphans.ts asks and ingests whatever is there.",
+            },
+          };
+        }
+
+        // Back off a little so a flapping network is not hammered.
+        await sleep(interval * Math.min(consecutiveErrors, 5));
+        continue;
+      }
+
       this.options.jobs.update(jobId, {
         attempts: attempt,
         ...(state.progress !== undefined ? { progress: state.progress } : {}),
