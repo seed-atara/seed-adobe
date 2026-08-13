@@ -493,11 +493,11 @@ function stripRequestId(message: string): string {
 function explainFailure(message: string | undefined): string {
   const text = stripRequestId(message ?? "");
   if (!text) return "Seedance reported the task as failed";
-  if (/duration.{0,20}must be -1/i.test(text)) {
+  if (/must be -1/i.test(text) || /ratio.{0,20}must be .?adaptive/i.test(text)) {
     return (
-      "Seedance read this prompt as editing the reference clip, so the result " +
-      "has to be the clip's length. Clear Duration and generate again, or " +
-      "describe a new shot rather than a change to this one. " +
+      "Seedance read this prompt as editing the reference clip, so the length " +
+      "and shape come from the clip. Clear Duration and Aspect and generate " +
+      "again, or describe a new shot rather than a change to this one. " +
       `Seedance said: ${text}`
     );
   }

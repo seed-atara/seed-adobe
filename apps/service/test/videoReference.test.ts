@@ -202,4 +202,100 @@ describe("clips as references", () => {
       await service.close();
     }
   });
+
+  /**
+   * Asking for what the clip already is means following it.
+   *
+   * Ark reads a request carrying a clip as editing and then refuses a duration
+   * and a ratio — "`ratio` must be `adaptive`. `duration` must be -1" — twenty
+   * seconds into a running task. Typing the clip's own length next to a
+   * 4-second clip is the most natural thing an artist does, and it must not be
+   * the thing that fails.
+   */
+  it("drops a duration and a shape that only restate the clip", async () => {
+    const seen: { duration?: number; ratio?: string }[] = [];
+    const clipProvider = {
+      id: "clip-taker",
+      async capabilities() {
+        return {
+          id: "clip-taker",
+          displayName: "Clip taker",
+          models: ["clip-v1"],
+          operations: ["video.generate"],
+          textToImage: false,
+          imageToImage: false,
+          maxImageReferences: 4,
+          textToVideo: true,
+          imageToVideo: true,
+          videoReferences: true,
+          startEndFrames: true,
+          audioReferences: false,
+          seed: false,
+          durationSecondsRange: [4, 30] as [number, number],
+          sizes: [],
+          aspectRatios: ["16:9", "9:16", "adaptive"],
+          async: false,
+        };
+      },
+      async generateVideo(request: {
+        durationSeconds?: number;
+        aspectRatio?: string;
+      }) {
+        seen.push({
+          ...(request.durationSeconds !== undefined
+            ? { duration: request.durationSeconds }
+            : {}),
+          ...(request.aspectRatio ? { ratio: request.aspectRatio } : {}),
+        });
+        return {
+          providerJobId: "clip-1",
+          state: { status: "failed" as const, error: { class: "provider_error", message: "stop here" } },
+        };
+      },
+      async getJob() {
+        return { status: "failed" as const };
+      },
+    };
+
+    const { ProviderRegistry } = await import("@seed-ae/providers");
+    const service = await startTestService({
+      registry: new ProviderRegistry().register(clipProvider as never),
+    });
+    try {
+      const clipPath = path.join(service.deps.workspace.originalsDir, "range.mp4");
+      // 4.04s and 16:9, the shape and length of a real captured range.
+      await writeFile(clipPath, fakeMp4(1920, 1080, 4.04));
+      const { asset } = await readJson(
+        await service.call("/v1/ae/register-clip", {
+          method: "POST",
+          body: JSON.stringify({ path: clipPath, context: {} }),
+        }),
+      );
+
+      const start = async (body: Record<string, unknown>) => {
+        const response = await service.call("/v1/generations", {
+          method: "POST",
+          body: JSON.stringify({
+            providerId: "clip-taker",
+            operation: "video.generate",
+            prompt: "the same move, recoloured",
+            inputAssetIds: [asset.id],
+            ...body,
+          }),
+        });
+        const { job } = await readJson(response);
+        await service.deps.generation.whenSettled(job.id);
+      };
+
+      // 4 next to a 4.04s clip, and 16:9 next to a 1920x1080 clip.
+      await start({ durationSeconds: 4, aspectRatio: "16:9" });
+      expect(seen[0]).toEqual({});
+
+      // A length that is genuinely different is still the artist's to ask for.
+      await start({ durationSeconds: 12, aspectRatio: "9:16" });
+      expect(seen[1]).toEqual({ duration: 12, ratio: "9:16" });
+    } finally {
+      await service.close();
+    }
+  });
 });

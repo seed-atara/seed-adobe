@@ -902,7 +902,7 @@ export function GenerateView({
             label="Aspect"
             hint={
               followsClip
-                ? "Blank follows the clip. Like Duration, a choice is only accepted if the prompt reads as a new shot."
+                ? "Blank, adaptive, or the clip's own shape follows the clip. A different one is only accepted if the prompt reads as a new shot."
                 : referenceAspect !== undefined && aspectSource
                   ? `${aspectSource.filename} is ${describeAspect(referenceAspect)}`
                   : "The shape of the result"
@@ -1005,7 +1005,7 @@ export function GenerateView({
             label="Duration"
             hint={
               followsClip
-                ? "Blank follows the clip. A number is only accepted if the prompt reads as a new shot rather than an edit of it."
+                ? "Blank, or the clip's own length, follows the clip. A different number is only accepted if the prompt reads as a new shot rather than an edit of this one."
                 : `${provider.durationSecondsRange[0]}–${provider.durationSecondsRange[1]} seconds`
             }
           >

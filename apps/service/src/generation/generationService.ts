@@ -416,10 +416,48 @@ export class GenerationService {
       }
     }
 
+    /*
+     * Asking for exactly what the clip already is *is* following the clip.
+     *
+     * A reference clip makes Ark read the task as editing, and editing refuses
+     * a duration or a ratio — but the most natural thing an artist types next
+     * to a 4-second clip is "4", and the most natural shape to pick is the one
+     * they can see. Sending those through fails a running task twenty seconds
+     * in to produce the result they would have got by saying nothing. So a
+     * value that matches the clip is treated as the silence it means, and the
+     * decision is logged rather than hidden.
+     */
+    const clip = this.referenceClip(references);
+    let durationSeconds = request.durationSeconds;
+    let aspectRatio = request.aspectRatio;
+
+    if (clip) {
+      if (
+        durationSeconds !== undefined &&
+        clip.durationSeconds !== undefined &&
+        Math.abs(durationSeconds - clip.durationSeconds) < 0.75
+      ) {
+        this.options.logger.info("generation.duration_follows_clip", {
+          generationId: generation.id,
+          asked: durationSeconds,
+          clipSeconds: clip.durationSeconds,
+        });
+        durationSeconds = undefined;
+      }
+      if (aspectRatio && matchesShape(aspectRatio, clip)) {
+        this.options.logger.info("generation.ratio_follows_clip", {
+          generationId: generation.id,
+          asked: aspectRatio,
+          clipShape: `${clip.width}x${clip.height}`,
+        });
+        aspectRatio = undefined;
+      }
+    }
+
     const payload: VideoGenerationRequest = {
       ...base,
-      ...(request.durationSeconds ? { durationSeconds: request.durationSeconds } : {}),
-      ...(request.aspectRatio ? { aspectRatio: request.aspectRatio } : {}),
+      ...(durationSeconds ? { durationSeconds } : {}),
+      ...(aspectRatio ? { aspectRatio } : {}),
       // Sound is opt-in, and stays off when nothing asked for it.
       ...(request.generateAudio ? { generateAudio: true } : {}),
       ...(firstFrame ? { firstFrame } : {}),
@@ -427,6 +465,16 @@ export class GenerationService {
       references,
     };
     return provider.generateVideo(payload);
+  }
+
+  /** The reference clip behind these inputs, if one of them is a video. */
+  private referenceClip(inputs: MaterializedInput[]): Asset | undefined {
+    for (const input of inputs) {
+      if (!input.mimeType.startsWith("video/") || !input.assetId) continue;
+      const asset = this.options.assets.getById(input.assetId);
+      if (asset) return asset;
+    }
+    return undefined;
   }
 
   private async poll(
@@ -556,4 +604,26 @@ function sleep(ms: number): Promise<void> {
     // Never hold the process open just to poll.
     timer.unref?.();
   });
+}
+
+/**
+ * Whether a requested shape is the shape the clip already has.
+ *
+ * `adaptive` is not a shape but a policy — "take it from the input" — which is
+ * exactly what following the clip means, so it counts. Ratios are compared on
+ * the log of the quotient, at about a percent, so 1920x1080 and 16:9 agree
+ * while 16:9 and 4:3 do not.
+ */
+function matchesShape(
+  aspectRatio: string,
+  clip: { width?: number; height?: number },
+): boolean {
+  if (aspectRatio.trim().toLowerCase() === "adaptive") return true;
+  if (!clip.width || !clip.height) return false;
+
+  const parts = aspectRatio.split(/[:x]/).map(Number);
+  const [w, h] = parts;
+  if (!w || !h || parts.length !== 2) return false;
+
+  return Math.abs(Math.log(w / h) - Math.log(clip.width / clip.height)) < 0.01;
 }

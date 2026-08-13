@@ -606,3 +606,17 @@ The refusal is worth restating because of when it arrives: the task is
 accepted, runs for about twenty seconds, and only then fails. Nothing about the
 request is rejected up front, so this is not something a client can validate
 its way around.
+
+A sixth run, from the panel rather than a probe, added the ratio half of the
+same rule and one more value:
+
+```
+The parameters `ratio` and `duration` specified in the request are not valid.
+Seedance identified your task as video editing based on your prompt.
+Issues: [0] `ratio` must be `adaptive`. [1] `duration` must be -1.
+```
+
+So for an editing task `ratio` is not merely unwelcome — it has a required
+value, `adaptive`, which is Ark's "take it from the input" in the ratio
+vocabulary, exactly as `-1` is in the duration one. Omitting the key entirely
+also works, which is what the adapter does.

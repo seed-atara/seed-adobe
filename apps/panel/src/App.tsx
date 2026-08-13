@@ -451,8 +451,17 @@ export function App() {
           role: keep.length === 0 && media !== "video" ? "first" : "reference",
         });
         const trimmed = keep.slice(-limit);
+        /*
+         * Attaching a clip clears any length and shape left over from an
+         * earlier setup. Both follow the clip by default, and a value the
+         * artist cannot see is a value they cannot have meant — it would just
+         * fail a running task twenty seconds in.
+         */
+        const clearsForClip =
+          media === "video" ? { durationSeconds: "", aspectRatio: "" } : {};
         return {
           ...current,
+          ...clearsForClip,
           inputAssetIds: trimmed.map((entry) => entry.id),
           inputRoles: trimmed.map((entry) => entry.role),
         };
