@@ -804,9 +804,37 @@ describe("SeedanceProvider reference media", () => {
       video_url: { url: "https://x/plate.mp4" },
       role: "reference_video",
     });
-    // Length and shape follow the clip — Ark refuses to be told either, and
-    // says so only after the task has been accepted and started.
+    // Length follows the clip unless the artist says otherwise: -1 is Ark's
+    // "follow the input", and it is accepted whichever way the prompt reads.
+    // A ratio that was asked for is still sent — see the next test.
     expect(body.duration).toBe(-1);
-    expect(body.ratio).toBeUndefined();
+    expect(body.ratio).toBe("16:9");
+  });
+
+  it("still sends a stated duration and ratio alongside a clip", async () => {
+    let body: any;
+    await provider(
+      (async (_url: string, init: RequestInit) => {
+        body = JSON.parse(String(init.body));
+        return new Response(JSON.stringify({ id: "cgt-longer" }), { status: 200 });
+      }) as unknown as typeof fetch,
+    ).generateVideo({
+      model: MODEL,
+      prompt: "a different scene entirely, inspired by this movement",
+      correlationId: "cor_clip_duration",
+      references: [{ kind: "url", value: "https://x/plate.mp4", mimeType: "video/mp4" }],
+      durationSeconds: 8,
+      aspectRatio: "9:16",
+    });
+
+    /*
+     * Verified live: with a prompt describing a new shot rather than a change
+     * to the clip, Ark accepts an ordinary duration. Defaulting to -1 must not
+     * become a rule that removes the choice — an artist using a clip as a
+     * loose reference is allowed to ask for a different length — and a
+     * different shape, which 9:16 alongside the same clip also proved.
+     */
+    expect(body.duration).toBe(8);
+    expect(body.ratio).toBe("9:16");
   });
 });

@@ -14,19 +14,25 @@ says so in its own words when you get it wrong: *"Seedance identified your task
 as video editing based on your prompt. For this task type, the output ratio and
 duration follow the input video."*
 
-Three consequences, all verified against the live API:
+That classification decides what you may set, and it is made from your text
+after you press Generate — so the panel's rule is *silence follows the clip,
+asking is allowed*:
 
-- **The result is the length of the reference clip.** SEED sends
-  `duration: -1`, which is Ark's way of saying "follow the input", and the
-  panel hides the duration control rather than offering a number that will be
-  ignored.
-- **The result is the shape of the reference clip.** Same reason; the aspect
-  control is hidden too.
-- **The clip itself must be 4–30 seconds.** Shorter or longer is refused —
-  twenty seconds into a running task, not at submission — so the panel checks
-  the length before letting you press Generate.
+- **Leave Duration and Aspect blank** and the result takes the clip's length
+  and shape. SEED sends `duration: -1`, which is Ark's way of saying "follow
+  the input", and that is accepted whichever way the prompt reads. This is what
+  you want for a reskin.
+- **Set them** and they are sent. Accepted when the prompt describes a new shot
+  ("a lone figure walking across a salt flat"); refused when it describes a
+  change to this one ("the same camera move, restyled"). The refusal costs
+  about twenty seconds of a running task and says so plainly in the panel —
+  clear Duration and generate again.
+- **Size is always yours.** 720p from a 2663x1498 plate is fine.
+- **The clip itself must be 4–30 seconds.** Shorter or longer is refused, so
+  the panel checks before letting you press Generate.
 
-Resolution is still yours to choose.
+To change the length of a reskin, capture a different work area — the clip's
+length *is* the output length, by design.
 
 ## Getting a clip out of After Effects
 

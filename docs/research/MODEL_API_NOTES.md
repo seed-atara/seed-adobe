@@ -584,10 +584,25 @@ Three things follow, and none of them are guessable from the reference docs:
 Rerunning with `duration: -1` succeeded: 123s, a complete mp4 back. `resolution`
 was accepted alongside it — only duration and ratio follow the input.
 
-`-1` is safe whichever way the prompt is read. The same clip was run twice more
-with `duration: -1`: once with an editing prompt ("the same camera move and
-timing, restyled as a hand-painted ink illustration", 123s) and once with a
-plainly generative one ("a completely different scene: a lone figure walking
-across a salt flat at dawn", 155s). Both succeeded. So the adapter does not
-have to guess the classification — a request carrying a `reference_video` sends
-`duration: -1` and no `ratio`, and both follow the clip.
+### What each classification actually allows — five live runs
+
+| prompt reads as | `duration: -1` | `duration: 8` | `ratio: 9:16` | `resolution` |
+| --- | --- | --- | --- | --- |
+| editing the clip | accepted (123s) | **refused**, TaskTypeConstraint | untested | accepted |
+| a new shot | accepted (155s) | accepted (128s) | accepted (128s) | accepted |
+
+So `-1` is safe whichever way the prompt is read, and it is the only thing that
+is. A number, and by the same rule a ratio, is accepted exactly when the model
+decides the prompt describes a new shot rather than a change to the clip —
+which is a decision made from the text, after submission, and cannot be
+predicted from the request.
+
+The adapter therefore defaults rather than dictates: no duration stated means
+`-1`, a stated one is sent, and the same for `ratio`. Silence follows the clip;
+asking is allowed and may be refused. `resolution` is unaffected throughout —
+720p alongside a 2663x1498 clip works.
+
+The refusal is worth restating because of when it arrives: the task is
+accepted, runs for about twenty seconds, and only then fails. Nothing about the
+request is rejected up front, so this is not something a client can validate
+its way around.

@@ -58,6 +58,7 @@ console.log(`url: ${url.replace(/X-Amz-Signature=.*/, "X-Amz-Signature=<redacted
  */
 const duration = Number(process.argv[4] ?? -1);
 const resolution = process.argv[5] ?? "480p";
+const ratio = process.argv[6];
 const body = {
   model,
   content: [
@@ -66,8 +67,9 @@ const body = {
   ],
   duration,
   ...(resolution === "none" ? {} : { resolution }),
+  ...(ratio ? { ratio } : {}),
 };
-console.log(`duration ${duration}, resolution ${resolution}`);
+console.log(`duration ${duration}, resolution ${resolution}, ratio ${ratio ?? "none"}`);
 
 console.log(`\nPOST ${base}/contents/generations/tasks`);
 const response = await fetch(`${base}/contents/generations/tasks`, {

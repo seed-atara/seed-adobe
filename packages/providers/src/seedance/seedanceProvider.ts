@@ -288,18 +288,20 @@ export class SeedanceProvider implements GenerationProvider {
     /*
      * A reference video changes what `duration` may be.
      *
-     * Ark classifies a request carrying one by what the prompt asks for, and
-     * when it decides the task is video *editing* it refuses any duration but
-     * -1: "the output ratio and duration follow the input video selected by
-     * the model for editing". Verified live — the request is accepted, runs
-     * for twenty seconds, and then fails on the duration.
+     * Ark classifies a request carrying one by what the prompt asks for. When
+     * it decides the task is video *editing* it refuses any duration but -1:
+     * "the output ratio and duration follow the input video selected by the
+     * model for editing". When it reads the prompt as describing a new shot,
+     * an ordinary 4–30 is accepted. Both verified live, with the same clip.
      *
-     * Since the classification comes from the text, no parameter can predict
-     * it. Following the clip is both the safe answer and the honest one: the
-     * artist chose a clip whose length is the point.
+     * So -1 is the default rather than the rule: it always works, and it is
+     * what an artist reskinning a shot wants. A stated duration is still sent,
+     * because the artist who asks for one is the one using the clip as a loose
+     * reference — and if the model disagrees it says so, in words the panel
+     * passes on.
      */
     const followsReferenceVideo = content.some((part) => part.type === "video_url");
-    if (followsReferenceVideo) {
+    if (followsReferenceVideo && request.durationSeconds === undefined) {
       body.duration = -1;
     } else if (request.durationSeconds !== undefined) {
       // Catch it here rather than spending a round trip on a known rejection.
@@ -320,11 +322,13 @@ export class SeedanceProvider implements GenerationProvider {
     // "For first-frame or first-last-frame generation, the output ratio
     // follows the first-frame image." Reference-driven requests have no such
     // anchor and do accept a ratio.
-    // A reference video dictates the shape for the same reason it dictates the
-    // length: the output follows the clip.
-    if (request.aspectRatio && mode !== "frame" && !followsReferenceVideo) {
-      body.ratio = request.aspectRatio;
-    }
+    /*
+     * A reference clip decides the shape on the same terms as the length:
+     * silence means follow the clip, and a stated ratio is sent because it was
+     * asked for. Verified live — 9:16 alongside a clip is accepted when the
+     * prompt describes a new shot, and refused when it describes an edit.
+     */
+    if (request.aspectRatio && mode !== "frame") body.ratio = request.aspectRatio;
     // `size` carries the resolution keyword for video (480p/720p/1080p).
     const resolution = request.parameters?.size ?? request.parameters?.resolution;
     if (typeof resolution === "string") body.resolution = resolution;
@@ -382,7 +386,7 @@ export class SeedanceProvider implements GenerationProvider {
         status: "failed",
         error: {
           class: "provider_error",
-          message: task.error?.message ?? "Seedance reported the task as failed",
+          message: explainFailure(task.error?.message),
         },
         raw: payload,
       };
@@ -475,6 +479,29 @@ export class SeedanceProvider implements GenerationProvider {
 /** Ark echoes a request id into every message; it is noise in a panel. */
 function stripRequestId(message: string): string {
   return message.replace(/\s*Request id:.*$/i, "").trim();
+}
+
+/**
+ * Puts the one recoverable failure in terms of what to do about it.
+ *
+ * A duration sent alongside a reference clip is refused only when the model
+ * reads the prompt as editing that clip, and Ark's own wording — four
+ * sentences ending in "`duration` must be -1" — describes its rule rather than
+ * the artist's next move. The rest are passed through unchanged: guessing at
+ * an explanation is worse than the provider's own words.
+ */
+function explainFailure(message: string | undefined): string {
+  const text = stripRequestId(message ?? "");
+  if (!text) return "Seedance reported the task as failed";
+  if (/duration.{0,20}must be -1/i.test(text)) {
+    return (
+      "Seedance read this prompt as editing the reference clip, so the result " +
+      "has to be the clip's length. Clear Duration and generate again, or " +
+      "describe a new shot rather than a change to this one. " +
+      `Seedance said: ${text}`
+    );
+  }
+  return text;
 }
 
 function toJobStatus(status: string | undefined): JobStatus {

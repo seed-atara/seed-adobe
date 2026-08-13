@@ -897,13 +897,15 @@ export function GenerateView({
           />
         </Field>
 
-        {(provider?.aspectRatios.length ?? 0) > 0 && !shapeFromFrame && !followsClip ? (
+        {(provider?.aspectRatios.length ?? 0) > 0 && !shapeFromFrame ? (
           <Field
             label="Aspect"
             hint={
-              referenceAspect !== undefined && aspectSource
-                ? `${aspectSource.filename} is ${describeAspect(referenceAspect)}`
-                : "The shape of the result"
+              followsClip
+                ? "Blank follows the clip. Like Duration, a choice is only accepted if the prompt reads as a new shot."
+                : referenceAspect !== undefined && aspectSource
+                  ? `${aspectSource.filename} is ${describeAspect(referenceAspect)}`
+                  : "The shape of the result"
             }
           >
             <div className="row">
@@ -911,7 +913,9 @@ export function GenerateView({
                 value={form.aspectRatio}
                 onChange={(event) => patch({ aspectRatio: event.target.value })}
               >
-                <option value="">provider default</option>
+                <option value="">
+                  {followsClip ? "follows the clip" : "provider default"}
+                </option>
                 {(provider?.aspectRatios ?? []).map((ratio) => (
                   <option key={ratio} value={ratio}>
                     {ratio}
@@ -952,12 +956,13 @@ export function GenerateView({
 
         {followsClip ? (
           <div className="hint faint" style={{ marginBottom: 8 }}>
-            <b>{referenceClip?.filename}</b> is the motion reference, so the
-            result follows it: same length
-            {referenceClip?.durationSeconds
-              ? ` (${referenceClip.durationSeconds.toFixed(1)}s)`
-              : ""}
-            , same shape. Seedance refuses to be told either alongside a clip.
+            <b>{referenceClip?.filename}</b> is the motion reference. Reskin it
+            — "the same move, but…" — and the result takes the clip's length
+            {clipLength ? ` (${clipLength.toFixed(1)}s)` : ""} and shape,
+            because Seedance reads that as editing the clip and refuses to be
+            told either. Describe a new shot instead and Duration and Aspect
+            below are yours again. Size always is. To change the length of an
+            edit, capture a different work area.
             {clipOutOfRange ? (
               <>
                 {" "}
@@ -995,17 +1000,25 @@ export function GenerateView({
           </select>
         </Field>
 
-        {provider?.durationSecondsRange && !followsClip ? (
+        {provider?.durationSecondsRange ? (
           <Field
             label="Duration"
-            hint={`${provider.durationSecondsRange[0]}–${provider.durationSecondsRange[1]} seconds`}
+            hint={
+              followsClip
+                ? "Blank follows the clip. A number is only accepted if the prompt reads as a new shot rather than an edit of it."
+                : `${provider.durationSecondsRange[0]}–${provider.durationSecondsRange[1]} seconds`
+            }
           >
             <input
               type="number"
               min={provider.durationSecondsRange[0]}
               max={provider.durationSecondsRange[1]}
               value={form.durationSeconds}
-              placeholder="provider default"
+              placeholder={
+                followsClip && clipLength
+                  ? `follows the clip (${clipLength.toFixed(1)}s)`
+                  : "provider default"
+              }
               onChange={(event) =>
                 patch({ durationSeconds: event.target.value })
               }
