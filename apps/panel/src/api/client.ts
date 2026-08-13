@@ -151,6 +151,29 @@ export class SeedClient {
     });
   }
 
+  /** Registers a span of the timeline the panel rendered to an mp4. */
+  registerClip(input: {
+    path: string;
+    posterPath?: string;
+    context: Record<string, unknown>;
+    width?: number;
+    height?: number;
+    durationSeconds?: number;
+    fps?: number;
+  }): Promise<{ asset: Asset }> {
+    return this.request("/v1/ae/register-clip", { method: "POST", body: input });
+  }
+
+  /**
+   * Copies a file from anywhere on disk into the library.
+   *
+   * The manual route to a motion reference: whatever the artist exported, from
+   * whichever application, becomes an asset SEED can reference.
+   */
+  adoptFile(path: string): Promise<{ asset: Asset }> {
+    return this.request("/v1/assets/adopt", { method: "POST", body: { path } });
+  }
+
   listAssets(params: { limit?: number; kind?: string } = {}): Promise<{
     assets: Asset[];
     total: number;

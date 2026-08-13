@@ -1,12 +1,17 @@
 import { createReadStream } from "node:fs";
-import { stat, unlink } from "node:fs/promises";
+import { readFile, stat, unlink, writeFile } from "node:fs/promises";
+import path from "node:path";
 import {
   ListAssetsQuerySchema,
   RegisterAssetRequestSchema,
   SeedError,
+  assetKindFromMimeType,
   nowIso,
 } from "@seed-ae/domain";
-import { resolveStorageUri } from "@seed-ae/storage";
+import { readMp4Size, readPngSize, sniffMimeType } from "@seed-ae/media";
+import { resolveStorageUri, toStorageUri } from "@seed-ae/storage";
+import { z } from "zod";
+import { MAX_OUTPUT_BYTES } from "../generation/mediaIngestor.js";
 import { ensurePlaceholder } from "../placeholder.js";
 import type { AppDeps } from "../app.js";
 import { parseWith, readJsonBody } from "../http/body.js";
@@ -91,6 +96,129 @@ export function removeAssetRoute(deps: AppDeps) {
 
     return json({ id: asset.id, filesRemoved: removed.length, usedBy });
   };
+}
+
+const AdoptFileSchema = z.object({
+  /** Any absolute path the user picked; copied in, never referenced in place. */
+  path: z.string().min(1),
+});
+
+/**
+ * Takes a file from anywhere on disk into the library.
+ *
+ * The manual half of video references: an artist who has already exported a
+ * clip — from the render queue, from Media Encoder, from another application
+ * entirely — should be able to use it as a reference without SEED having
+ * rendered it. It is also the fallback for any host SEED cannot drive.
+ *
+ * The bytes are copied rather than linked. An asset is immutable and the
+ * library owns its media; referencing a file in someone's Downloads folder
+ * would make provenance depend on a path that can move or change underneath it.
+ */
+export function adoptFileRoute(deps: AppDeps) {
+  return async ({ req }: RequestContext) => {
+    const body = await readJsonBody(req);
+    const request = parseWith(AdoptFileSchema, body);
+    const source = path.resolve(request.path);
+
+    const info = await stat(source).catch(() => undefined);
+    if (!info?.isFile()) {
+      throw new SeedError("not_found", `no file at ${request.path}`);
+    }
+    if (info.size === 0) {
+      throw new SeedError("bad_request", `${path.basename(source)} is empty`);
+    }
+    if (info.size > MAX_OUTPUT_BYTES) {
+      throw new SeedError(
+        "bad_request",
+        `${path.basename(source)} is ${info.size} bytes, over the ` +
+          `${MAX_OUTPUT_BYTES} byte limit`,
+      );
+    }
+
+    const bytes = await readFile(source);
+    // The bytes decide what this is. A .mp4 that is really a MOV, or a .png
+    // holding JPEG, would otherwise be registered as whatever it was named.
+    const mimeType = sniffMimeType(bytes) ?? "application/octet-stream";
+    const kind = assetKindFromMimeType(mimeType);
+    if (kind === "other") {
+      throw new SeedError(
+        "bad_request",
+        `${path.basename(source)} is ${mimeType}, which SEED has no use for as a reference`,
+      );
+    }
+
+    const stem = path
+      .basename(source, path.extname(source))
+      .replace(/[^A-Za-z0-9._-]+/g, "_")
+      .slice(0, 48);
+    const extension = path.extname(source).toLowerCase() || extensionFor(mimeType);
+
+    // Never overwrite: two files of the same name are two different assets.
+    let target = "";
+    for (let attempt = 1; attempt < 1000; attempt += 1) {
+      const suffix = String(attempt).padStart(3, "0");
+      target = path.join(deps.workspace.originalsDir, `${stem}_${suffix}${extension}`);
+      try {
+        await writeFile(target, bytes, { flag: "wx" });
+        break;
+      } catch (cause) {
+        if ((cause as NodeJS.ErrnoException).code !== "EEXIST") {
+          throw new SeedError("storage_error", `could not write ${target}`, { cause });
+        }
+        target = "";
+      }
+    }
+    if (!target) {
+      throw new SeedError("storage_error", `could not find a free name for ${stem}`);
+    }
+
+    const video = kind === "video" ? readMp4Size(bytes) : undefined;
+    const image = kind === "image" ? readPngSize(bytes) : undefined;
+    const width = image?.width ?? video?.width;
+    const height = image?.height ?? video?.height;
+
+    const asset = deps.assets.create({
+      kind,
+      filename: path.basename(target),
+      mimeType,
+      storageUri: toStorageUri(deps.workspace, target),
+      byteSize: bytes.length,
+      ...(width ? { width } : {}),
+      ...(height ? { height } : {}),
+      ...(video?.durationSeconds ? { durationSeconds: video.durationSeconds } : {}),
+      source: { type: "imported", originalPath: source },
+    });
+
+    // Images get a real thumbnail; a clip gets none, because nothing here can
+    // decode one. The panel shows a video badge rather than a broken picture.
+    const thumbnailUri = await deps.ingestor.writeThumbnail(bytes, asset.id);
+    const registered = thumbnailUri
+      ? deps.assets.setThumbnail(asset.id, thumbnailUri)
+      : asset;
+
+    deps.logger.info("asset.adopted", {
+      assetId: asset.id,
+      kind,
+      mimeType,
+      byteSize: bytes.length,
+    });
+
+    return json({ asset: registered }, 201);
+  };
+}
+
+/** A sensible extension for a file that arrived without one. */
+function extensionFor(mimeType: string): string {
+  const known: Record<string, string> = {
+    "video/mp4": ".mp4",
+    "video/quicktime": ".mov",
+    "video/webm": ".webm",
+    "image/png": ".png",
+    "image/jpeg": ".jpg",
+    "image/webp": ".webp",
+  };
+  return known[mimeType] ?? "";
 }
 
 /**

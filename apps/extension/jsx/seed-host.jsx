@@ -290,6 +290,313 @@ function seedCaptureFrame(outputDir, basename) {
     }
 }
 
+// -------------------------------------------------------------- range export
+
+/**
+ * Picks an H.264 output module template.
+ *
+ * The names are version- and locale-specific, so this asks After Effects what
+ * it has rather than naming one. "Match Render Settings" is preferred because
+ * it keeps the comp's own size and frame rate instead of a preset's.
+ */
+function seedH264Template(outputModule) {
+    var templates;
+    try {
+        templates = outputModule.templates;
+    } catch (error) {
+        return null;
+    }
+    if (!templates || !templates.length) return null;
+
+    var best = null;
+    for (var i = 0; i < templates.length; i++) {
+        var name = String(templates[i]);
+        if (!/h\.?264/i.test(name)) continue;
+        if (/match render settings/i.test(name)) return name;
+        if (!best) best = name;
+    }
+    return best;
+}
+
+/** A file in outputDir that does not exist yet, so a render never overwrites. */
+function seedUniqueFile(folder, safeName, suffix, extension) {
+    var attempt = 1;
+    var target;
+    do {
+        var counter = String(attempt);
+        while (counter.length < 3) counter = "0" + counter;
+        target = new File(
+            seedNormalizePath(folder.fsName) + "/" + safeName + suffix + "_" + counter + extension
+        );
+        attempt++;
+    } while (target.exists && attempt < 1000);
+    return target;
+}
+
+/**
+ * Renders a span of the active composition to an mp4.
+ *
+ * This is what makes a *video* reference possible: Seedance can be shown a
+ * motion reference, but only as a clip it can fetch, and until now the only
+ * thing SEED could export from a timeline was a still.
+ *
+ * The range defaults to the work area, which is the span the artist has
+ * already framed. Everything else in the render queue is left alone: its
+ * items are unqueued for the duration of this render and put back afterwards,
+ * because rendering someone's overnight comp by accident is unforgivable.
+ *
+ * H.264 comes from an output module template rather than a named format —
+ * After Effects has no scripting API to build one, and the template names
+ * differ between versions and languages.
+ */
+function seedCaptureRange(outputDir, basename, startSeconds, durationSeconds) {
+    var queueItem = null;
+    var unqueued = [];
+    try {
+        var comp = seedActiveComp();
+        if (!comp) return seedFail("no active composition");
+
+        var folder = seedEnsureFolder(outputDir);
+        if (!folder.exists) {
+            return seedFail("could not create output folder: " + outputDir);
+        }
+
+        var start = Number(startSeconds);
+        if (startSeconds === null || startSeconds === undefined || isNaN(start)) {
+            start = comp.workAreaStart;
+        }
+        var duration = Number(durationSeconds);
+        if (
+            durationSeconds === null ||
+            durationSeconds === undefined ||
+            isNaN(duration) ||
+            duration <= 0
+        ) {
+            duration = comp.workAreaDuration;
+        }
+
+        // A span running past the end renders black frames, which look like a
+        // broken export rather than a range that was never there.
+        if (start < 0) start = 0;
+        if (start > comp.duration) start = comp.duration;
+        if (start + duration > comp.duration) duration = comp.duration - start;
+        if (duration <= 0) {
+            return seedFail(
+                "that range is empty — the composition is " +
+                    comp.duration.toFixed(2) + "s long and the range starts at " +
+                    start.toFixed(2) + "s"
+            );
+        }
+
+        var safe = String(basename || comp.name).replace(/[^A-Za-z0-9._-]+/g, "_");
+        var frame = Math.round(start * comp.frameRate);
+        var stamp = String(frame);
+        while (stamp.length < 5) stamp = "0" + stamp;
+        var target = seedUniqueFile(folder, safe, "_f" + stamp + "_range", ".mp4");
+        var targetPath = target.fsName;
+
+        queueItem = app.project.renderQueue.items.add(comp);
+
+        /*
+         * renderQueue.render() renders every QUEUED item, not the one just
+         * added. Anything already waiting is taken out of the queue and put
+         * back when this render is done.
+         */
+        for (var i = 1; i <= app.project.renderQueue.numItems; i++) {
+            var other = app.project.renderQueue.item(i);
+            if (other === queueItem) continue;
+            if (other.status !== RQItemStatus.QUEUED) continue;
+            try {
+                other.render = false;
+                unqueued.push(other);
+            } catch (unqueueError) {
+                // Leave it alone rather than guessing; reported below.
+            }
+        }
+
+        var outputModule = queueItem.outputModule(1);
+        var template = seedH264Template(outputModule);
+        if (!template) {
+            return seedFail(
+                "this After Effects has no H.264 output module template, so a clip " +
+                    "cannot be rendered from scripting. Export the range yourself " +
+                    "(Composition > Add to Render Queue, or Add to Adobe Media Encoder " +
+                    "Queue) and add the file to the library."
+            );
+        }
+
+        // Render settings first: a template carries a time span of its own, and
+        // applying it after the span would silently replace the chosen range.
+        try {
+            queueItem.applyTemplate("Best Settings");
+        } catch (settingsError) {
+            // A localised or customised install may not have that name. The
+            // queue item's defaults are perfectly renderable.
+        }
+        outputModule.applyTemplate(template);
+        outputModule.file = target;
+
+        /*
+         * Set the span in three steps. The item starts covering the whole comp,
+         * so moving the start alone can push the end past it, and After Effects
+         * clamps or refuses depending on version.
+         */
+        try {
+            queueItem.timeSpanDuration = comp.frameDuration;
+            queueItem.timeSpanStart = start;
+            queueItem.timeSpanDuration = duration;
+        } catch (spanError) {
+            return seedFail("could not set the render range: " + spanError);
+        }
+
+        try {
+            app.project.renderQueue.render();
+        } catch (renderError) {
+            return seedFail("render failed: " + renderError);
+        }
+
+        var status = queueItem.status;
+        if (status !== RQItemStatus.DONE) {
+            return seedFail(
+                "After Effects stopped the render before it finished (status " +
+                    status + ")"
+            );
+        }
+
+        // Re-stat through a new File: an ExtendScript File caches what it knew
+        // when it was constructed.
+        var written = null;
+        for (var check = 0; check < 40; check++) {
+            var probe = new File(targetPath);
+            if (probe.exists && probe.length > 0) {
+                written = probe;
+                break;
+            }
+            $.sleep(100);
+        }
+        if (!written) {
+            return seedFail(
+                "the render reported success but no file appeared at " + targetPath
+            );
+        }
+
+        /*
+         * A still of the first frame, so the clip has a real poster in the
+         * library. There is no video decoder on the SEED side, and a reference
+         * clip nobody can recognise in a grid is a reference nobody will use.
+         */
+        var posterPath = null;
+        try {
+            if (typeof comp.saveFrameToPng === "function") {
+                var poster = seedUniqueFile(folder, safe, "_f" + stamp + "_poster", ".png");
+                comp.saveFrameToPng(start, poster);
+                var posterProbe = new File(poster.fsName);
+                if (posterProbe.exists && posterProbe.length > 0) {
+                    posterPath = posterProbe.fsName;
+                }
+            }
+        } catch (posterError) {
+            posterPath = null;
+        }
+
+        return seedOk({
+            path: written.fsName,
+            posterPath: posterPath,
+            bytes: written.length,
+            width: comp.width,
+            height: comp.height,
+            frameRate: comp.frameRate,
+            frameNumber: frame,
+            startSeconds: start,
+            durationSeconds: duration,
+            template: template,
+            workAreaStart: comp.workAreaStart,
+            workAreaDuration: comp.workAreaDuration
+        });
+    } catch (error) {
+        return seedFail(error);
+    } finally {
+        // The queue is the artist's, not SEED's: leave it as it was found.
+        if (queueItem) {
+            try { queueItem.remove(); } catch (removeError) {}
+        }
+        for (var r = 0; r < unqueued.length; r++) {
+            try { unqueued[r].render = true; } catch (requeueError) {}
+        }
+    }
+}
+
+/**
+ * What the timeline currently offers as a range, without rendering anything.
+ *
+ * The panel shows this before the artist commits to an export, because a work
+ * area is easy to have forgotten about and a fourteen-second render is a slow
+ * way to discover it.
+ */
+function seedRangeInfo() {
+    try {
+        var comp = seedActiveComp();
+        if (!comp) return seedFail("no active composition");
+        return seedOk({
+            compName: comp.name,
+            width: comp.width,
+            height: comp.height,
+            frameRate: comp.frameRate,
+            duration: comp.duration,
+            time: comp.time,
+            workAreaStart: comp.workAreaStart,
+            workAreaDuration: comp.workAreaDuration,
+            hasH264: seedHasH264Template()
+        });
+    } catch (error) {
+        return seedFail(error);
+    }
+}
+
+/**
+ * Whether an H.264 output module template exists at all.
+ *
+ * Answered by adding a throwaway render queue item and reading its templates —
+ * there is no way to ask the application directly. Removed immediately.
+ */
+function seedHasH264Template() {
+    var comp = seedActiveComp();
+    if (!comp) return false;
+    var item = null;
+    try {
+        item = app.project.renderQueue.items.add(comp);
+        item.render = false;
+        return seedH264Template(item.outputModule(1)) !== null;
+    } catch (error) {
+        return false;
+    } finally {
+        if (item) {
+            try { item.remove(); } catch (removeError) {}
+        }
+    }
+}
+
+/**
+ * Asks the artist for a file, using the host's own open dialog.
+ *
+ * A CEP panel is a browser and a browser cannot learn a real path from an
+ * `<input type=file>` — only bytes. The library needs the path, so the dialog
+ * has to be the application's.
+ */
+function seedPickFile(title, filter) {
+    try {
+        var chosen = File.openDialog(
+            title || "Choose a file",
+            filter || undefined,
+            false
+        );
+        if (!chosen) return seedOk({ path: null });
+        return seedOk({ path: chosen.fsName });
+    } catch (error) {
+        return seedFail(error);
+    }
+}
+
 // ------------------------------------------------------------------- import
 
 function seedImport(path) {
@@ -1605,6 +1912,9 @@ function seedPing() {
 var seedAeft_ping = seedPing;
 var seedAeft_getContext = seedGetContext;
 var seedAeft_captureFrame = seedCaptureFrame;
+var seedAeft_captureRange = seedCaptureRange;
+var seedAeft_rangeInfo = seedRangeInfo;
+var seedAeft_pickFile = seedPickFile;
 var seedAeft_import = seedImport;
 var seedAeft_insertAtPlayhead = seedInsertAtPlayhead;
 var seedAeft_createRegion = seedCreateRegion;

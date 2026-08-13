@@ -26,7 +26,7 @@ const IsoTimestampSchema = z
 export const AeAssetSourceSchema = z.object({
   type: z.literal("after-effects"),
   context: AeContextSchema,
-  captureFormat: z.enum(["png", "exr", "jpg", "mov", "other"]).optional(),
+  captureFormat: z.enum(["png", "exr", "jpg", "mov", "mp4", "other"]).optional(),
   includesAlpha: z.boolean().optional(),
 });
 

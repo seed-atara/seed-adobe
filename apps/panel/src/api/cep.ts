@@ -165,6 +165,33 @@ export interface CaptureResult {
   timeSeconds: number;
 }
 
+/** What the timeline offers as a range, before anything is rendered. */
+export interface RangeInfo {
+  compName: string;
+  width: number;
+  height: number;
+  frameRate: number;
+  duration: number;
+  time: number;
+  workAreaStart: number;
+  workAreaDuration: number;
+  /** False when no H.264 output module template exists to render through. */
+  hasH264: boolean;
+}
+
+export interface RangeCaptureResult {
+  path: string;
+  posterPath?: string | null;
+  bytes: number;
+  width: number;
+  height: number;
+  frameRate: number;
+  frameNumber: number;
+  startSeconds: number;
+  durationSeconds: number;
+  template: string;
+}
+
 /**
  * Drives the host application from inside the panel.
  *
@@ -366,6 +393,78 @@ export class CepAeBridge {
       return { ...registered, warning: diagnostics.trace };
     }
     return registered;
+  }
+
+  // --------------------------------------------------------- range export
+
+  /**
+   * What the comp currently offers as a range.
+   *
+   * Read before the artist commits: a work area they had forgotten about is a
+   * cheap thing to show and an expensive thing to discover after a render.
+   */
+  async rangeInfo(): Promise<RangeInfo> {
+    await this.ensureHost();
+    return evalHost<RangeInfo>(`${hostPrefix()}rangeInfo()`);
+  }
+
+  /**
+   * Renders a span of the timeline to an mp4 and registers it as a video asset.
+   *
+   * This is the only way to get a *motion* reference out of a comp. The render
+   * is synchronous inside After Effects, so the panel stays busy until it
+   * finishes — a few seconds of 1080p is a few seconds of waiting.
+   */
+  async captureRange(range?: {
+    startSeconds?: number;
+    durationSeconds?: number;
+  }): Promise<{ asset: Asset; captured: RangeCaptureResult }> {
+    await this.ensureHost();
+    const { workspace } = await this.client.workspace();
+    const context = await this.getContext();
+    const compName = typeof context.compName === "string" ? context.compName : "comp";
+
+    const captured = await evalHost<RangeCaptureResult>(
+      `${hostPrefix()}captureRange(${quote(workspace.originalsDir)}, ${quote(compName)}, ${
+        range?.startSeconds ?? "null"
+      }, ${range?.durationSeconds ?? "null"})`,
+    );
+
+    const { asset } = await this.client.registerClip({
+      path: captured.path,
+      ...(captured.posterPath ? { posterPath: captured.posterPath } : {}),
+      context: {
+        ...context,
+        frameNumber: captured.frameNumber,
+        timeSeconds: captured.startSeconds,
+        workAreaStartSeconds: captured.startSeconds,
+        workAreaDurationSeconds: captured.durationSeconds,
+      },
+      width: captured.width,
+      height: captured.height,
+      durationSeconds: captured.durationSeconds,
+      fps: captured.frameRate,
+    });
+
+    return { asset, captured };
+  }
+
+  /**
+   * Adds a clip the artist already has on disk to the library.
+   *
+   * The path comes from the host's open dialog, because a panel is a browser
+   * and a browser only ever learns bytes. Returns nothing if they cancel.
+   */
+  async addFileFromDisk(): Promise<Asset | undefined> {
+    await this.ensureHost();
+    const { path } = await evalHost<{ path: string | null }>(
+      `${hostPrefix()}pickFile(${quote("Choose a clip or image to add to the library")}, ${quote(
+        "Media:*.mp4;*.mov;*.m4v;*.webm;*.png;*.jpg;*.jpeg,All files:*.*",
+      )})`,
+    );
+    if (!path) return undefined;
+    const { asset } = await this.client.adoptFile(path);
+    return asset;
   }
 
   // ------------------------------------------------------------- regions

@@ -10,7 +10,7 @@ import {
   type AssetDraft,
   type CapturedMedia,
 } from "@seed-ae/domain";
-import { alphaBounds, decodePng, readPngSize } from "@seed-ae/media";
+import { alphaBounds, decodePng, readMp4Size, readPngSize, sniffMimeType } from "@seed-ae/media";
 import { resolveStorageUri, toStorageUri } from "@seed-ae/storage";
 import { z } from "zod";
 import type { AppDeps } from "../app.js";
@@ -221,6 +221,107 @@ export function registerCaptureRoute(deps: AppDeps) {
       request.includeAlpha,
     );
     return json(registered, 201);
+  };
+}
+
+const RegisterClipSchema = z.object({
+  /** Absolute path the host rendered to; must be inside the workspace. */
+  path: z.string().min(1),
+  /**
+   * A still of the clip's first frame, if the host could make one.
+   *
+   * There is no video decoder here, so without it the clip has no poster and
+   * a library of grey cards is a library nobody picks a reference from.
+   */
+  posterPath: z.string().optional(),
+  context: AeContextSchema,
+  mimeType: z.string().default("video/mp4"),
+  width: z.number().int().positive().optional(),
+  height: z.number().int().positive().optional(),
+  durationSeconds: z.number().positive().optional(),
+  fps: z.number().positive().optional(),
+});
+
+/**
+ * Registers a rendered span of the timeline as a video asset.
+ *
+ * The still path and this one stay separate on purpose: a clip carries a
+ * duration and a frame rate, needs its bytes sniffed rather than assumed, and
+ * gets its poster from a second file. Folding it into the frame route would
+ * mean a function that is two functions with a flag.
+ */
+export function registerClipRoute(deps: AppDeps) {
+  return async ({ req }: RequestContext) => {
+    const body = await readJsonBody(req);
+    const request = parseWith(RegisterClipSchema, body);
+
+    // Round-tripping through the storage URI is the path validation.
+    const storageUri = toStorageUri(deps.workspace, request.path);
+    const absolutePath = resolveStorageUri(deps.workspace, storageUri);
+
+    // After Effects hands back the path the moment the render finishes, and
+    // the file can still be open; readWhenSettled waits it out.
+    const bytes = await readWhenSettled(absolutePath);
+
+    // Trust the bytes over anything declared: an output module template can be
+    // changed, and a .mp4 holding something else would be registered as a lie.
+    const sniffed = sniffMimeType(bytes);
+    const mimeType = sniffed ?? request.mimeType;
+    if (!mimeType.startsWith("video/")) {
+      throw new SeedError(
+        "bad_request",
+        `${path.basename(absolutePath)} is ${mimeType}, not a video`,
+      );
+    }
+
+    const probed = readMp4Size(bytes);
+    const width = request.width ?? probed?.width;
+    const height = request.height ?? probed?.height;
+    // The host knows the span it asked for; the file knows what it got. They
+    // agree unless the render was cut short, so the file wins.
+    const durationSeconds = probed?.durationSeconds ?? request.durationSeconds;
+
+    const draft: AssetDraft = {
+      kind: "video",
+      filename: path.basename(absolutePath),
+      mimeType,
+      storageUri,
+      byteSize: bytes.length,
+      ...(width ? { width } : {}),
+      ...(height ? { height } : {}),
+      ...(durationSeconds ? { durationSeconds } : {}),
+      ...(request.fps ? { fps: request.fps } : {}),
+      source: {
+        type: "after-effects",
+        context: request.context,
+        captureFormat: "mp4",
+        includesAlpha: false,
+      },
+    };
+
+    const asset = deps.assets.create(draft);
+
+    let registered = asset;
+    if (request.posterPath) {
+      const posterUri = toStorageUri(deps.workspace, request.posterPath);
+      const poster = await readFile(resolveStorageUri(deps.workspace, posterUri)).catch(
+        () => undefined,
+      );
+      const thumbnailUri = poster
+        ? await deps.ingestor.writeThumbnail(poster, asset.id)
+        : undefined;
+      if (thumbnailUri) registered = deps.assets.setThumbnail(asset.id, thumbnailUri);
+    }
+
+    deps.logger.info("ae.clip.captured", {
+      assetId: asset.id,
+      compName: request.context.compName,
+      durationSeconds,
+      byteSize: bytes.length,
+      hasPoster: registered.thumbnailUri !== undefined,
+    });
+
+    return json({ asset: registered }, 201);
   };
 }
 

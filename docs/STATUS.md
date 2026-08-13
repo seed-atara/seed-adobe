@@ -1,6 +1,6 @@
 # Status
 
-Last updated: 2026-08-09
+Last updated: 2026-08-13
 
 ## Current milestone
 
@@ -87,15 +87,51 @@ In CEP the panel drives AE itself through `jsx/seed-host.jsx` (capture via
 group) and registers results with the service. In a browser it falls back to
 the service's mock host, so everything stays testable without Adobe.
 
+## Video references — reskinning a shot (2026-08-13)
+
+Video-to-video works end to end, verified through the service on a real
+generation: a clip in the library, a prompt, and a result 640x640 and 6.042s —
+exactly the reference clip's shape and length — registered with lineage back to
+it. See `docs/product/VIDEO_REFERENCES.md` for the artist-facing version and
+ADR 0009 for the hosting decision.
+
+Three pieces were missing and are now built:
+
+- **`R2Publisher`** (`packages/providers/src/publish/`). Private bucket, SigV4
+  header auth for the PUT and query auth for a presigned GET, content-hash
+  keys. `scripts/probe-r2.ts` verifies a bucket: signed PUT, anonymous
+  presigned GET returning identical bytes, unsigned GET refused, delete.
+- **A clip out of the timeline.** `Capture work area as clip` renders the work
+  area to H.264 through the render queue — leaving anything already queued
+  alone — writes a poster frame beside it, and registers both as one asset.
+  `POST /v1/assets/adopt` is the manual half: any file on disk, from any
+  application, copied into the library and registered by what its bytes
+  actually are.
+- **The rules a clip brings with it.** Ark reads a request carrying a
+  `reference_video` as *video editing* and refuses to be told the length or the
+  shape: `duration` must be `-1` and no `ratio` may be sent. Both were measured
+  live — the refusal arrives twenty seconds into a running task, not at
+  submission — and both prompt classifications accept `-1`. The clip itself
+  must be 4–30s, which the panel checks before offering Generate.
+
+A clip can never be a first frame, at either layer: the service will not give a
+video a frame role and the adapter will not put one in an `image_url` part.
+
+Not yet run inside After Effects: `seedCaptureRange` parses and the panel
+builds, but no work area has been rendered through it in a real project. The
+manual route (`Add a clip or image from disk…`) does not depend on it.
+
 ## Known gaps
 
 - **Video posters are borrowed, not extracted.** There is no video decoder
   here, so a generated clip shows the thumbnail of the frame it was generated
   from. For image-to-video that frame *is* the first frame, so it is honest —
   but it is not a real extract, and a text-to-video result gets no poster.
-- **No public URL publisher**, so Ark asset registration (`asset://`) cannot be
-  used for local frames; references go inline as data URLs. That is the wrong
-  route for recognisable real people — see ADR 0005.
+- **`asset://` is unblocked but not switched on.** The publisher Ark asset
+  registration needed now exists, so `ARK_REFERENCE_POLICY=asset` is a
+  configuration change rather than a missing component — but it has not been
+  run live, and until it is, image references still go inline. That remains the
+  wrong route for recognisable real people; see ADR 0005.
 - **Region of Interest silently halves a capture.** Detected and warned about
   now, but not prevented: AE has no scripting API to read or clear it.
 - Thumbnails cover PNG and JPEG. WebP has no decoder and degrades to none.
@@ -328,12 +364,15 @@ Verified end to end at the time of writing:
 1. Run the full demo in After Effects: capture a hero frame, generate with
    Seedance 2.5, insert the clip at the playhead. Every piece is verified
    individually; the sequence as a performance is not.
-2. Implement a `PublicUrlPublisher` (presigned S3/R2/GCS) to enable the
-   `asset://` reference route, then switch `ARK_REFERENCE_POLICY` to `asset`.
-3. Extract a real first frame for video posters, or accept the borrowed one
-   and say so in the UI.
-4. Confirm Seedance text-to-video parameters, and whether `video_url` /
-   `audio_url` content parts are usable.
-5. Milestone 5 continued: the direction agent plans but does not act. Tool use
+2. Run `Capture work area as clip` in a real After Effects project, then a
+   video-to-video generation from it — the service half is verified, the host
+   half is not.
+3. Switch `ARK_REFERENCE_POLICY` to `asset` and run one image generation
+   through it: the publisher it was waiting for now exists.
+4. Extract a real first frame for video posters, or accept the borrowed one
+   and say so in the UI. A clip adopted from disk has no poster at all.
+5. Confirm Seedance text-to-video parameters, and whether `audio_url` content
+   parts are usable. `video_url` is answered — see above.
+6. Milestone 5 continued: the direction agent plans but does not act. Tool use
    and an execution loop stay gated behind the rule in ADR 0007 — the agent
    proposes, the user approves anything destructive.

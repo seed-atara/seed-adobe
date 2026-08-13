@@ -28,8 +28,10 @@ import {
   captureFrameRoute,
   importAssetRoute,
   registerCaptureRoute,
+  registerClipRoute,
 } from "./routes/ae.js";
 import {
+  adoptFileRoute,
   getAssetFileRoute,
   getAssetPathRoute,
   getAssetRoute,
@@ -81,8 +83,10 @@ export function buildRouter(deps: AppDeps): Router {
     .get("/v1/ae/context", aeContextRoute(deps))
     .post("/v1/ae/capture-frame", captureFrameRoute(deps))
     .post("/v1/ae/register-capture", registerCaptureRoute(deps))
+    .post("/v1/ae/register-clip", registerClipRoute(deps))
     .post("/v1/ae/import", importAssetRoute(deps))
     .post("/v1/assets", registerAssetRoute(deps))
+    .post("/v1/assets/adopt", adoptFileRoute(deps))
     .get("/v1/assets", listAssetsRoute(deps))
     .get("/v1/assets/:id", getAssetRoute(deps))
     .delete("/v1/assets/:id", removeAssetRoute(deps))

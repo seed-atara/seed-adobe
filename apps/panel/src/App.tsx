@@ -432,7 +432,7 @@ export function App() {
    * the library either way.
    */
   const attachReference = useCallback(
-    (assetId: string) =>
+    (assetId: string, kind?: Asset["kind"]) =>
       setForm((current) => {
         const limit = Math.max(
           1,
@@ -443,7 +443,13 @@ export function App() {
           .map((id, index) => ({ id, role: current.inputRoles[index] ?? "reference" }))
           .filter((entry) => entry.id !== assetId);
         // A lone reference anchors the shot; one of several is a reference.
-        keep.push({ id: assetId, role: keep.length === 0 ? "first" : "reference" });
+        // A clip never anchors one: it carries motion, and a first frame is a
+        // still by definition.
+        const media = kind ?? assets.find((item) => item.id === assetId)?.kind;
+        keep.push({
+          id: assetId,
+          role: keep.length === 0 && media !== "video" ? "first" : "reference",
+        });
         const trimmed = keep.slice(-limit);
         return {
           ...current,
@@ -451,7 +457,7 @@ export function App() {
           inputRoles: trimmed.map((entry) => entry.role),
         };
       }),
-    [providers],
+    [providers, assets],
   );
 
   /**
@@ -470,6 +476,58 @@ export function App() {
       await refreshAssets();
       setSelectedId(asset.id);
       attachReference(asset.id);
+    } catch (cause) {
+      report(cause);
+    } finally {
+      setBusy(false);
+    }
+  }, [bridge, refreshAssets, attachReference, report]);
+
+  /**
+   * Renders the work area to an mp4 and attaches it as a motion reference.
+   *
+   * The slow one: After Effects renders synchronously, so the panel is busy
+   * for as long as the range takes. Worth saying in the button rather than
+   * leaving the artist wondering whether it took.
+   */
+  const captureRange = useCallback(async () => {
+    if (!bridge) return;
+    setBusy(true);
+    setError(undefined);
+    try {
+      const { asset, captured } = await bridge.captureRange();
+      await refreshAssets();
+      setSelectedId(asset.id);
+      attachReference(asset.id, "video");
+      setNotice(
+        `Captured ${captured.durationSeconds.toFixed(1)}s from ` +
+          `${captured.startSeconds.toFixed(2)}s as ${asset.filename} ` +
+          `(${(captured.bytes / 1048576).toFixed(1)}MB).`,
+      );
+      // A clip is a reference for a video model; nothing else can use one.
+      setForm((current) => ({ ...current, operation: "video.generate" }));
+    } catch (cause) {
+      report(cause);
+    } finally {
+      setBusy(false);
+    }
+  }, [bridge, refreshAssets, attachReference, report]);
+
+  /** Adds a file the artist already exported, from anywhere on disk. */
+  const addFileFromDisk = useCallback(async () => {
+    if (!bridge) return;
+    setBusy(true);
+    setError(undefined);
+    try {
+      const asset = await bridge.addFileFromDisk();
+      if (!asset) return; // cancelled
+      await refreshAssets();
+      setSelectedId(asset.id);
+      attachReference(asset.id, asset.kind);
+      setNotice(`Added ${asset.filename} to the library.`);
+      if (asset.kind === "video") {
+        setForm((current) => ({ ...current, operation: "video.generate" }));
+      }
     } catch (cause) {
       report(cause);
     } finally {
@@ -801,7 +859,17 @@ export function App() {
         started.length === 1
       ) {
         const job = started[0];
-        const seconds = Number(form.durationSeconds) || 5;
+        /*
+         * A reference clip decides the length — the provider sends duration -1
+         * and the result follows the input video — so the space held open has
+         * to be the clip's length, not the number in a control the panel has
+         * hidden.
+         */
+        const clip = form.inputAssetIds
+          .map((id) => assets.find((asset) => asset.id === id))
+          .find((asset) => asset?.kind === "video");
+        const seconds =
+          clip?.durationSeconds ?? (Number(form.durationSeconds) || 5);
         try {
           if (job) {
             const shape = expectedShape(
@@ -1066,6 +1134,10 @@ export function App() {
               onRegionContain={setRegionContain}
               onInsertRegion={insertRegion}
               onCapture={captureFrame}
+              {...(bridge && hostApp() !== "PPRO"
+                ? { onCaptureRange: captureRange }
+                : {})}
+              {...(bridge ? { onAddFile: addFileFromDisk } : {})}
               onGenerate={startGeneration}
               onCancel={cancelJob}
               onOpenLibrary={() => setTab("library")}

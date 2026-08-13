@@ -73,6 +73,13 @@ interface Props {
   busy: boolean;
   onFormChange: (form: GenerateForm) => void;
   onCapture: () => void;
+  /**
+   * Renders the work area to a clip. After Effects only — Premiere has no
+   * scripted export that does not go through Media Encoder.
+   */
+  onCaptureRange?: () => void;
+  /** Adds a file the artist exported themselves. */
+  onAddFile?: () => void;
   /** "AEFT" | "PPRO" | "unknown" — capture is only reliable in After Effects. */
   host?: string;
   /** Where Premiere should export a frame to, shown so it can be pasted. */
@@ -135,6 +142,8 @@ export function GenerateView({
   busy,
   onFormChange,
   onCapture,
+  onCaptureRange,
+  onAddFile,
   host,
   originalsDir,
   onPickupFrame,
@@ -299,6 +308,25 @@ export function GenerateView({
     form.operation === "video.generate" && references.length === 1;
 
   /*
+   * A reference *clip* goes further: Ark reads the request as video editing
+   * and takes both the length and the shape from the input video, refusing to
+   * be told either. Verified live — the task is accepted, runs, and only then
+   * fails on `duration`. So the controls are replaced by what will happen.
+   */
+  const referenceClip = references.find((asset) => asset.kind === "video");
+  const followsClip =
+    form.operation === "video.generate" && referenceClip !== undefined;
+
+  /*
+   * The clip itself has to be 4–30s: "the video selected must satisfy the
+   * duration requirement of 4 to 30 seconds". Checked here because the refusal
+   * arrives twenty seconds into a running task rather than at submission.
+   */
+  const clipLength = referenceClip?.durationSeconds;
+  const clipOutOfRange =
+    followsClip && clipLength !== undefined && (clipLength < 4 || clipLength > 30);
+
+  /*
    * With several references the shape is a choice, not a fact: a plate for the
    * camera move and stills for the characters have no reason to agree, and
    * only the artist knows which one the frame should match.
@@ -337,6 +365,7 @@ export function GenerateView({
     provider !== undefined &&
     operationSupported &&
     !mixesModes &&
+    !clipOutOfRange &&
     form.prompt.trim().length > 0 &&
     (form.operation !== "image.edit" || references.length > 0);
 
@@ -347,6 +376,34 @@ export function GenerateView({
         <button className="btn primary wide" onClick={onCapture} disabled={busy}>
           Capture current frame
         </button>
+        {onCaptureRange ? (
+          <>
+            <button
+              className="btn wide"
+              onClick={onCaptureRange}
+              disabled={busy}
+              style={{ marginTop: 6 }}
+            >
+              Capture work area as clip
+            </button>
+            <div className="hint faint" style={{ marginTop: 6 }}>
+              Renders the work area to H.264 and adds it as a{" "}
+              <b>motion reference</b> — what the shot moves like, rather than
+              what one frame looks like. After Effects renders this here and
+              now, so a long range is a long wait.
+            </div>
+          </>
+        ) : null}
+        {onAddFile ? (
+          <button
+            className="btn wide"
+            onClick={onAddFile}
+            disabled={busy}
+            style={{ marginTop: 6 }}
+          >
+            Add a clip or image from disk…
+          </button>
+        ) : null}
         {onRefineSelected ? (
           <>
             <button
@@ -840,7 +897,7 @@ export function GenerateView({
           />
         </Field>
 
-        {(provider?.aspectRatios.length ?? 0) > 0 && !shapeFromFrame ? (
+        {(provider?.aspectRatios.length ?? 0) > 0 && !shapeFromFrame && !followsClip ? (
           <Field
             label="Aspect"
             hint={
@@ -893,7 +950,25 @@ export function GenerateView({
           </Field>
         ) : null}
 
-        {shapeFromFrame ? (
+        {followsClip ? (
+          <div className="hint faint" style={{ marginBottom: 8 }}>
+            <b>{referenceClip?.filename}</b> is the motion reference, so the
+            result follows it: same length
+            {referenceClip?.durationSeconds
+              ? ` (${referenceClip.durationSeconds.toFixed(1)}s)`
+              : ""}
+            , same shape. Seedance refuses to be told either alongside a clip.
+            {clipOutOfRange ? (
+              <>
+                {" "}
+                <b>
+                  The clip is {clipLength?.toFixed(1)}s and Seedance needs 4–30s
+                  — capture a longer range, or trim it shorter.
+                </b>
+              </>
+            ) : null}
+          </div>
+        ) : shapeFromFrame ? (
           <div className="hint faint" style={{ marginBottom: 8 }}>
             The reference is the first frame, so it sets the shape — this
             provider refuses an aspect ratio alongside one.
@@ -920,7 +995,7 @@ export function GenerateView({
           </select>
         </Field>
 
-        {provider?.durationSecondsRange ? (
+        {provider?.durationSecondsRange && !followsClip ? (
           <Field
             label="Duration"
             hint={`${provider.durationSecondsRange[0]}–${provider.durationSecondsRange[1]} seconds`}

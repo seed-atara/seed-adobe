@@ -1769,6 +1769,26 @@ function seedPing() {
     }
 }
 
+/**
+ * Asks the artist for a file, using Premiere's own open dialog.
+ *
+ * A CEP panel is a browser and a browser cannot learn a real path from an
+ * `<input type=file>` — only bytes. The library needs the path.
+ */
+function seedPickFile(title, filter) {
+    try {
+        var chosen = File.openDialog(
+            title || "Choose a file",
+            filter || undefined,
+            false
+        );
+        if (!chosen) return seedOk({ path: null });
+        return seedOk({ path: chosen.fsName });
+    } catch (error) {
+        return seedFail(error);
+    }
+}
+
 /*
  * Host-specific aliases.
  *
@@ -1793,3 +1813,4 @@ var seedPpro_selectedMedia = seedSelectedMedia;
 var seedPpro_adoptPlaceholder = seedAdoptPlaceholder;
 var seedPpro_import = seedImport;
 var seedPpro_insertAtPlayhead = seedInsertAtPlayhead;
+var seedPpro_pickFile = seedPickFile;
