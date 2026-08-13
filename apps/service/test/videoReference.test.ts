@@ -204,6 +204,78 @@ describe("clips as references", () => {
   });
 
   /**
+   * A recipe records what was asked for. Only the raw request records what was
+   * sent, and the two differ exactly where debugging happens — which reference
+   * form travelled, which parameters the adapter dropped. It was returned by
+   * every adapter and stored by nobody until a live run needed the answer.
+   */
+  it("stores what the adapter actually put on the wire", async () => {
+    const echoProvider = {
+      id: "echo-image",
+      async capabilities() {
+        return {
+          id: "echo-image",
+          displayName: "Echo",
+          models: ["echo-v1"],
+          operations: ["image.generate"],
+          textToImage: true,
+          imageToImage: false,
+          maxImageReferences: 0,
+          textToVideo: false,
+          imageToVideo: false,
+          videoReferences: false,
+          startEndFrames: false,
+          audioReferences: false,
+          seed: false,
+          sizes: [],
+          aspectRatios: [],
+          async: false,
+        };
+      },
+      async generateImage() {
+        return {
+          providerJobId: "echo-1",
+          state: {
+            status: "succeeded" as const,
+            outputs: [{ mimeType: "image/png", base64: fakePng(4, 4).toString("base64") }],
+          },
+          // What an adapter normalizes to, credentials already stripped.
+          rawRequest: { url: "https://ark.example/images", body: { model: "echo-v1" } },
+        };
+      },
+      async getJob() {
+        return { status: "succeeded" as const };
+      },
+    };
+
+    const { ProviderRegistry } = await import("@seed-ae/providers");
+    const service = await startTestService({
+      registry: new ProviderRegistry().register(echoProvider as never),
+    });
+    try {
+      const { job } = await readJson(
+        await service.call("/v1/generations", {
+          method: "POST",
+          body: JSON.stringify({
+            providerId: "echo-image",
+            operation: "image.generate",
+            prompt: "anything",
+          }),
+        }),
+      );
+      await service.deps.generation.whenSettled(job.id);
+
+      const detail = await readJson(await service.call(`/v1/jobs/${job.id}`));
+      expect(detail.generation.rawRequest).toEqual({
+        url: "https://ark.example/images",
+        body: { model: "echo-v1" },
+      });
+    } finally {
+      await service.close();
+    }
+  });
+
+  /**
    * Asking for what the clip already is means following it.
    *
    * Ark reads a request carrying a clip as editing and then refuses a duration

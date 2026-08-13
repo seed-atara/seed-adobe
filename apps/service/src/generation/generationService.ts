@@ -244,6 +244,17 @@ export class GenerationService {
       });
 
       const submitted = await this.submit(provider, capabilities, request, generation, inputs);
+
+      /*
+       * What went on the wire, kept beside what was asked for. The adapter
+       * decides the reference form and normalizes parameters, so the two are
+       * different documents — and the difference is the whole content of a
+       * question like "was that frame sent inline or as a link".
+       */
+      if (submitted.rawRequest !== undefined) {
+        this.options.generations.setRawRequest(generation.id, submitted.rawRequest);
+      }
+
       this.options.jobs.update(job.id, {
         providerJobId: submitted.providerJobId,
         // A provider-terminal state is NOT a job-terminal state: the outputs

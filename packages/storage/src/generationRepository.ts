@@ -150,6 +150,30 @@ export class GenerationRepository {
     return this.requireById(id);
   }
 
+  /**
+   * Records what was actually sent to the provider.
+   *
+   * Written after submission rather than at creation, because it is the
+   * adapter that decides the wire shape — which model id, which reference
+   * form, which parameters survived normalization. Without it a recipe records
+   * what was asked for and nothing about what was sent, and the two differ in
+   * exactly the cases worth debugging. Adapters strip credentials before
+   * returning it.
+   *
+   * Set once: a request is a fact about a moment, and a second submission is a
+   * second generation.
+   */
+  setRawRequest(id: string, rawRequest: unknown): void {
+    const result = this.db
+      .prepare(
+        "UPDATE generations SET raw_request_json = ? WHERE id = ? AND raw_request_json IS NULL",
+      )
+      .run(JSON.stringify(rawRequest), id);
+    if (result.changes === 0 && !this.getById(id)) {
+      throw new SeedError("not_found", `generation ${id} not found`);
+    }
+  }
+
   /** Records the terminal outcome. History is completed, never rewritten. */
   complete(id: string, completion: GenerationCompletion): Generation {
     const result = this.db

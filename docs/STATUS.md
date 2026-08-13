@@ -146,11 +146,12 @@ into a running task, to produce what saying nothing would have produced.
   here, so a generated clip shows the thumbnail of the frame it was generated
   from. For image-to-video that frame *is* the first frame, so it is honest —
   but it is not a real extract, and a text-to-video result gets no poster.
-- **`asset://` is unblocked but not switched on.** The publisher Ark asset
-  registration needed now exists, so `ARK_REFERENCE_POLICY=asset` is a
-  configuration change rather than a missing component — but it has not been
-  run live, and until it is, image references still go inline. That remains the
-  wrong route for recognisable real people; see ADR 0005.
+- **Image references now travel as links, not base64.** `ARK_REFERENCE_POLICY`
+  is `hosted` / `hosted-or-inline` / `inline`, verified live with the strict
+  option: the stored request carries a bucket URL and no data URL anywhere.
+  The `asset://` route ADR 0005 was built on does not exist for images — see
+  ADR 0010 — but it *is* the accepted form for video references, and the asset
+  library is kept for that.
 - **Region of Interest silently halves a capture.** Detected and warned about
   now, but not prevented: AE has no scripting API to read or clear it.
 - Thumbnails cover PNG and JPEG. WebP has no decoder and degrades to none.
@@ -383,8 +384,10 @@ Verified end to end at the time of writing:
 1. Run the full demo in After Effects: capture a hero frame, generate with
    Seedance 2.5, insert the clip at the playhead. Every piece is verified
    individually; the sequence as a performance is not.
-2. Switch `ARK_REFERENCE_POLICY` to `asset` and run one image generation
-   through it: the publisher it was waiting for now exists.
+2. Decide whether video references should register as Ark assets rather than
+   travel as links. Both work; the asset id is permanent and costs 10-30s of
+   registration before the job starts, the link costs half a second and expires.
+   Currently links, which is what a demo wants.
 3. Extract a real first frame for video posters, or accept the borrowed one
    and say so in the UI. A clip adopted from disk has no poster at all.
 4. Confirm Seedance text-to-video parameters, and whether `audio_url` content

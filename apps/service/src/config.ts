@@ -71,7 +71,7 @@ export interface ProviderConfig {
   arkAssetGroup: string;
   arkSkipModeration: boolean;
   /** How local frames reach the model — see ReferencePolicy. */
-  arkReferencePolicy: "asset" | "asset-or-inline" | "inline";
+  arkReferencePolicy: "hosted" | "hosted-or-inline" | "inline";
   /**
    * S3-compatible bucket used to hand media to a provider over https.
    *
@@ -244,25 +244,40 @@ function parseR2(env: NodeJS.ProcessEnv): R2Settings | undefined {
   };
 }
 
-const REFERENCE_POLICIES = ["asset", "asset-or-inline", "inline"] as const;
+const REFERENCE_POLICIES = ["hosted", "hosted-or-inline", "inline"] as const;
+
+/** What the old names meant, kept so an existing .env still starts. */
+const POLICY_ALIASES: Record<string, (typeof REFERENCE_POLICIES)[number]> = {
+  asset: "hosted",
+  "asset-or-inline": "hosted-or-inline",
+};
 
 /**
- * Defaults to `asset-or-inline`. The `asset` policy is the correct choice when
- * references contain recognisable real people — it refuses to fall back to
- * posting raw pixels — but it needs a public URL publisher configured, so it
- * is opt-in rather than the default.
+ * Defaults to `hosted-or-inline`.
+ *
+ * `hosted` is the strict choice when references contain recognisable real
+ * people: it puts the frame in the bucket and sends a link, and refuses to
+ * fall back to posting raw pixels inline. It needs `SEED_R2_*`.
+ *
+ * The old `asset`/`asset-or-inline` names are accepted and mean the hosted
+ * ones. They were named for a route that turned out not to exist —
+ * images/generations rejects an asset id in every form — and renaming them
+ * silently would have left a setting whose name describes something the
+ * product does not do.
  */
 function parseReferencePolicy(
   value: string | undefined,
 ): (typeof REFERENCE_POLICIES)[number] {
   const trimmed = value?.trim();
-  if (!trimmed) return "asset-or-inline";
-  if (!(REFERENCE_POLICIES as readonly string[]).includes(trimmed)) {
+  if (!trimmed) return "hosted-or-inline";
+
+  const aliased = POLICY_ALIASES[trimmed] ?? trimmed;
+  if (!(REFERENCE_POLICIES as readonly string[]).includes(aliased)) {
     throw new Error(
       `ARK_REFERENCE_POLICY must be one of ${REFERENCE_POLICIES.join(", ")}`,
     );
   }
-  return trimmed as (typeof REFERENCE_POLICIES)[number];
+  return aliased as (typeof REFERENCE_POLICIES)[number];
 }
 
 /** A comma-separated setting, trimmed and without blanks. */

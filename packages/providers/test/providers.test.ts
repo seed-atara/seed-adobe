@@ -259,16 +259,16 @@ describe("SeedreamProvider", () => {
   });
 
   describe("reference policy", () => {
-    const failingLibrary = {
-      ensureAsset: async () => {
-        throw new Error("registration unavailable");
+    const failingPublisher = {
+      publish: async () => {
+        throw new Error("bucket unreachable");
       },
-    } as never;
+    };
 
-    it("asset policy refuses to fall back to posting raw pixels", async () => {
+    it("hosted policy refuses to fall back to posting raw pixels", async () => {
       const seedream = provider({
-        referencePolicy: "asset",
-        assetLibrary: failingLibrary,
+        referencePolicy: "hosted",
+        publisher: failingPublisher,
       });
       await expect(
         seedream.generateImage({
@@ -277,14 +277,14 @@ describe("SeedreamProvider", () => {
           correlationId: "cor_8",
           references: [{ kind: "base64", value: "AA", mimeType: "image/png" }],
         }),
-      ).rejects.toThrow(/registration unavailable/);
+      ).rejects.toThrow(/bucket unreachable/);
     });
 
-    it("asset-or-inline degrades to a data URL", async () => {
+    it("hosted-or-inline degrades to a data URL", async () => {
       let body: Record<string, unknown> | undefined;
       const seedream = provider({
-        referencePolicy: "asset-or-inline",
-        assetLibrary: failingLibrary,
+        referencePolicy: "hosted-or-inline",
+        publisher: failingPublisher,
         fetchImpl: (async (_url: string, init: RequestInit) => {
           body = JSON.parse(String(init.body));
           return new Response(JSON.stringify({ data: [{ b64_json: "aGk=" }] }), {
@@ -302,13 +302,19 @@ describe("SeedreamProvider", () => {
       expect(body?.image).toBe("data:image/png;base64,AA");
     });
 
-    it("references a registered asset as asset://<id>", async () => {
+    /*
+     * An https URL is one of exactly two forms the `image` field accepts, and
+     * the asset id ADR 0005 was built on is not the other one: images/generations
+     * answers "invalid url specified" to `asset://<id>` and to a bare id alike.
+     * Verified against the live endpoint, 2026-08-13.
+     */
+    it("sends a hosted reference as the URL it was published at", async () => {
       let body: Record<string, unknown> | undefined;
       const seedream = provider({
-        referencePolicy: "asset",
-        assetLibrary: {
-          ensureAsset: async () => ({ assetId: "asset-42", cached: true }),
-        } as never,
+        referencePolicy: "hosted",
+        publisher: {
+          publish: async () => ({ url: "https://bucket.example/ref.png?signed" }),
+        },
         fetchImpl: (async (_url: string, init: RequestInit) => {
           body = JSON.parse(String(init.body));
           return new Response(JSON.stringify({ data: [{ b64_json: "aGk=" }] }), {
@@ -323,7 +329,7 @@ describe("SeedreamProvider", () => {
         correlationId: "cor_10",
         references: [{ kind: "base64", value: "AA", mimeType: "image/png" }],
       });
-      expect(body?.image).toBe("asset://asset-42");
+      expect(body?.image).toBe("https://bucket.example/ref.png?signed");
     });
   });
 });

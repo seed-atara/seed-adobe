@@ -247,12 +247,13 @@ export function buildRegistry(
         model: config.seedreamModelId,
         referencePolicy: config.arkReferencePolicy,
         ...(assetLibrary ? { assetLibrary } : {}),
+        ...(publisher ? { publisher } : {}),
       }),
     );
 
-    if (config.arkReferencePolicy !== "inline" && !assetLibrary) {
-      logger.warn("provider.ark_asset_library_unavailable", {
-        reason: "SEED_ARK_AK / SEED_ARK_SK are not set; references go inline",
+    if (config.arkReferencePolicy !== "inline" && !publisher) {
+      logger.warn("provider.reference_hosting_unavailable", {
+        reason: "SEED_R2_* are not set; image references go inline as data URLs",
         referencePolicy: config.arkReferencePolicy,
       });
     }

@@ -1,5 +1,5 @@
 import { SeedError } from "@seed-ae/domain";
-import type { ArkAssetLibrary } from "../ark/assetLibrary.js";
+import type { ArkAssetLibrary, PublicUrlPublisher } from "../ark/assetLibrary.js";
 import {
   MAX_REFERENCES,
   assertModelAvailable,
@@ -20,13 +20,29 @@ import type {
 /**
  * How a local reference frame reaches the model.
  *
- * `asset` is the sanctioned route: register the image in the Ark asset library
- * and reference it as `asset://<id>`. Requests carrying recognisable real
- * people are intercepted on the inline path, so a rights-sensitive pipeline
- * must not fall back silently — hence `asset` (fail if it cannot be
- * registered) being distinct from `asset-or-inline`.
+ * `hosted` puts the bytes in the bucket and sends the presigned link, which is
+ * the form Volcengine's own examples use and the only alternative to inline
+ * that exists — verified 2026-08-13 by trying all three candidates against the
+ * live endpoint. `hosted` fails rather than falling back, because a pipeline
+ * that must not post raw pixels needs that failure to be loud.
+ *
+ * The `asset://<id>` route ADR 0005 was built around is not one of the three:
+ * images/generations answers "invalid url specified" to an asset id in any
+ * form. Registration itself works — the ids are real — but nothing at
+ * inference will take one. See MODEL_API_NOTES.md.
  */
-export type ReferencePolicy = "asset" | "asset-or-inline" | "inline";
+export type ReferencePolicy = "hosted" | "hosted-or-inline" | "inline";
+
+/** Old spellings from when the asset library was believed to be the route. */
+const POLICY_ALIASES: Record<string, ReferencePolicy> = {
+  asset: "hosted",
+  "asset-or-inline": "hosted-or-inline",
+};
+
+/** Accepts the old names so an existing .env keeps working. */
+export function normalizeReferencePolicy(value: string): ReferencePolicy {
+  return POLICY_ALIASES[value] ?? (value as ReferencePolicy);
+}
 
 export interface SeedreamConfig {
   /** Inference base, e.g. https://ark.ap-southeast.bytepluses.com/api/v3 */
@@ -35,8 +51,15 @@ export interface SeedreamConfig {
   apiKey: string;
   /** Model id — configuration, never a hard-coded guess. */
   model: string;
-  /** Asset library client; required for the `asset` policies. */
+  /**
+   * Asset library client.
+   *
+   * Kept because registration works and the ids are real; not used to build a
+   * reference, because inference will not take one.
+   */
   assetLibrary?: ArkAssetLibrary;
+  /** Puts a local frame somewhere Ark can fetch it. Required by `hosted`. */
+  publisher?: PublicUrlPublisher;
   referencePolicy?: ReferencePolicy;
   watermark?: boolean;
   timeoutMs?: number;
@@ -75,12 +98,16 @@ export class SeedreamProvider implements GenerationProvider {
 
     this.config = config;
     this.fetchImpl = config.fetchImpl ?? fetch;
-    this.referencePolicy = config.referencePolicy ?? "asset-or-inline";
+    this.referencePolicy = normalizeReferencePolicy(
+      config.referencePolicy ?? "hosted-or-inline",
+    );
 
-    if (this.referencePolicy === "asset" && !config.assetLibrary) {
+    if (this.referencePolicy === "hosted" && !config.publisher) {
       throw new SeedError(
         "bad_request",
-        'referencePolicy "asset" requires an asset library client',
+        'referencePolicy "hosted" needs a public URL publisher: the frame has ' +
+          "to be somewhere Ark can fetch it. Configure SEED_R2_*, or use the " +
+          "inline policy.",
       );
     }
   }
@@ -227,10 +254,14 @@ export class SeedreamProvider implements GenerationProvider {
   }
 
   /**
-   * Converts a materialized input into something the `image` field accepts:
-   * an `asset://` URI, an https URL, or a data URL.
+   * Converts a materialized input into something the `image` field accepts.
+   *
+   * Two forms, and only two: an https URL or a data URL. An asset id is not
+   * one of them — see the note on ReferencePolicy.
    */
   private async toImageValue(input: MaterializedInput): Promise<string> {
+    // Already reachable — the materializer hosted it, or the caller passed a
+    // URL. Nothing to do but use it.
     if (input.kind === "url") return input.value;
 
     const inline =
@@ -240,12 +271,12 @@ export class SeedreamProvider implements GenerationProvider {
 
     if (this.referencePolicy === "inline") return inline;
 
-    const library = this.config.assetLibrary;
-    if (!library) {
-      if (this.referencePolicy === "asset") {
+    const publisher = this.config.publisher;
+    if (!publisher) {
+      if (this.referencePolicy === "hosted") {
         throw new SeedError(
           "bad_request",
-          'referencePolicy "asset" requires an asset library client',
+          'referencePolicy "hosted" needs a public URL publisher; none is configured',
         );
       }
       return inline;
@@ -255,16 +286,16 @@ export class SeedreamProvider implements GenerationProvider {
     const bytes = Buffer.from(base64, "base64");
 
     try {
-      const { assetId } = await library.ensureAsset({
+      const { url } = await publisher.publish({
         bytes,
         filename: `${input.assetId ?? "reference"}.png`,
         mimeType: input.mimeType,
       });
-      return `asset://${assetId}`;
+      return url;
     } catch (cause) {
-      if (this.referencePolicy === "asset") {
-        // Never silently post raw pixels when the policy says otherwise:
-        // the inline path is what gets intercepted for real people.
+      if (this.referencePolicy === "hosted") {
+        // Never silently post raw pixels when the policy says otherwise: the
+        // inline path is the one that gets intercepted for real people.
         throw cause;
       }
       return inline;

@@ -184,7 +184,11 @@ body comes back, the host is wrong; try `open.ap-southeast-1.byteplusapi.com`.
   **recognisable real people are intercepted on the inline path**. The asset
   library is the sanctioned route, covered by the authorization letter signed in
   the console.
-- Assets are reusable: register once, reference forever as `asset://<Asset_Id>`.
+- Assets are reusable: register once, reference forever as `asset://<Asset_Id>`
+  — **true for video only.** See "What a reference may actually be" below;
+  images/generations rejects an asset id in every form. This line was believed
+  for four days on the strength of being written down, which is why the section
+  below carries a date and a table.
 - Registration is free; generation is paid. Pre-registering turns use-time into
   a cache hit.
 
@@ -620,3 +624,27 @@ So for an editing task `ratio` is not merely unwelcome — it has a required
 value, `adaptive`, which is Ark's "take it from the input" in the ratio
 vocabulary, exactly as `-1` is in the duration one. Omitting the key entirely
 also works, which is what the adapter does.
+
+## What a reference may actually be — VERIFIED (2026-08-13)
+
+Every candidate form, tried against the live endpoints with the same registered
+asset and the same file:
+
+| value | images/generations `image` | video tasks `video_url` |
+| --- | --- | --- |
+| `data:...;base64,...` | accepted | **refused** — "must be provided as a web url" |
+| presigned https URL | **accepted** | accepted |
+| `asset://<Asset_Id>` | refused — "invalid url specified" | **accepted**, task ran to a finished clip |
+| bare `<Asset_Id>` | refused — "invalid url specified" | refused — "invalid url" |
+
+The two endpoints are different services and they do not agree on a single
+form. Only an https URL works for both.
+
+`asset://` for video is a genuine route with a property a link does not have:
+it is permanent, so a reference used across sessions never depends on a
+signature. It costs ten to thirty seconds of registration before the job can
+start, against about half a second to publish a link — which is why SEED sends
+links and keeps the asset library for when that trade is worth making.
+
+Reproducers: `scripts/probe-image-reference-forms.ts` and
+`scripts/probe-asset-id-for-video.ts`.
