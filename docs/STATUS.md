@@ -388,20 +388,16 @@ Verified end to end at the time of writing:
 
 ## Next engineering actions
 
-1. Run the full demo in After Effects: capture a hero frame, generate with
-   Seedance 2.5, insert the clip at the playhead. Every piece is verified
-   individually; the sequence as a performance is not.
+1. **Run `Capture in-to-out as clip` in a real Premiere sequence.** Built and
+   unexercised: the preset is found (Match Source - High bitrate, from Adobe's
+   own folder), the host function parses, no sequence has been through it.
+   Needs `npm run install:extension` first.
 2. Decide whether video references should register as Ark assets rather than
    travel as links. Both work; the asset id is permanent and costs 10-30s of
    registration before the job starts, the link costs half a second and expires.
    Currently links, which is what a demo wants.
-3. Premiere parity: it has no scripted range export, so a clip reference
-   there is the manual route only.
-4. Nothing left to confirm on Seedance's content parts: text-to-video honours
-   ratio and duration (and `resolution` names the *short* edge), and audio
-   references are accepted inline or hosted but every render carrying one has
-   been refused by a copyright filter after being billed. See the research
-   notes; the panel warns where one is attached.
-5. Milestone 5 continued: the direction agent plans but does not act. Tool use
+3. Film look on video needs the GPU path — ADR 0008's open half. 3.4s a frame
+   on the CPU is fourteen minutes for ten seconds of footage.
+4. Milestone 5 continued: the direction agent plans but does not act. Tool use
    and an execution loop stay gated behind the rule in ADR 0007 — the agent
    proposes, the user approves anything destructive.
