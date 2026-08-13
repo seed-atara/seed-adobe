@@ -535,3 +535,59 @@ reports which case it is in.
 That makes it a genuine route with a stated limit rather than a solution:
 worth taking when the URL is alive, because it costs nothing, and worth
 falling back from when it is not.
+
+## A presigned R2 link is a valid `reference_video` — VERIFIED (2026-08-13)
+
+The hosting question is settled. A private Cloudflare R2 bucket, a SigV4
+presigned GET, and Ark fetches it:
+
+```
+video_url: https://<account>.r2.cloudflarestorage.com/<bucket>/<key>
+           ?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=...
+           &X-Amz-Date=...&X-Amz-Expires=3600&X-Amz-SignedHeaders=host
+           &X-Amz-Signature=...
+```
+
+A query string does not bother it, the URL needs no recognisable extension
+semantics beyond the key's own `.mp4`, and one hour of validity is far more
+than the fetch needs — Ark reads the file within the first few seconds of the
+task. `scripts/probe-r2.ts` verifies the bucket itself (signed PUT, anonymous
+presigned GET, unsigned GET refused) and `scripts/probe-video-ref-r2.ts` runs a
+real generation through it.
+
+Measured: 1.41MB uploaded in ~430ms; the whole 4s 480p video-to-video job took
+about two minutes.
+
+## A video reference makes the task "video editing", and duration must be -1
+
+The first run with a real hosted clip failed after 21 seconds — not on the URL,
+which had already been fetched and analysed, but on `duration`:
+
+```
+InvalidParameter.TaskTypeConstraint
+Seedance identified your task as video editing based on your prompt. For this
+task type, the output ratio and duration follow the input video selected by the
+model for editing, and the video selected must satisfy the duration requirement
+of 4 to 30 seconds. Issues: [0] `duration` must be -1.
+```
+
+Three things follow, and none of them are guessable from the reference docs:
+
+1. **The classification comes from the prompt, not the parameters.** The same
+   payload with the same clip is a different task type depending on what the
+   text asks for.
+2. **`-1` is a real value for `duration`**, meaning "follow the input". It is
+   not documented anywhere we have found.
+3. **The input clip must itself be 4–30s.** A one-second reference is refused
+   before anything renders.
+
+Rerunning with `duration: -1` succeeded: 123s, a complete mp4 back. `resolution`
+was accepted alongside it — only duration and ratio follow the input.
+
+`-1` is safe whichever way the prompt is read. The same clip was run twice more
+with `duration: -1`: once with an editing prompt ("the same camera move and
+timing, restyled as a hand-painted ink illustration", 123s) and once with a
+plainly generative one ("a completely different scene: a lone figure walking
+across a salt flat at dawn", 155s). Both succeeded. So the adapter does not
+have to guess the classification — a request carrying a `reference_video` sends
+`duration: -1` and no `ratio`, and both follow the clip.

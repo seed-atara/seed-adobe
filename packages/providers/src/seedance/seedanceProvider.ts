@@ -134,6 +134,11 @@ function seedanceImage(
  * plainly when they disagree: "reference media mode requires video role to be
  * reference_video".
  */
+/** Whether this input can play the part of a frame. Only a still can. */
+function isFrame(input: MaterializedInput): boolean {
+  return input.mimeType.startsWith("image/");
+}
+
 function seedanceReference(input: MaterializedInput): ContentPart {
   const url = toUrl(input);
   if (input.mimeType.startsWith("video/")) {
@@ -249,12 +254,14 @@ export class SeedanceProvider implements GenerationProvider {
         content.push(seedanceImage(request.firstFrame, "first_frame"));
       }
       content.push(seedanceImage(request.lastFrame, "last_frame"));
-    } else if (loose.length === 1) {
+    } else if (loose.length === 1 && isFrame(loose[0] as MaterializedInput)) {
       // One image anchors the opening frame, which is what makes a captured
-      // plate animate from itself rather than merely resemble itself.
+      // plate animate from itself rather than merely resemble itself. Only an
+      // image: a lone *clip* is a motion reference, and sending it as a frame
+      // means an image_url part holding a video.
       mode = "frame";
       content.push(seedanceImage(loose[0] as MaterializedInput, "first_frame"));
-    } else if (loose.length > 1) {
+    } else if (loose.length > 0) {
       mode = "reference";
       for (const reference of loose) {
         content.push(seedanceReference(reference));
@@ -277,7 +284,24 @@ export class SeedanceProvider implements GenerationProvider {
       generate_audio: request.generateAudio ?? this.config.generateAudio ?? false,
     };
     if (request.seed !== undefined) body.seed = request.seed;
-    if (request.durationSeconds !== undefined) {
+
+    /*
+     * A reference video changes what `duration` may be.
+     *
+     * Ark classifies a request carrying one by what the prompt asks for, and
+     * when it decides the task is video *editing* it refuses any duration but
+     * -1: "the output ratio and duration follow the input video selected by
+     * the model for editing". Verified live — the request is accepted, runs
+     * for twenty seconds, and then fails on the duration.
+     *
+     * Since the classification comes from the text, no parameter can predict
+     * it. Following the clip is both the safe answer and the honest one: the
+     * artist chose a clip whose length is the point.
+     */
+    const followsReferenceVideo = content.some((part) => part.type === "video_url");
+    if (followsReferenceVideo) {
+      body.duration = -1;
+    } else if (request.durationSeconds !== undefined) {
       // Catch it here rather than spending a round trip on a known rejection.
       if (request.durationSeconds < 4 || request.durationSeconds > 30) {
         throw new SeedError(
@@ -296,7 +320,11 @@ export class SeedanceProvider implements GenerationProvider {
     // "For first-frame or first-last-frame generation, the output ratio
     // follows the first-frame image." Reference-driven requests have no such
     // anchor and do accept a ratio.
-    if (request.aspectRatio && mode !== "frame") body.ratio = request.aspectRatio;
+    // A reference video dictates the shape for the same reason it dictates the
+    // length: the output follows the clip.
+    if (request.aspectRatio && mode !== "frame" && !followsReferenceVideo) {
+      body.ratio = request.aspectRatio;
+    }
     // `size` carries the resolution keyword for video (480p/720p/1080p).
     const resolution = request.parameters?.size ?? request.parameters?.resolution;
     if (typeof resolution === "string") body.resolution = resolution;

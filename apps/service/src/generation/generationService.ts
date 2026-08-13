@@ -235,7 +235,13 @@ export class GenerationService {
       // Seedream takes URLs/data URLs; the mock takes raw base64. Both need the
       // local file turned into something transportable first.
       const kind = provider.id === "seedream" ? "dataUrl" : "base64";
-      const inputs = await this.options.materializer.materializeAll(inputAssets, kind);
+      // Ark accepts an image inline and refuses a video the same way — the
+      // clip has to be somewhere it can fetch from. Only Ark providers are
+      // asked to pay for hosting; the mocks and the look run on local bytes.
+      const hostVideo = provider.id.startsWith("seedance") || provider.id === "seedream";
+      const inputs = await this.options.materializer.materializeAll(inputAssets, kind, {
+        hostVideo,
+      });
 
       const submitted = await this.submit(provider, capabilities, request, generation, inputs);
       this.options.jobs.update(job.id, {
@@ -386,17 +392,28 @@ export class GenerationService {
     let lastFrame: MaterializedInput | undefined;
     let references: MaterializedInput[] = [];
 
+    /*
+     * A frame role is only meaningful for a still. A clip is motion — it can
+     * be referenced but it cannot *be* the first frame, and the panel's "a
+     * lone input anchors the shot" rule would otherwise hand Ark a video under
+     * an image role.
+     */
+    const isFrame = (input: MaterializedInput) => input.mimeType.startsWith("image/");
+
     if (roles && roles.length > 0 && capabilities.startEndFrames) {
       inputs.forEach((input, index) => {
         const role = roles[index] ?? "reference";
-        if (role === "first" && !firstFrame) firstFrame = input;
-        else if (role === "last" && !lastFrame) lastFrame = input;
+        if (role === "first" && !firstFrame && isFrame(input)) firstFrame = input;
+        else if (role === "last" && !lastFrame && isFrame(input)) lastFrame = input;
         else references.push(input);
       });
     } else {
       const [only] = inputs;
-      if (capabilities.startEndFrames && inputs.length === 1 && only) firstFrame = only;
-      else references = inputs;
+      if (capabilities.startEndFrames && inputs.length === 1 && only && isFrame(only)) {
+        firstFrame = only;
+      } else {
+        references = inputs;
+      }
     }
 
     const payload: VideoGenerationRequest = {

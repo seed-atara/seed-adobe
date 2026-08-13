@@ -779,4 +779,34 @@ describe("SeedanceProvider reference media", () => {
       },
     ]);
   });
+
+  it("never makes a lone clip the first frame", async () => {
+    let body: any;
+    await provider(
+      (async (_url: string, init: RequestInit) => {
+        body = JSON.parse(String(init.body));
+        return new Response(JSON.stringify({ id: "cgt-clip" }), { status: 200 });
+      }) as unknown as typeof fetch,
+    ).generateVideo({
+      model: MODEL,
+      prompt: "reskin this, same camera",
+      correlationId: "cor_lone_clip",
+      references: [{ kind: "url", value: "https://x/plate.mp4", mimeType: "video/mp4" }],
+      aspectRatio: "16:9",
+    });
+
+    /*
+     * One input normally anchors the opening frame. A clip cannot: it is
+     * motion, and an image_url part holding a video is refused.
+     */
+    expect(body.content[1]).toEqual({
+      type: "video_url",
+      video_url: { url: "https://x/plate.mp4" },
+      role: "reference_video",
+    });
+    // Length and shape follow the clip — Ark refuses to be told either, and
+    // says so only after the task has been accepted and started.
+    expect(body.duration).toBe(-1);
+    expect(body.ratio).toBeUndefined();
+  });
 });
