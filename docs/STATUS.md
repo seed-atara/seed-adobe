@@ -165,8 +165,10 @@ into a running task, to produce what saying nothing would have produced.
   reached the provider is still running there, and the process that died was
   only the one listening. A job with no provider task, or whose provider is no
   longer registered, is still failed as interrupted.
-- Seedance text-to-video is implemented but only image-to-video has been run
-  live; accepted parameter values may differ between the two modes.
+- Audio references are declared and unusable in practice: the part shape is
+  right and Ark accepts it, then refuses the finished render as possibly
+  copyrighted — measured with a synthetic tone, so it is not recognising a
+  song. The panel says so before Generate rather than after.
 
 ## Direction agent (Milestone 5, first slice)
 
@@ -395,8 +397,11 @@ Verified end to end at the time of writing:
    Currently links, which is what a demo wants.
 3. Premiere parity: it has no scripted range export, so a clip reference
    there is the manual route only.
-4. Confirm Seedance text-to-video parameters, and whether `audio_url` content
-   parts are usable. `video_url` is answered — see above.
+4. Nothing left to confirm on Seedance's content parts: text-to-video honours
+   ratio and duration (and `resolution` names the *short* edge), and audio
+   references are accepted inline or hosted but every render carrying one has
+   been refused by a copyright filter after being billed. See the research
+   notes; the panel warns where one is attached.
 5. Milestone 5 continued: the direction agent plans but does not act. Tool use
    and an execution loop stay gated behind the rule in ADR 0007 — the agent
    proposes, the user approves anything destructive.

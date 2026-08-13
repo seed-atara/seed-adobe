@@ -195,11 +195,17 @@ export class SeedanceProvider implements GenerationProvider {
        * alongside stills for the characters and the location.
        */
       videoReferences: true,
-      // `video_url` and `audio_url` parts exist but their semantics are
-      // unconfirmed, so they are not offered.
       // A first_frame + last_frame pair passes validation; more than one of
       // either is refused by count.
       startEndFrames: true,
+      /*
+       * The part shape is real — `audio_url` with role `reference_audio`, and
+       * unlike video it takes a data URL — but every render carrying one has
+       * failed after the fact with "the output audio may be related to
+       * copyright restrictions", including one whose reference was a synthetic
+       * sine tone. Declared, because the capability exists and the panel warns
+       * rather than hides; see MODEL_API_NOTES.md.
+       */
       audioReferences: true,
       generatesAudio: true,
       seed: true,

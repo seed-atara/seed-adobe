@@ -315,6 +315,13 @@ export function GenerateView({
    * fails on `duration`. So the controls are replaced by what will happen.
    */
   const referenceClip = references.find((asset) => asset.kind === "video");
+  /*
+   * Every render carrying an audio reference has failed on a copyright filter,
+   * including one referencing a synthetic tone — and it fails after the render
+   * has been paid for, which is the part worth saying before Generate rather
+   * than after.
+   */
+  const referenceAudio = references.find((asset) => asset.kind === "audio");
   const followsClip =
     form.operation === "video.generate" && referenceClip !== undefined;
 
@@ -957,6 +964,16 @@ export function GenerateView({
               </button>
             </div>
           </Field>
+        ) : null}
+
+        {referenceAudio ? (
+          <div className="hint faint" style={{ marginBottom: 8 }}>
+            <b>{referenceAudio.filename}</b> is an audio reference. Seedance
+            accepts one and then refuses the result: every render carrying one
+            has failed with "the output audio may be related to copyright
+            restrictions", even referencing a tone generated for the test. It
+            fails a minute or two in, after the render is billed.
+          </div>
         ) : null}
 
         {followsClip ? (
