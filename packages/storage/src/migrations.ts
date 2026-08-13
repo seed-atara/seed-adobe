@@ -150,6 +150,47 @@ MIGRATIONS.push({
   `,
 });
 
+MIGRATIONS.push({
+  version: 4,
+  name: "asset-project",
+  sql: `
+    -- Which host project an asset belongs to.
+    --
+    -- One service serves every open application, so one library holds every
+    -- project — which is right (a reference made in one shot is worth reusing
+    -- in another) and unusable without a way to say "just this one".
+    --
+    -- Denormalised onto the asset rather than derived at query time because a
+    -- generated result has no project of its own: it inherits from whatever it
+    -- was made from, and walking lineage per row to draw a grid is the kind of
+    -- query that is fine until the library is large.
+    ALTER TABLE assets ADD COLUMN project TEXT;
+
+    CREATE INDEX assets_project_idx ON assets (project);
+
+    -- Backfill what can be known. A captured frame records its project in its
+    -- own provenance; anything generated takes the project of its first input,
+    -- which is where it came from.
+    UPDATE assets
+       SET project = json_extract(source_json, '$.context.projectName')
+     WHERE source_type = 'after-effects'
+       AND json_extract(source_json, '$.context.projectName') IS NOT NULL;
+
+    UPDATE assets
+       SET project = (
+         SELECT source.project
+           FROM generation_inputs gi
+           JOIN assets source ON source.id = gi.asset_id
+          WHERE gi.generation_id = assets.generation_id
+            AND source.project IS NOT NULL
+          ORDER BY gi.position
+          LIMIT 1
+       )
+     WHERE project IS NULL
+       AND generation_id IS NOT NULL;
+  `,
+});
+
 export const LATEST_SCHEMA_VERSION = MIGRATIONS.reduce(
   (max, migration) => Math.max(max, migration.version),
   0,

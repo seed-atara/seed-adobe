@@ -9,6 +9,15 @@ interface Props {
   onSelect: (id: string) => void;
   /** Absent while a removal is in flight, or when removal is not offered. */
   onRemove?: (asset: Asset) => void;
+  /**
+   * The project this panel is docked in, when the host knows one.
+   *
+   * Absent in a browser, or before a project is open — and then there is
+   * nothing to filter by, so the control does not appear.
+   */
+  activeProject?: string;
+  thisProjectOnly: boolean;
+  onProjectFilterChange: (thisProjectOnly: boolean) => void;
 }
 
 export function LibraryView({
@@ -17,13 +26,35 @@ export function LibraryView({
   selectedId,
   onSelect,
   onRemove,
+  activeProject,
+  thisProjectOnly,
+  onProjectFilterChange,
 }: Props) {
+  /*
+   * One library, every project — because a reference made for one shot is
+   * worth reusing in another. The filter is what makes that liveable while
+   * two projects are open, so it leads rather than hiding in a menu.
+   */
+  const filter = activeProject ? (
+    <label className="check" style={{ marginBottom: 8 }}>
+      <input
+        type="checkbox"
+        checked={thisProjectOnly}
+        onChange={(event) => onProjectFilterChange(event.target.checked)}
+      />
+      Only <b>{activeProject}</b>
+    </label>
+  ) : null;
+
   if (assets.length === 0) {
     return (
       <div className="section">
         <SectionLabel>asset library</SectionLabel>
+        {filter}
         <div className="empty">
-          Nothing captured yet. Capture the current frame to start.
+          {thisProjectOnly && activeProject
+            ? `Nothing from ${activeProject} yet. Capture a frame, or untick to see the whole library.`
+            : "Nothing captured yet. Capture the current frame to start."}
         </div>
       </div>
     );
@@ -32,6 +63,7 @@ export function LibraryView({
   return (
     <div className="section">
       <SectionLabel>asset library - {assets.length}</SectionLabel>
+      {filter}
       <div className="grid">
         {assets.map((asset) => (
           // A wrapper, because remove cannot be a button inside a button.

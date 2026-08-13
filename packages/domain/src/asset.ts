@@ -74,6 +74,15 @@ export const AssetSchema = z.object({
   byteSize: z.number().int().min(0).optional(),
   createdAt: IsoTimestampSchema,
   generationId: z.string().optional(),
+  /**
+   * The host project this belongs to, for filtering a shared library.
+   *
+   * Captured media knows its own; generated media inherits it from what it was
+   * made from. Optional throughout, because plenty of assets have no project
+   * at all — a clip adopted from disk before any project was open, anything
+   * made outside a host.
+   */
+  project: z.string().optional(),
   source: AssetSourceSchema,
 });
 

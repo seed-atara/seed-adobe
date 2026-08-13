@@ -408,6 +408,11 @@ export class GenerationService {
             provider: provider.id,
             model: job.model,
             index,
+            // Inherited from what it was made from: a result belongs to the
+            // project its references came out of.
+            ...(inputAssets.find((asset) => asset.project)?.project
+              ? { project: inputAssets.find((asset) => asset.project)?.project as string }
+              : {}),
           }),
         );
       }

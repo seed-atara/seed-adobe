@@ -579,3 +579,67 @@ describe("clips as references", () => {
     }
   });
 });
+
+/**
+ * One service serves every open application, so one library holds every
+ * project. The filter is what makes that liveable while two are open — and it
+ * is only useful if a generated result belongs to the same project as the
+ * frame it came from, which nothing about the result itself records.
+ */
+describe("a library shared by two projects", () => {
+  it("filters by project, and generated results inherit the project they came from", async () => {
+    const service = await startTestService();
+    try {
+      const originals = service.deps.workspace.originalsDir;
+      const register = async (name: string, project: string) => {
+        const file = path.join(originals, `${name}.png`);
+        await writeFile(file, fakePng(8, 8));
+        const { asset } = await readJson(
+          await service.call("/v1/ae/register-capture", {
+            method: "POST",
+            body: JSON.stringify({
+              path: file,
+              context: { projectName: project, compName: name },
+            }),
+          }),
+        );
+        return asset;
+      };
+
+      const hero = await register("hero", "Ceiling.aep");
+      await register("other", "Gaming.prproj");
+      expect(hero.project).toBe("Ceiling.aep");
+
+      const listed = async (query: string) =>
+        (await readJson(await service.call(`/v1/assets?${query}`))).assets as {
+          project?: string;
+        }[];
+
+      expect(await listed("limit=50")).toHaveLength(2);
+      const filtered = await listed("limit=50&project=Ceiling.aep");
+      expect(filtered).toHaveLength(1);
+      expect(filtered[0]?.project).toBe("Ceiling.aep");
+
+      // A result made from the hero frame belongs where the hero frame does.
+      const { job } = await readJson(
+        await service.call("/v1/generations", {
+          method: "POST",
+          body: JSON.stringify({
+            providerId: "mock-image",
+            operation: "image.edit",
+            prompt: "cooler",
+            size: "64x64",
+            inputAssetIds: [hero.id],
+          }),
+        }),
+      );
+      await service.deps.generation.whenSettled(job.id);
+
+      const withResult = await listed("limit=50&project=Ceiling.aep");
+      expect(withResult).toHaveLength(2);
+      expect(withResult.every((asset) => asset.project === "Ceiling.aep")).toBe(true);
+    } finally {
+      await service.close();
+    }
+  });
+});

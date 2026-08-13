@@ -139,6 +139,8 @@ export function App() {
 
   const [tab, setTab] = useState<Tab>("generate");
   const [assets, setAssets] = useState<Asset[]>([]);
+  /** Whether the library shows only the project this panel is docked in. */
+  const [thisProjectOnly, setThisProjectOnly] = useState(true);
   const [providers, setProviders] = useState<ProviderCapabilitiesDto[]>([]);
   const [aeContext, setAeContext] = useState<Record<string, unknown>>({});
   const [hostId, setHostId] = useState("mock");
@@ -198,14 +200,42 @@ export function App() {
     }
   }, []);
 
+  /*
+   * One service serves every open application, so the library holds every
+   * project at once. That is the right shape — a reference made for one shot
+   * is worth reusing in another — but while two projects are open it needs a
+   * way to say "just this one", and that is the common case rather than the
+   * exotic one, so it defaults to on.
+   */
+  const activeProject =
+    typeof aeContext.projectName === "string" ? aeContext.projectName : undefined;
+
   const refreshAssets = useCallback(async () => {
     try {
-      const { assets: list } = await client.listAssets({ limit: 120 });
+      const { assets: list } = await client.listAssets({
+        limit: 120,
+        ...(thisProjectOnly && activeProject ? { project: activeProject } : {}),
+      });
       setAssets(list);
     } catch (cause) {
       report(cause);
     }
-  }, [client, report]);
+  }, [client, report, thisProjectOnly, activeProject]);
+
+  /*
+   * Re-fetch when the filter or the project changes.
+   *
+   * The project arrives after the first context call, and it changes when the
+   * artist opens another one — in both cases the grid on screen is answering a
+   * question nobody is asking any more.
+   */
+  const filterKey = `${thisProjectOnly}:${activeProject ?? ""}`;
+  const lastFilter = useRef(filterKey);
+  useEffect(() => {
+    if (lastFilter.current === filterKey) return;
+    lastFilter.current = filterKey;
+    if (connection === "live") void refreshAssets();
+  }, [filterKey, connection, refreshAssets]);
 
   // Connect, then load everything the panel needs to be useful.
   useEffect(() => {
@@ -1160,6 +1190,9 @@ export function App() {
               selectedId={selectedId}
               onSelect={setSelectedId}
               onRemove={removeAsset}
+              {...(activeProject ? { activeProject } : {})}
+              thisProjectOnly={thisProjectOnly}
+              onProjectFilterChange={setThisProjectOnly}
             />
           ) : null}
 

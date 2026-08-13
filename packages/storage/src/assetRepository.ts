@@ -15,6 +15,15 @@ export interface ListAssetsOptions {
   limit?: number;
   offset?: number;
   kind?: AssetKind;
+  /**
+   * Only assets belonging to this host project.
+   *
+   * One service serves every open application, so the library holds work from
+   * all of them at once. That is right — a reference made for one shot is
+   * worth reusing in another — and unusable while editing two projects unless
+   * the grid can be told to show one.
+   */
+  project?: string;
 }
 
 export interface ListAssetsResult {
@@ -39,20 +48,21 @@ interface AssetRow {
   generation_id: string | null;
   source_type: string;
   source_json: string;
+  project: string | null;
 }
 
 const INSERT_SQL = `
   INSERT INTO assets (
     id, kind, status, filename, mime_type, storage_uri, thumbnail_uri,
     width, height, duration_seconds, fps, byte_size, created_at,
-    generation_id, source_type, source_json
-  ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    generation_id, source_type, source_json, project
+  ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 `;
 
 const SELECT_COLUMNS = `
   id, kind, status, filename, mime_type, storage_uri, thumbnail_uri,
   width, height, duration_seconds, fps, byte_size, created_at,
-  generation_id, source_type, source_json
+  generation_id, source_type, source_json, project
 `;
 
 export class AssetRepository {
@@ -88,6 +98,7 @@ export class AssetRepository {
           parsed.generationId ?? null,
           parsed.source.type,
           JSON.stringify(parsed.source),
+          parsed.project ?? projectOf(parsed) ?? null,
         );
     } catch (cause) {
       throw new SeedError("storage_error", "could not register asset", { cause });
@@ -146,6 +157,10 @@ export class AssetRepository {
     if (options.kind) {
       clauses.push("kind = ?");
       filterParams.push(options.kind);
+    }
+    if (options.project) {
+      clauses.push("project = ?");
+      filterParams.push(options.project);
     }
     const where = `WHERE ${clauses.join(" AND ")}`;
 
@@ -224,6 +239,20 @@ function rowToAsset(row: AssetRow): Asset {
     ...(row.byte_size !== null ? { byteSize: row.byte_size } : {}),
     createdAt: row.created_at,
     ...(row.generation_id !== null ? { generationId: row.generation_id } : {}),
+    ...(row.project !== null ? { project: row.project } : {}),
     source,
   });
+}
+
+/**
+ * The project a captured asset records about itself.
+ *
+ * Only capture knows this first-hand. A generated result inherits it from what
+ * it was made from, and the caller supplies that — this is the fallback so a
+ * captured frame never has to be told what it already says.
+ */
+function projectOf(asset: Asset): string | undefined {
+  return asset.source.type === "after-effects"
+    ? asset.source.context.projectName
+    : undefined;
 }

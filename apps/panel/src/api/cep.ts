@@ -463,7 +463,13 @@ export class CepAeBridge {
       )})`,
     );
     if (!path) return undefined;
-    const { asset } = await this.client.adoptFile(path);
+
+    // Tagged with whatever is open, so a library filtered to this project
+    // still finds the clip that was added while working on it.
+    const context = await this.getContext().catch(() => ({}) as Record<string, unknown>);
+    const project =
+      typeof context.projectName === "string" ? context.projectName : undefined;
+    const { asset } = await this.client.adoptFile(path, project);
     return asset;
   }
 

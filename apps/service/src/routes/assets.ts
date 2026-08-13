@@ -151,6 +151,8 @@ export function setPosterRoute(deps: AppDeps) {
 const AdoptFileSchema = z.object({
   /** Any absolute path the user picked; copied in, never referenced in place. */
   path: z.string().min(1),
+  /** The project open when it was added, so a filtered library still finds it. */
+  project: z.string().min(1).optional(),
 });
 
 /**
@@ -237,6 +239,7 @@ export function adoptFileRoute(deps: AppDeps) {
       ...(width ? { width } : {}),
       ...(height ? { height } : {}),
       ...(video?.durationSeconds ? { durationSeconds: video.durationSeconds } : {}),
+      ...(request.project ? { project: request.project } : {}),
       source: { type: "imported", originalPath: source },
     });
 

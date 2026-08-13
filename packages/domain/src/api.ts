@@ -31,6 +31,8 @@ export const ListAssetsQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(200).default(50),
   offset: z.coerce.number().int().min(0).default(0),
   kind: z.enum(["image", "video", "audio", "other"]).optional(),
+  /** Narrows a shared library to one host project. */
+  project: z.string().min(1).optional(),
 });
 export type ListAssetsQuery = z.infer<typeof ListAssetsQuerySchema>;
 

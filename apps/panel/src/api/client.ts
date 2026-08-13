@@ -183,17 +183,23 @@ export class SeedClient {
    * The manual route to a motion reference: whatever the artist exported, from
    * whichever application, becomes an asset SEED can reference.
    */
-  adoptFile(path: string): Promise<{ asset: Asset }> {
-    return this.request("/v1/assets/adopt", { method: "POST", body: { path } });
+  adoptFile(path: string, project?: string): Promise<{ asset: Asset }> {
+    return this.request("/v1/assets/adopt", {
+      method: "POST",
+      body: { path, ...(project ? { project } : {}) },
+    });
   }
 
-  listAssets(params: { limit?: number; kind?: string } = {}): Promise<{
+  listAssets(
+    params: { limit?: number; kind?: string; project?: string } = {},
+  ): Promise<{
     assets: Asset[];
     total: number;
   }> {
     const query = new URLSearchParams();
     query.set("limit", String(params.limit ?? 60));
     if (params.kind) query.set("kind", params.kind);
+    if (params.project) query.set("project", params.project);
     return this.request(`/v1/assets?${query.toString()}`);
   }
 

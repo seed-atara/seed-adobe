@@ -40,6 +40,14 @@ const EXTENSIONS: Record<string, string> = {
 };
 
 export interface IngestOptions {
+  /**
+   * The project this result belongs to.
+   *
+   * A generated asset has no project of its own — it inherits from whatever it
+   * was made from, which is the only honest answer and the one that keeps a
+   * filtered library complete.
+   */
+  project?: string;
   generationId: string;
   provider: string;
   model: string;
@@ -97,6 +105,7 @@ export class MediaIngestor {
       storageUri: toStorageUri(this.workspace, target),
       byteSize: bytes.length,
       generationId: options.generationId,
+      ...(options.project ? { project: options.project } : {}),
       source: {
         type: "generated",
         provider: options.provider,
