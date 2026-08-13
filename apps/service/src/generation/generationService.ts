@@ -635,12 +635,24 @@ export class GenerationService {
         });
 
         /*
-         * A rejected credential is not an outage. Retrying it twenty times
-         * takes a minute and a half to reach the same answer, and the answer —
-         * "The API key status is not active" — is one only a person can act
-         * on. Waiting is for the errors that waiting fixes.
+         * A refused credential IS worth waiting out here, which is the
+         * opposite of what it is at submission — and the difference is that
+         * by this point a task exists.
+         *
+         * Measured, after a key was re-enabled: submitting worked, the poll
+         * seconds later answered "The API key status is not active", and a
+         * minute after that the same call returned `running`. The status
+         * propagates unevenly, and the render was going the whole time. A job
+         * killed on the first 401 there is a paid render thrown away for a
+         * condition that fixed itself.
+         *
+         * A genuinely dead key still ends the job — it just takes the full
+         * error budget to say so, which costs nothing next to the render.
+         *
+         * `bad_request` stays terminal: a malformed request will be malformed
+         * on every retry.
          */
-        if (error.code === "unauthorized" || error.code === "bad_request") {
+        if (error.code === "bad_request") {
           return {
             status: "failed",
             error: { class: error.code, message: error.message },

@@ -276,13 +276,15 @@ describe("clips as references", () => {
   });
 
   /**
-   * Waiting is for the errors that waiting fixes.
+   * A credential refused *after* a task exists is worth waiting out.
    *
-   * A rejected credential is not an outage: twenty retries take ninety seconds
-   * to reach the same answer, and "The API key status is not active" is one
-   * only a person can act on.
+   * Measured against the live API: a key was re-enabled, submission worked,
+   * the poll seconds later answered "The API key status is not active", and a
+   * minute later the same call returned `running`. The status propagates
+   * unevenly and the render never stopped. Failing on the first 401 there
+   * throws away a paid render because of a condition that fixes itself.
    */
-  it("gives up at once when the credential is refused", async () => {
+  it("waits out a credential error while a task is already running", async () => {
     let polls = 0;
     const { SeedError } = await import("@seed-ae/domain");
     const deadKeyProvider = {
@@ -312,10 +314,17 @@ describe("clips as references", () => {
       },
       async getJob() {
         polls += 1;
-        throw new SeedError(
-          "unauthorized",
-          "Seedance returned HTTP 401: The API key status is not active.",
-        );
+        // Two refusals while the key status propagates, then the truth.
+        if (polls <= 2) {
+          throw new SeedError(
+            "unauthorized",
+            "Seedance returned HTTP 401: The API key status is not active.",
+          );
+        }
+        return {
+          status: "succeeded" as const,
+          outputs: [{ mimeType: "image/png", base64: fakePng(4, 4).toString("base64") }],
+        };
       },
     };
 
@@ -337,9 +346,9 @@ describe("clips as references", () => {
       await service.deps.generation.whenSettled(job.id);
 
       const detail = await readJson(await service.call(`/v1/jobs/${job.id}`));
-      expect(detail.job.status).toBe("failed");
-      expect(detail.job.errorMessage).toMatch(/API key status is not active/);
-      expect(polls).toBe(1);
+      expect(detail.job.status).toBe("succeeded");
+      expect(detail.outputs).toHaveLength(1);
+      expect(polls).toBe(3);
     } finally {
       await service.close();
     }
