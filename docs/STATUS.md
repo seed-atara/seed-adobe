@@ -383,15 +383,12 @@ Verified end to end at the time of writing:
 1. Run the full demo in After Effects: capture a hero frame, generate with
    Seedance 2.5, insert the clip at the playhead. Every piece is verified
    individually; the sequence as a performance is not.
-2. Run `Capture work area as clip` in a real After Effects project, then a
-   video-to-video generation from it — the service half is verified, the host
-   half is not.
-3. Switch `ARK_REFERENCE_POLICY` to `asset` and run one image generation
+2. Switch `ARK_REFERENCE_POLICY` to `asset` and run one image generation
    through it: the publisher it was waiting for now exists.
-4. Extract a real first frame for video posters, or accept the borrowed one
+3. Extract a real first frame for video posters, or accept the borrowed one
    and say so in the UI. A clip adopted from disk has no poster at all.
-5. Confirm Seedance text-to-video parameters, and whether `audio_url` content
+4. Confirm Seedance text-to-video parameters, and whether `audio_url` content
    parts are usable. `video_url` is answered — see above.
-6. Milestone 5 continued: the direction agent plans but does not act. Tool use
+5. Milestone 5 continued: the direction agent plans but does not act. Tool use
    and an execution loop stay gated behind the rule in ADR 0007 — the agent
    proposes, the user approves anything destructive.
