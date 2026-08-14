@@ -182,9 +182,20 @@ function seedNewestSettledFile(folder, sinceMs) {
     return new File(candidate.fsName);
 }
 
-/** Newest file in a folder, used to find what an exporter actually wrote. */
+/**
+ * Newest file in a folder, used to find what an exporter actually wrote.
+ *
+ * Re-reads through a NEW Folder object every time. An ExtendScript Folder
+ * caches its listing exactly as a File caches `exists`, so polling the same
+ * instance answers with the directory as it was when the object was made —
+ * forever. That is invisible when the writer is synchronous, because the first
+ * listing already contains the file, and total when it is not: Media Encoder
+ * wrote a correct six-second clip into this very folder and the loop watching
+ * for it never saw it appear.
+ */
 function seedNewestFile(folder, sinceMs) {
-    var files = folder.getFiles(function (f) {
+    var fresh = new Folder(seedNormalizePath(folder.fsName));
+    var files = fresh.getFiles(function (f) {
         return f instanceof File;
     });
     var best = null;
