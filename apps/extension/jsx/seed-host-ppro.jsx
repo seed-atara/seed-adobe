@@ -1790,6 +1790,98 @@ function seedPickFile(title, filter) {
 }
 
 /**
+ * Renders a range through Media Encoder — the sanctioned route.
+ *
+ * `encodeSequence` takes six arguments, not five: the last says whether to
+ * start the queue. Adobe's own PProPanel sample is the authority here, and the
+ * still-capture route learned each of these the hard way — seconds not ticks,
+ * six arguments, and the range restored immediately after the call rather than
+ * in a `finally` that runs before Media Encoder has read the sequence.
+ *
+ * The constants are read from the application rather than assumed. If
+ * ENCODE_IN_TO_OUT is missing and the fallback of 1 happens to mean "entire
+ * sequence" on some build, Media Encoder renders the whole timeline — which
+ * for a reference clip is minutes of the wrong thing, so the trace records
+ * what it actually used.
+ */
+function seedEncodeRange(sequence, folder, preset, target, start, duration, startedAt, trace) {
+    if (!app.encoder || typeof app.encoder.encodeSequence !== "function") {
+        trace.push("AME: app.encoder.encodeSequence is unavailable");
+        return null;
+    }
+
+    var previousIn = null;
+    var previousOut = null;
+    try {
+        previousIn = sequence.getInPointAsTime();
+        previousOut = sequence.getOutPointAsTime();
+    } catch (error) {
+        trace.push("AME: could not read the existing in/out");
+    }
+
+    try {
+        if (typeof app.encoder.launchEncoder === "function") app.encoder.launchEncoder();
+
+        seedSetInOut(sequence, start, start + duration, trace);
+
+        trace.push("AME constants: entire=" + String(app.encoder.ENCODE_ENTIRE) +
+            " inToOut=" + String(app.encoder.ENCODE_IN_TO_OUT) +
+            " workArea=" + String(app.encoder.ENCODE_WORK_AREA));
+
+        var inToOut = typeof app.encoder.ENCODE_IN_TO_OUT === "number"
+            ? app.encoder.ENCODE_IN_TO_OUT
+            : 1;
+
+        try {
+            trace.push("AME: in=" + Number(sequence.getInPointAsTime().seconds).toFixed(3) +
+                "s out=" + Number(sequence.getOutPointAsTime().seconds).toFixed(3) +
+                "s (wanted " + start.toFixed(3) + "s +" + duration.toFixed(3) +
+                "s), mode " + inToOut);
+        } catch (readError) {
+            trace.push("AME: could not read back the range");
+        }
+
+        var jobId = app.encoder.encodeSequence(
+            sequence,
+            target + ".mp4",
+            preset.fsName,
+            inToOut,
+            1,
+            true
+        );
+        trace.push("AME: encodeSequence returned " + String(jobId));
+    } catch (error) {
+        trace.push("AME: encodeSequence threw: " + error);
+        return null;
+    } finally {
+        // Straight back, as the sample does — the encoder has taken what it
+        // needs by now, and a `finally` at the end of the whole export would
+        // restore it far too late.
+        if (previousIn !== null && previousOut !== null) {
+            try {
+                sequence.setInPoint(Number(previousIn.seconds));
+                sequence.setOutPoint(Number(previousOut.seconds));
+            } catch (restoreError) {
+                trace.push("AME: could not restore the in/out");
+            }
+        }
+    }
+
+    /*
+     * Media Encoder is a separate application rendering a real span, so this
+     * waits in minutes and watches the folder rather than one exact path — it
+     * may add its own extension.
+     */
+    var written = null;
+    for (var wait = 0; wait < 1200 && !written; wait++) {
+        $.sleep(500);
+        written = seedNewestSettledFile(folder, startedAt);
+    }
+    if (!written) trace.push("AME: nothing appeared within 10 minutes");
+    return written;
+}
+
+/**
  * Renders a span of the active sequence to an mp4.
  *
  * Premiere's equivalent of After Effects' work area is the in/out range, and
@@ -1875,44 +1967,58 @@ function seedCaptureRange(outputDir, basename, startSeconds, durationSeconds, pr
         var written = null;
 
         try {
-            seedSetInOut(sequence, start, start + duration, trace);
+            /*
+             * Media Encoder first, exportAsMediaDirect second.
+             *
+             * The still capture taught this the expensive way: what works in
+             * Premiere here is exportFrameAsPNG, a PNG-only call with no video
+             * equivalent, and exportAsMediaDirect answers "Unable to initialize
+             * export!" to everything on this install — a correct H.264 preset
+             * exported from Premiere's own dialog included. So the sanctioned
+             * route, the one Adobe's PProPanel sample uses, is tried first and
+             * the direct exporter is kept only as the fallback it turned out
+             * to be.
+             */
+            written = seedEncodeRange(
+                sequence, folder, preset, target, start, duration, startedAt, trace
+            );
 
-            var paths = [target + ".mp4", target];
-            for (var pi = 0; pi < paths.length && !written; pi++) {
-                for (var ti = 0; ti < SEED_WORK_AREA_TYPES.length && !written; ti++) {
-                    var workAreaType = SEED_WORK_AREA_TYPES[ti];
-                    var label = "type " + workAreaType + (pi === 0 ? " +.mp4" : " no ext");
-                    var returned;
-                    try {
-                        returned = sequence.exportAsMediaDirect(
-                            paths[pi],
-                            preset.fsName,
-                            workAreaType
+            if (!written) {
+                seedSetInOut(sequence, start, start + duration, trace);
+
+                var paths = [target + ".mp4", target];
+                for (var pi = 0; pi < paths.length && !written; pi++) {
+                    for (var ti = 0; ti < SEED_WORK_AREA_TYPES.length && !written; ti++) {
+                        var workAreaType = SEED_WORK_AREA_TYPES[ti];
+                        var label = "direct type " + workAreaType +
+                            (pi === 0 ? " +.mp4" : " no ext");
+                        var returned;
+                        try {
+                            returned = sequence.exportAsMediaDirect(
+                                paths[pi],
+                                preset.fsName,
+                                workAreaType
+                            );
+                        } catch (callError) {
+                            trace.push(label + " threw: " + callError);
+                            continue;
+                        }
+
+                        var refused = seedExportRefused(returned);
+                        if (refused) {
+                            trace.push(label + ": " + refused);
+                            continue;
+                        }
+
+                        for (var wait = 0; wait < 1200 && !written; wait++) {
+                            $.sleep(500);
+                            written = seedNewestSettledFile(folder, startedAt);
+                        }
+                        trace.push(
+                            label +
+                            (written ? " wrote a file" : " returned ok but wrote nothing in 10 minutes")
                         );
-                    } catch (callError) {
-                        trace.push(label + " threw: " + callError);
-                        continue;
                     }
-
-                    var refused = seedExportRefused(returned);
-                    if (refused) {
-                        trace.push(label + ": " + refused);
-                        continue;
-                    }
-
-                    /*
-                     * A range is a real encode, not a frame grab, so this waits
-                     * in minutes — and waits for the file to stop growing
-                     * rather than merely to exist.
-                     */
-                    for (var wait = 0; wait < 1200 && !written; wait++) {
-                        $.sleep(500);
-                        written = seedNewestSettledFile(folder, startedAt);
-                    }
-                    trace.push(
-                        label +
-                        (written ? " wrote a file" : " returned ok but wrote nothing in 10 minutes")
-                    );
                 }
             }
         } catch (error) {
@@ -1936,6 +2042,10 @@ function seedCaptureRange(outputDir, basename, startSeconds, durationSeconds, pr
         if (!written) {
             return seedFail("Premiere did not write a clip. " + trace.join(" | "));
         }
+
+        // Media Encoder ignoring the range is a known risk, and a reference
+        // clip of the whole timeline is worse than none: say what arrived.
+        trace.push("wrote " + written.length + " bytes");
 
         return seedOk({
             path: written.fsName,
