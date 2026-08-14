@@ -18,22 +18,14 @@ const PRESET_ROOTS = [
   "Documents/Adobe/Premiere Pro",
 ];
 
-/**
- * Where Adobe ships its own presets.
- *
- * Searched as well as the per-user folders because a user preset for H.264 is
- * not something most editors ever make — they pick "Match Source" from a
- * dropdown, which lives here. Verified on this install: the folders are named
- * `<exporter>_<filetype>` in hex, so `4E49434B_48323634` is "NICK"/"H264".
- */
-const SYSTEM_PRESET_GLOBS = [
-  "C:/Program Files/Adobe",
-  "/Applications",
-];
-
 export interface StillPreset {
   path: string;
   name: string;
+}
+
+export interface VideoPreset extends StillPreset {
+  /** What it actually encodes. HEVC is a fallback, not a preference. */
+  codec: "H264" | "HEVC";
 }
 
 /**
@@ -122,44 +114,23 @@ async function eprFilesUnder(root: string): Promise<string[]> {
 }
 
 /**
- * Whether a preset writes H.264 video.
+ * Whether this is a preset Premiere's own Export Settings dialog wrote.
  *
- * The four-character code is the whole answer here, and unlike the still case
- * there is no usable fallback: Adobe's shipped presets carry a localisation
- * token as their name (`$$$/AME/EncoderHost/Presets/9bb57b43-...`), so nothing
- * readable says "H.264" anywhere in the file. Measured against a real install.
+ * Adobe's factory presets are the same file extension and a different format:
+ * they open with `<ExportXMPOptionKey>` and `<StandardFilters>` and carry a
+ * localisation token where the name should be, while an exported preset opens
+ * with `<PresetName>` and a `<PresetComments>`. `exportAsMediaDirect` accepts
+ * only the second kind — a factory preset answers "Unable to initialize
+ * export!", which is Premiere's reply to a great many objections and names
+ * none of them.
  *
- * HEVC is deliberately not accepted. It is also an .mp4 and it is what this
- * machine happens to have a shelf of, but no provider has been shown to accept
- * one, and a reference that fails after upload is worse than one we declined
- * to make.
+ * Learned the hard way: discovery found a factory "Match Source - High
+ * bitrate", the panel offered the button, and every export refused.
  */
-function looksLikeH264(xml: string): boolean {
-  return exporterFourCc(xml)?.trim().toUpperCase() === "H264";
-}
-
-/**
- * Adobe's own preset folders, found by walking Program Files shallowly.
- *
- * The version is in the folder name ("Adobe Media Encoder 2026"), so it is
- * discovered rather than assumed — an install a year newer would otherwise
- * silently stop being found.
- */
-async function systemPresetRoots(bases: string[]): Promise<string[]> {
-  const roots: string[] = [];
-  for (const base of bases) {
-    let entries: string[];
-    try {
-      entries = await readdir(base);
-    } catch {
-      continue;
-    }
-    for (const entry of entries) {
-      if (!/^Adobe (Media Encoder|Premiere Pro)/i.test(entry)) continue;
-      roots.push(path.join(base, entry, "MediaIO", "systempresets"));
-    }
-  }
-  return roots;
+function isExportedPreset(xml: string): boolean {
+  const name = /<PresetName>([^<]*)<\/PresetName>/.exec(xml)?.[1] ?? "";
+  if (!name || name.startsWith("($$$") || name.includes("$$$/")) return false;
+  return /<PresetComments>/.test(xml);
 }
 
 /**
@@ -172,35 +143,55 @@ async function systemPresetRoots(bases: string[]): Promise<string[]> {
  */
 export async function findVideoPreset(
   home = process.env.USERPROFILE ?? process.env.HOME ?? "",
-  /** Injectable so a test can look at a fake install rather than this one. */
-  systemBases: string[] = SYSTEM_PRESET_GLOBS,
-): Promise<StillPreset | undefined> {
-  const roots = [
-    ...(home ? PRESET_ROOTS.map((relative) => path.join(home, relative)) : []),
-    ...(await systemPresetRoots(systemBases)),
-  ];
+): Promise<VideoPreset | undefined> {
+  if (!home) return undefined;
 
-  const candidates: { path: string; name: string; preferred: boolean }[] = [];
-  for (const root of roots) {
-    for (const file of await eprFilesUnder(root)) {
+  const h264: VideoPreset[] = [];
+  const hevc: VideoPreset[] = [];
+
+  for (const relative of PRESET_ROOTS) {
+    for (const file of await eprFilesUnder(path.join(home, relative))) {
       let xml: string;
       try {
         xml = await readFile(file, "utf8");
       } catch {
         continue;
       }
-      if (!looksLikeH264(xml)) continue;
+      // Only what the export dialog wrote; a factory preset cannot be used.
+      if (!isExportedPreset(xml)) continue;
+
+      const code = exporterFourCc(xml)?.trim().toUpperCase();
       const base = path.basename(file);
-      candidates.push({
+      const entry: VideoPreset = {
         path: file,
         name: readableName(presetName(xml, base), base),
-        preferred: /match source/i.test(base),
-      });
+        codec: code === "H264" ? "H264" : "HEVC",
+      };
+      if (code === "H264") h264.push(entry);
+      else if (code === "HEVC") hevc.push(entry);
     }
-    const best = candidates.find((entry) => entry.preferred) ?? candidates[0];
-    if (best) return { path: best.path, name: best.name };
   }
-  return undefined;
+
+  /*
+   * H.264 first, always. HEVC is offered only when there is no H.264 preset at
+   * all, and the caller is told which it got: it is the same .mp4 container and
+   * no provider has been shown to accept the codec, so it is a fallback worth
+   * trying rather than one worth trusting.
+   *
+   * Within a codec the order is by name rather than by whatever the directory
+   * walk happened to return — the same install should not pick a different
+   * preset on different days. "Placeholder" goes last: Premiere writes one of
+   * those itself, and it is nobody's idea of an export setting.
+   */
+  const rank = (entries: VideoPreset[]) =>
+    [...entries].sort((a, b) => {
+      const auto = (entry: VideoPreset) =>
+        /placeholder/i.test(entry.name) || /placeholder/i.test(path.basename(entry.path));
+      if (auto(a) !== auto(b)) return auto(a) ? 1 : -1;
+      return a.name.localeCompare(b.name);
+    });
+
+  return rank(h264)[0] ?? rank(hevc)[0];
 }
 
 /**

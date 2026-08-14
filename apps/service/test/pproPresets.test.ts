@@ -82,33 +82,59 @@ describe("ExporterFileType four-character code", () => {
 });
 
 describe("finding an H.264 preset", () => {
-  it("identifies H.264 by its four-character code, not its name", async () => {
+  it("takes only what the export dialog wrote, not Adobe's factory presets", async () => {
     const home = await mkdtemp(path.join(tmpdir(), "seed presets "));
     const dir = path.join(home, "Documents/Adobe/Adobe Media Encoder/26.0/Presets");
     await mkdir(dir, { recursive: true });
 
     /*
-     * Adobe's shipped presets carry a localisation token instead of a name, so
-     * nothing readable in the file says "H.264" — the code is the only signal.
-     * 1211250228 is 0x48323634, "H264", read off a real install.
+     * A factory preset: right codec, wrong format. exportAsMediaDirect answers
+     * "Unable to initialize export!" to these, which is how the first attempt
+     * at Premiere range export failed six ways in a row.
      */
     await writeFile(
-      path.join(dir, "anonymous.epr"),
-      `<PresetName>($$$/AME/EncoderHost/Presets/abc/PresetName=Match Source - High bitrate)</PresetName>
-       <ExporterFileType>1211250228</ExporterFileType>`,
+      path.join(dir, "factory.epr"),
+      `<PremiereData Version="3"><ExportXMPOptionKey>10</ExportXMPOptionKey>
+       <PresetName>($$$/AME/EncoderHost/Presets/abc/PresetName=Match Source)</PresetName>
+       <ExporterFileType>1211250228</ExporterFileType></PremiereData>`,
     );
-    // HEVC is also an .mp4 and is not accepted: no provider has been shown to
-    // take one, and a reference that fails after upload is worse than none.
+    // What Premiere's own Export Settings dialog writes.
     await writeFile(
-      path.join(dir, "tempting.epr"),
-      `<PresetName>H.264 High Quality</PresetName>
-       <ExporterFileType>1213027651</ExporterFileType>`,
+      path.join(dir, "exported.epr"),
+      `<PremiereData Version="3"><PresetName>SEED H264</PresetName>
+       <PresetComments>Custom</PresetComments>
+       <ExporterFileType>1211250228</ExporterFileType></PremiereData>`,
     );
 
-    const found = await findVideoPreset(home, []);
-    expect(found?.path.endsWith("anonymous.epr")).toBe(true);
-    // The readable half of the token, not the token itself.
-    expect(found?.name).toBe("Match Source - High bitrate");
+    const found = await findVideoPreset(home);
+    expect(found?.path.endsWith("exported.epr")).toBe(true);
+    expect(found?.codec).toBe("H264");
+  });
+
+  it("falls back to HEVC only when there is no H.264, and says which", async () => {
+    const home = await mkdtemp(path.join(tmpdir(), "seed presets "));
+    made.push(home);
+    const dir = path.join(home, "Documents/Adobe/Adobe Media Encoder/26.0/Presets");
+    await mkdir(dir, { recursive: true });
+    // 1212503619 is "HEVC".
+    await writeFile(
+      path.join(dir, "hevc.epr"),
+      `<PremiereData Version="3"><PresetName>Hive HEVC</PresetName>
+       <PresetComments>Custom</PresetComments>
+       <ExporterFileType>1212503619</ExporterFileType></PremiereData>`,
+    );
+
+    const only = await findVideoPreset(home);
+    expect(only?.codec).toBe("HEVC");
+
+    await writeFile(
+      path.join(dir, "h264.epr"),
+      `<PremiereData Version="3"><PresetName>SEED H264</PresetName>
+       <PresetComments>Custom</PresetComments>
+       <ExporterFileType>1211250228</ExporterFileType></PremiereData>`,
+    );
+    // With both present the codec that is known to work wins.
+    expect((await findVideoPreset(home))?.codec).toBe("H264");
   });
 
   it("finds nothing rather than offering a still preset as a clip exporter", async () => {
@@ -118,8 +144,10 @@ describe("finding an H.264 preset", () => {
     // 1347307296 is "PNG " — the still preset the other finder wants.
     await writeFile(
       path.join(dir, "still.epr"),
-      `<PresetName>PNG still</PresetName><ExporterFileType>1347307296</ExporterFileType>`,
+      `<PremiereData Version="3"><PresetName>PNG still</PresetName>
+       <PresetComments>Custom</PresetComments>
+       <ExporterFileType>1347307296</ExporterFileType></PremiereData>`,
     );
-    expect(await findVideoPreset(home, [])).toBeUndefined();
+    expect(await findVideoPreset(home)).toBeUndefined();
   });
 });

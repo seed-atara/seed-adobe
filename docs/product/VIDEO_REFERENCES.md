@@ -82,21 +82,38 @@ Mark in and out (**I** and **O**) around the span you want first. Without them
 Premiere reports the whole sequence, and quietly encoding forty minutes because
 nobody marked anything is not a favour — so it refuses and says so.
 
+#### It needs a preset you exported yourself
+
 Premiere has no direct video export in scripting; the route is
 `exportAsMediaDirect` with an `.epr` preset, the same machinery as the still.
-SEED finds an H.264 preset by reading the files rather than trusting their
-names: Adobe's shipped presets carry a localisation token instead of a name, so
-the exporter's four-character code is the only reliable signal. "Match Source"
-is preferred where it exists, since it keeps the sequence's own size and frame
-rate.
 
-HEVC presets are deliberately ignored even though they are also `.mp4`. No
-provider has been shown to accept one, and a reference that fails after being
-uploaded is worse than one SEED declined to make.
+**Adobe's factory presets cannot be used**, even though they are the same file
+extension and sit right there in the install. They are a different format —
+they open with `<ExportXMPOptionKey>` and carry a localisation token where the
+name should be, while an exported preset opens with `<PresetName>` and a
+`<PresetComments>`. Handed a factory preset, `exportAsMediaDirect` answers
+"Unable to initialize export!", which is Premiere's reply to a great many
+objections and names none of them.
 
-If nothing is found, `SEED_PPRO_VIDEO_PRESET` takes a path — or export the
-range yourself (**File → Export → Media**) and use **Add a clip or image from
-disk…**, which works in both applications.
+So make one, once, and it is there forever:
+
+1. **File → Export → Media** on any sequence.
+2. Format **H.264**, and a preset like **Match Source - High bitrate**.
+3. Next to the preset dropdown, **Save Preset** — name it something like
+   `SEED H264`.
+4. Restart the service. It looks in `Documents/Adobe/Adobe Media Encoder` and
+   `Documents/Adobe/Premiere Pro` and logs `ppro.video_preset_found`.
+
+That is the same thing you already did for the PNG still preset.
+
+**HEVC is a fallback, not a choice.** If there is no H.264 preset SEED will use
+an HEVC one rather than refuse, and says so in the log — it is the same `.mp4`
+container, but no provider has been shown to accept the codec, so treat a
+failure there as expected rather than mysterious.
+
+`SEED_PPRO_VIDEO_PRESET` overrides discovery with a path. And the manual route
+always works: export the range yourself and use **Add a clip or image from
+disk…**
 
 ## Where the clip goes
 

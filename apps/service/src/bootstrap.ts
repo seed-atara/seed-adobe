@@ -98,6 +98,24 @@ export async function bootstrap({
       activeLogger.info("ppro.video_preset_found", {
         name: discovered.name,
         path: discovered.path,
+        codec: discovered.codec,
+        ...(discovered.codec === "HEVC"
+          ? {
+              note:
+                "no H.264 preset was found, so this falls back to HEVC — the " +
+                "same container, a codec no provider has been shown to accept. " +
+                "Export an H.264 preset from Premiere's Export Settings dialog " +
+                "to replace it.",
+            }
+          : {}),
+      });
+    } else {
+      activeLogger.info("ppro.video_preset_missing", {
+        reason:
+          "no exported H.264 or HEVC preset in Documents/Adobe. Premiere " +
+          "cannot render a range without one — export one from its Export " +
+          "Settings dialog, or set SEED_PPRO_VIDEO_PRESET. Adobe's factory " +
+          "presets are a different file format and cannot be used.",
       });
     }
   }
