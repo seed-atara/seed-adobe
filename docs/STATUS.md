@@ -229,7 +229,23 @@ width is usually what the artist has just finished framing.
 
 Premiere frame capture works, via `sequence.exportFrameAsPNG(time, path)` — see
 the Adobe notes. Media Encoder, the route Adobe's own sample uses, is given the
-correct range and ignores it, so it is kept only as a last fallback.
+correct range and ignores it for a *single frame*, so it is a last fallback
+there.
+
+For a **range** the picture reverses, verified in the application on
+2026-08-15: `exportAsMediaDirect` answers "Unable to initialize export!" to
+every combination of preset, path and work-area constant, while Media Encoder
+honours in/out exactly — a marked span came back 6.006s at 1920x1080. So
+`Capture in-to-out as clip` encodes through AME and keeps the direct exporter
+as its fallback.
+
+Two traps cost a round each, both worth remembering. Adobe's factory `.epr`
+presets are a *different format* from exported ones and `exportAsMediaDirect`
+refuses them; discovery now requires the shape Premiere's own Export Settings
+dialog writes, prefers H.264, and falls back to HEVC only while saying so. And
+an ExtendScript `Folder` caches its directory listing the way a `File` caches
+`exists` — the clip rendered correctly into the watched folder and the poll
+loop, re-reading one stale listing, never saw it.
 
 Not yet exercised in After Effects — the host functions parse and the panel
 builds, but the round trip has not been run against a real project.
@@ -388,10 +404,8 @@ Verified end to end at the time of writing:
 
 ## Next engineering actions
 
-1. **Run `Capture in-to-out as clip` in a real Premiere sequence.** Built and
-   unexercised: the preset is found (Match Source - High bitrate, from Adobe's
-   own folder), the host function parses, no sequence has been through it.
-   Needs `npm run install:extension` first.
+1. Exercise iterate-in-place in Premiere. It is built and has never replaced a
+   real clip there; After Effects has.
 2. Decide whether video references should register as Ark assets rather than
    travel as links. Both work; the asset id is permanent and costs 10-30s of
    registration before the job starts, the link costs half a second and expires.
