@@ -191,6 +191,158 @@ MIGRATIONS.push({
   `,
 });
 
+MIGRATIONS.push({
+  version: 5,
+  name: "items",
+  sql: `
+    -- Items are the consistency layer: a named identity (a person, a place, a
+    -- prop, a look) that must appear the same way across many generations.
+    --
+    -- Unlike assets, an item is MUTABLE by nature — it gains plates, loses
+    -- them, gets rewritten mid-show. Reproducibility survives that because the
+    -- definition is split off into immutable revisions, and a generation
+    -- records the revision it resolved rather than the item. See ADR 0011.
+    CREATE TABLE items (
+      id                  TEXT PRIMARY KEY,
+      handle              TEXT NOT NULL,
+      kind                TEXT NOT NULL,
+      name                TEXT NOT NULL,
+      tags_json           TEXT NOT NULL DEFAULT '[]',
+      -- NULL means studio-wide, which is the default and the inverse of an
+      -- asset's rule. Items exist to travel between shows.
+      project             TEXT,
+      -- A real likeness needs the subject's own liveness authorisation before
+      -- the provider will accept it; a generated character needs none.
+      real_person         INTEGER NOT NULL DEFAULT 0,
+      authorisation       TEXT NOT NULL DEFAULT 'not-required',
+      -- providerId -> native grouping id. An Ark Asset Group is documented as
+      -- the several references of ONE character, which is exactly an item.
+      provider_groups_json TEXT NOT NULL DEFAULT '{}',
+      default_variant_id  TEXT,
+      created_at          TEXT NOT NULL,
+      updated_at          TEXT NOT NULL
+    );
+
+    CREATE TABLE item_variants (
+      id                TEXT PRIMARY KEY,
+      item_id           TEXT NOT NULL REFERENCES items(id),
+      slug              TEXT NOT NULL,
+      name              TEXT NOT NULL,
+      parent_variant_id TEXT REFERENCES item_variants(id),
+      created_at        TEXT NOT NULL,
+      UNIQUE (item_id, slug)
+    );
+
+    -- The immutable payload. This is what a generation points at.
+    CREATE TABLE item_revisions (
+      id           TEXT PRIMARY KEY,
+      variant_id   TEXT NOT NULL REFERENCES item_variants(id),
+      revision     INTEGER NOT NULL,
+      created_at   TEXT NOT NULL,
+      message      TEXT,
+      avoid_json   TEXT NOT NULL DEFAULT '[]',
+      attributes_json TEXT NOT NULL DEFAULT '{}',
+      seed_hint    INTEGER,
+      look_json    TEXT,
+      UNIQUE (variant_id, revision)
+    );
+
+    CREATE TABLE item_plates (
+      revision_id       TEXT NOT NULL REFERENCES item_revisions(id),
+      position          INTEGER NOT NULL,
+      asset_id          TEXT NOT NULL REFERENCES assets(id),
+      role              TEXT NOT NULL DEFAULT 'reference',
+      weight            INTEGER NOT NULL DEFAULT 0,
+      notes             TEXT,
+      -- providerId -> the address that provider accepts. Ark takes a permanent
+      -- asset:// id for video and refuses it for images, where only a hosted
+      -- URL works, so a plate holds every address it has.
+      provider_refs_json TEXT NOT NULL DEFAULT '{}',
+      PRIMARY KEY (revision_id, position)
+    );
+
+    CREATE TABLE item_traits (
+      revision_id TEXT NOT NULL REFERENCES item_revisions(id),
+      position    INTEGER NOT NULL,
+      text        TEXT NOT NULL,
+      facet       TEXT NOT NULL DEFAULT 'other',
+      priority    INTEGER NOT NULL DEFAULT 0,
+      -- Marks the discrete nameable details a reference reliably loses, which
+      -- are the ones worth spending prompt words on even when plates travel.
+      drift_prone INTEGER NOT NULL DEFAULT 0,
+      PRIMARY KEY (revision_id, position)
+    );
+
+    -- Renaming is allowed and must not break history: an old prompt still
+    -- resolves, because every handle an item has held is kept with the window
+    -- it was current for. Linkage is by revision id regardless; the handle is
+    -- presentation.
+    CREATE TABLE item_handles (
+      item_id TEXT NOT NULL REFERENCES items(id),
+      handle  TEXT NOT NULL,
+      from_at TEXT NOT NULL,
+      to_at   TEXT,
+      PRIMARY KEY (item_id, handle, from_at)
+    );
+
+    CREATE UNIQUE INDEX item_handles_current_idx
+      ON item_handles (handle) WHERE to_at IS NULL;
+
+    -- Which items a generation used, at which revision. The join is explicit
+    -- rather than JSON so "every shot @sara appears in" is an index lookup.
+    CREATE TABLE generation_items (
+      generation_id  TEXT NOT NULL REFERENCES generations(id),
+      position       INTEGER NOT NULL,
+      item_id        TEXT NOT NULL REFERENCES items(id),
+      variant_id     TEXT NOT NULL REFERENCES item_variants(id),
+      revision_id    TEXT NOT NULL REFERENCES item_revisions(id),
+      handle         TEXT NOT NULL,
+      tier           TEXT NOT NULL,
+      influence      INTEGER NOT NULL,
+      labels_json    TEXT NOT NULL DEFAULT '[]',
+      plate_asset_ids_json TEXT NOT NULL DEFAULT '[]',
+      dropped_plate_asset_ids_json TEXT NOT NULL DEFAULT '[]',
+      PRIMARY KEY (generation_id, position)
+    );
+
+    CREATE INDEX items_handle_idx          ON items (handle);
+    CREATE INDEX items_kind_idx            ON items (kind);
+    CREATE INDEX items_project_idx         ON items (project);
+    CREATE INDEX item_variants_item_idx    ON item_variants (item_id);
+    CREATE INDEX item_revisions_variant_idx ON item_revisions (variant_id);
+    CREATE INDEX item_plates_asset_idx     ON item_plates (asset_id);
+    CREATE INDEX generation_items_item_idx ON generation_items (item_id);
+    CREATE INDEX generation_items_revision_idx ON generation_items (revision_id);
+
+    -- A revision is a snapshot. Editing one would rewrite the meaning of every
+    -- generation that already resolved to it — the exact failure the split
+    -- between item and revision exists to prevent.
+    CREATE TRIGGER item_revisions_immutable
+    BEFORE UPDATE ON item_revisions
+    BEGIN
+      SELECT RAISE(ABORT, 'item revisions are immutable: add a new revision instead');
+    END;
+
+    CREATE TRIGGER item_revisions_no_delete
+    BEFORE DELETE ON item_revisions
+    BEGIN
+      SELECT RAISE(ABORT, 'item revisions are append-only');
+    END;
+
+    CREATE TRIGGER item_plates_immutable
+    BEFORE UPDATE ON item_plates
+    BEGIN
+      SELECT RAISE(ABORT, 'a revision''s plates are immutable: add a new revision instead');
+    END;
+
+    CREATE TRIGGER item_traits_immutable
+    BEFORE UPDATE ON item_traits
+    BEGIN
+      SELECT RAISE(ABORT, 'a revision''s traits are immutable: add a new revision instead');
+    END;
+  `,
+});
+
 export const LATEST_SCHEMA_VERSION = MIGRATIONS.reduce(
   (max, migration) => Math.max(max, migration.version),
   0,
