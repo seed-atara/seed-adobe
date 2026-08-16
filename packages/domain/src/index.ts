@@ -5,4 +5,5 @@ export * from "./errors.js";
 export * from "./direction.js";
 export * from "./generation.js";
 export * from "./ids.js";
+export * from "./item.js";
 export * from "./time.js";

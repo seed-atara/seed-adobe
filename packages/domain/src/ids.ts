@@ -9,6 +9,9 @@ export const ID_PREFIX = {
   generation: "gen",
   job: "job",
   correlation: "cor",
+  item: "itm",
+  itemVariant: "itv",
+  itemRevision: "itr",
 } as const;
 
 export type IdKind = keyof typeof ID_PREFIX;
