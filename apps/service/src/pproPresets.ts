@@ -24,8 +24,14 @@ export interface StillPreset {
 }
 
 export interface VideoPreset extends StillPreset {
-  /** What it actually encodes. HEVC is a fallback, not a preference. */
-  codec: "H264" | "HEVC";
+  /**
+   * What it actually encodes.
+   *
+   * HEVC is a fallback, not a preference. ProRes is neither: it is what a
+   * *local* clip wants and what a provider reference must not be, so it is
+   * only ever returned when quality is asked for explicitly.
+   */
+  codec: "H264" | "HEVC" | "ProRes";
 }
 
 /**
@@ -143,11 +149,21 @@ function isExportedPreset(xml: string): boolean {
  */
 export async function findVideoPreset(
   home = process.env.USERPROFILE ?? process.env.HOME ?? "",
+  /**
+   * What the clip is for.
+   *
+   * `delivery` keeps it in a codec Ark accepts as a reference — H.264 or H.265
+   * — because a ProRes file is not a better reference, it is a refused one.
+   * `quality` prefers ProRes for a clip that stays local. Less compression is
+   * not always better when the file has to be uploaded and accepted.
+   */
+  intent: "delivery" | "quality" = "delivery",
 ): Promise<VideoPreset | undefined> {
   if (!home) return undefined;
 
   const h264: VideoPreset[] = [];
   const hevc: VideoPreset[] = [];
+  const prores: VideoPreset[] = [];
 
   for (const relative of PRESET_ROOTS) {
     for (const file of await eprFilesUnder(path.join(home, relative))) {
@@ -162,12 +178,14 @@ export async function findVideoPreset(
 
       const code = exporterFourCc(xml)?.trim().toUpperCase();
       const base = path.basename(file);
+      const isProRes = code === "APCN" || /pro\s*res/i.test(xml);
       const entry: VideoPreset = {
         path: file,
         name: readableName(presetName(xml, base), base),
-        codec: code === "H264" ? "H264" : "HEVC",
+        codec: isProRes ? "ProRes" : code === "H264" ? "H264" : "HEVC",
       };
-      if (code === "H264") h264.push(entry);
+      if (isProRes) prores.push(entry);
+      else if (code === "H264") h264.push(entry);
       else if (code === "HEVC") hevc.push(entry);
     }
   }
@@ -191,6 +209,14 @@ export async function findVideoPreset(
       return a.name.localeCompare(b.name);
     });
 
+  /*
+   * A local clip takes ProRes where one exists; a reference never does, even
+   * when a ProRes preset is sitting right there. This is the one place the
+   * "less compression is better" instinct has to be resisted deliberately.
+   */
+  if (intent === "quality") {
+    return rank(prores)[0] ?? rank(h264)[0] ?? rank(hevc)[0];
+  }
   return rank(h264)[0] ?? rank(hevc)[0];
 }
 

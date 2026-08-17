@@ -53,6 +53,26 @@ export interface SeedanceConfig {
    * exists for the probe to flip. See CONSISTENCY_PLATFORMS.md §15 question 2.
    */
   mentionSyntax?: "positional-en" | "ark-cn";
+  /**
+   * Encoder quality. `high` is CRF 11 against `standard`'s 18, for 3–5× the
+   * file size.
+   *
+   * Defaults to `high` because the file is irrelevant next to what the render
+   * itself costs, and because everything downstream — a reference for the next
+   * shot, a reskin, an iterate-in-place — decodes and re-encodes this clip
+   * again. Compression loss compounds where nobody is looking.
+   *
+   * Measured 2026-08-17: the API validates this field and accepts exactly
+   * `standard` and `high`.
+   */
+  bitrateMode?: "standard" | "high";
+  /**
+   * Ask for the final frame back as a PNG.
+   *
+   * Real, measured the same way. Free, and it is a genuine frame from the
+   * provider rather than one the panel decoded out of an mp4.
+   */
+  returnLastFrame?: boolean;
   timeoutMs?: number;
   fetchImpl?: typeof fetch;
 }
@@ -334,11 +354,28 @@ export class SeedanceProvider implements GenerationProvider {
     const body: Record<string, unknown> = {
       model: request.model || this.config.model,
       content,
-      output_format: "mp4",
+      /*
+       * Quality, as far as this API allows it to be asked for.
+       *
+       * There is no `output_format` here, and there used to be: this adapter
+       * sent `output_format: "mp4"` for months. Probing on 2026-08-17 showed
+       * the field is not read at all — `banana` passes as quietly as `mp4`
+       * does, in t2v and i2v alike — so it was a no-op that looked like a
+       * decision. Worse, it made a MOV output look one string away. There is
+       * no MOV; 4:2:0 is what Seedance delivers.
+       *
+       * `bitrate_mode` is real, and it is the one lever there is: CRF 11
+       * rather than 18. It buys no chroma resolution, but it stops the encoder
+       * discarding detail that survived generation, which matters because this
+       * clip gets decoded and re-encoded again by every reskin and iteration
+       * downstream.
+       */
+      bitrate_mode: this.config.bitrateMode ?? "high",
       // Silent unless asked, at every layer: the request decides, the
       // configured default is the fallback, and that default is off.
       generate_audio: request.generateAudio ?? this.config.generateAudio ?? false,
     };
+    if (this.config.returnLastFrame ?? true) body.return_last_frame = true;
     if (request.seed !== undefined) body.seed = request.seed;
 
     /*

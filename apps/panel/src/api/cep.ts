@@ -418,6 +418,16 @@ export class CepAeBridge {
   async captureRange(range?: {
     startSeconds?: number;
     durationSeconds?: number;
+    /**
+     * What the clip is for.
+     *
+     * `delivery` (the default) keeps it in a codec Ark accepts as a reference —
+     * H.264 or H.265, in MP4 or MOV. `quality` renders ProRes 4444 where the
+     * host offers it, for a clip that stays local. Less compression is not
+     * always better: 4:4:4 that the provider refuses is worse than 4:2:0 that
+     * arrives.
+     */
+    quality?: "delivery" | "quality";
   }): Promise<{ asset: Asset; captured: RangeCaptureResult }> {
     await this.ensureHost();
     const { workspace, pproVideoPreset } = await this.client.workspace();
@@ -434,7 +444,7 @@ export class CepAeBridge {
         range?.startSeconds ?? "null"
       }, ${range?.durationSeconds ?? "null"}, ${
         pproVideoPreset ? quote(pproVideoPreset) : "null"
-      })`,
+      }, ${quote(range?.quality ?? "delivery")})`,
     );
 
     const { asset } = await this.client.registerClip({

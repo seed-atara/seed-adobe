@@ -756,3 +756,50 @@ Sources (third-party, none official):
 [awesome-seedance-2.5-api-prompts](https://github.com/Anil-matcha/awesome-seedance-2.5-api-prompts),
 [kie.ai Seedance 2.5](https://kie.ai/seedance-2-5),
 [Runware Seedance 2.0](https://runware.ai/docs/models/bytedance-seedance-2-0).
+
+### Measured, and mostly negative — VERIFIED (2026-08-17)
+
+`scripts/probe-output-format.ts`, against `dreamina-seedance-2-5-260628` on
+`ark.ap-southeast.bytepluses.com`. Every request carried `duration: 3`, which
+this model refuses, so validation always failed and nothing billed. Eight
+repetitions per case, plus a second pass in i2v with a first frame attached,
+because the API reports parameter validity *per mode* ("not valid for model
+… in t2v") and a t2v-only answer would not have settled it.
+
+| Parameter | Verdict |
+|---|---|
+| `bitrate_mode` | **Real.** `standard` and `high` accepted; `low` and `banana` refused by name |
+| `return_last_frame` | **Real.** A string is refused by name, so it is a boolean; `true` passes |
+| `output_format` | **Does not exist.** `banana`, `mov` and `mp4` all pass unremarked, in t2v *and* i2v |
+| `container`, `video_format`, `format`, `pixel_format` | do not exist either |
+
+**So there is no MOV output, and the section above was wrong to hope for one.**
+A field that ignores nonsense is a field nobody is reading; `output_format:
+"mov"` would have been silently discarded while the panel claimed 4:4:4. This
+is the third time a plausible unverified note nearly became a feature, and the
+first time the probe caught it before the code was written.
+
+Which means the chroma finding stands as recorded: 4:2:0 is what Seedance
+delivers, and it is still the part that cannot be corrected. What we *can* do
+about quality is what the two real parameters offer:
+
+- **`bitrate_mode: "high"`** — CRF 11 against `standard`'s 18, 3–5× the file.
+  It does not add chroma resolution, but it stops the encoder throwing away
+  detail that survived generation. Cheap, and the file size is irrelevant next
+  to what a render costs.
+- **`return_last_frame: true`** — a real PNG from the provider. Most of the
+  poster problem the panel currently solves by decoding the mp4 itself.
+
+Two lessons about the method, both worth keeping:
+
+**A parameter list from an aggregator is a hypothesis, not a contract.** Of six
+reported fields, two were real. The same source's `4K` claim was already known
+to be false. Treat every entry as independent and unproven.
+
+**A probe that cannot fail proves nothing.** The first run of this script sent
+`SEEDANCE_MODEL_ID` verbatim — a comma-separated list of four models — so every
+request died at model resolution with "does not exist or you do not have access
+to it", and the regex for `bitrate_mode` matched the word *model* inside that
+message. It reported 8/8 confident readings of a field it had never reached.
+The script now detects a pre-validation failure explicitly and anchors its
+patterns to the parameter names.

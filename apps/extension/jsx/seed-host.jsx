@@ -293,13 +293,29 @@ function seedCaptureFrame(outputDir, basename) {
 // -------------------------------------------------------------- range export
 
 /**
- * Picks an H.264 output module template.
+ * Picks an output module template, by what the clip is *for*.
  *
  * The names are version- and locale-specific, so this asks After Effects what
- * it has rather than naming one. "Match Render Settings" is preferred because
- * it keeps the comp's own size and frame rate instead of a preset's.
+ * it has rather than naming one. "Match Render Settings" wins within a family
+ * because it keeps the comp's own size and frame rate instead of a preset's.
+ *
+ * Two preferences, and the distinction matters more than it looks:
+ *
+ *   "delivery" — the clip is going to a provider as a reference. Ark accepts
+ *       H.264 or H.265 in MP4 or MOV, and refuses everything else, so a
+ *       ProRes file here is not a better reference, it is a rejected one.
+ *       This is the default, because that is what SEED renders clips for.
+ *
+ *   "quality"  — the clip stays local: archival, a film-look input, a plate to
+ *       cut with. Nothing constrains the codec, so ProRes 4444 (4:4:4, no
+ *       chroma subsampling) is preferred, then 422 HQ, then lossless, and only
+ *       then a delivery codec.
+ *
+ * The temptation is to render everything ProRes on the grounds that less
+ * compression is always better. It is not, when the file has to be uploaded
+ * and accepted: 4:4:4 at 50MB is worse than 4:2:0 that arrives.
  */
-function seedH264Template(outputModule) {
+function seedVideoTemplate(outputModule, preference) {
     var templates;
     try {
         templates = outputModule.templates;
@@ -308,14 +324,30 @@ function seedH264Template(outputModule) {
     }
     if (!templates || !templates.length) return null;
 
-    var best = null;
-    for (var i = 0; i < templates.length; i++) {
-        var name = String(templates[i]);
-        if (!/h\.?264/i.test(name)) continue;
-        if (/match render settings/i.test(name)) return name;
-        if (!best) best = name;
+    /* Families in preference order, each matched against the template names
+       this installation actually offers. */
+    var families =
+        preference === "quality"
+            ? [/pro\s*res.*4444/i, /pro\s*res.*(hq|422)/i, /pro\s*res/i,
+               /lossless/i, /quicktime/i, /h\.?265|hevc/i, /h\.?264/i]
+            : [/h\.?264/i, /h\.?265|hevc/i];
+
+    for (var f = 0; f < families.length; f++) {
+        var best = null;
+        for (var i = 0; i < templates.length; i++) {
+            var name = String(templates[i]);
+            if (!families[f].test(name)) continue;
+            if (/match render settings/i.test(name)) return name;
+            if (!best) best = name;
+        }
+        if (best) return best;
     }
-    return best;
+    return null;
+}
+
+/** Kept for callers that only ever wanted a provider-safe clip. */
+function seedH264Template(outputModule) {
+    return seedVideoTemplate(outputModule, "delivery");
 }
 
 /** A file in outputDir that does not exist yet, so a render never overwrites. */
@@ -349,7 +381,13 @@ function seedUniqueFile(folder, safeName, suffix, extension) {
  * After Effects has no scripting API to build one, and the template names
  * differ between versions and languages.
  */
-function seedCaptureRange(outputDir, basename, startSeconds, durationSeconds) {
+function seedCaptureRange(outputDir, basename, startSeconds, durationSeconds, presetPath, quality) {
+    /*
+     * `presetPath` is Premiere's; After Effects renders through its own queue
+     * and ignores it. `quality` is "delivery" (default) or "quality" — see
+     * seedVideoTemplate for why a reference clip must stay in a codec the
+     * provider will accept.
+     */
     var queueItem = null;
     var unqueued = [];
     try {
@@ -415,7 +453,10 @@ function seedCaptureRange(outputDir, basename, startSeconds, durationSeconds) {
         }
 
         var outputModule = queueItem.outputModule(1);
-        var template = seedH264Template(outputModule);
+        var template = seedVideoTemplate(
+            outputModule,
+            quality === "quality" ? "quality" : "delivery"
+        );
         if (!template) {
             return seedFail(
                 "this After Effects has no H.264 output module template, so a clip " +

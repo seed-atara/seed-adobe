@@ -391,8 +391,14 @@ describe("SeedanceProvider", () => {
       duration: 5,
       ratio: "16:9",
       resolution: "720p",
-      output_format: "mp4",
+      // Measured 2026-08-17: `output_format` is not read by this API at all —
+      // `banana` passes as quietly as `mp4`. `bitrate_mode` is real, and
+      // defaults to the quality end because the file size is irrelevant next
+      // to what the render costs.
+      bitrate_mode: "high",
+      return_last_frame: true,
     });
+    expect(body).not.toHaveProperty("output_format");
     expect(job.providerJobId).toBe("cgt-1");
     expect(job.state.status).toBe("queued");
   });
