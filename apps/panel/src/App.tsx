@@ -29,6 +29,18 @@ import { resolveRefineTarget } from "./refine.ts";
 
 type Tab = "generate" | "items" | "library" | "lineage";
 
+export interface AppProps {
+  /**
+   * Restricts the panel to a subset of tabs.
+   *
+   * The standalone item authoring tool is this same bundle with
+   * `tabs={["items", "library"]}` — a producer or concept artist opens a URL
+   * and builds the cast with no After Effects anywhere. One component in both
+   * places, so the tab inside the host and the tool outside it cannot drift.
+   */
+  tabs?: Tab[];
+}
+
 const TOKEN_KEY = "seed-ae.session-token";
 
 /** Job statuses that will not change again. */
@@ -113,7 +125,8 @@ const EMPTY_FORM: GenerateForm = {
   allowBeyondStable: false,
 };
 
-export function App() {
+export function App({ tabs }: AppProps = {}) {
+  const visibleTabs: Tab[] = tabs ?? ["generate", "items", "library", "lineage"];
   const [token, setToken] = useState(
     () => localStorage.getItem(TOKEN_KEY) ?? "",
   );
@@ -140,7 +153,7 @@ export function App() {
     [client],
   );
 
-  const [tab, setTab] = useState<Tab>("generate");
+  const [tab, setTab] = useState<Tab>(visibleTabs[0] ?? "generate");
   const [assets, setAssets] = useState<Asset[]>([]);
   /** Whether the library shows only the project this panel is docked in. */
   const [thisProjectOnly, setThisProjectOnly] = useState(true);
@@ -1138,7 +1151,7 @@ export function App() {
       </div>
 
       <nav className="tabs" role="tablist">
-        {(["generate", "items", "library", "lineage"] as Tab[]).map((name) => (
+        {visibleTabs.map((name) => (
           <button
             key={name}
             role="tab"

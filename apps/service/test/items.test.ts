@@ -1,6 +1,26 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { ItemResponseSchema, ResolvePromptResponseSchema } from "@seed-ae/domain";
+import { encodePng } from "@seed-ae/media";
 import { readJson, startTestService, type TestService } from "./helpers.js";
+
+/**
+ * A real file on disk, adopted into the library.
+ *
+ * Packs carry bytes, so a plate whose media is only a database row exports as
+ * nothing — which is exactly the case a synthetic registration would hide.
+ */
+async function adoptRealAsset(seed: number): Promise<string> {
+  const { mkdtemp, writeFile } = await import("node:fs/promises");
+  const { tmpdir } = await import("node:os");
+  const nodePath = await import("node:path");
+  const rgba = new Uint8Array(4 * 4 * 4).fill(seed % 256);
+  const dir = await mkdtemp(nodePath.join(tmpdir(), "seed-plate-"));
+  const file = nodePath.join(dir, `plate_${seed}.png`);
+  await writeFile(file, encodePng(4, 4, rgba));
+  const response = await post("/v1/assets/adopt", { path: file });
+  expect(response.status).toBe(201);
+  return (await readJson(response)).asset.id;
+}
 
 let service: TestService;
 
@@ -244,5 +264,57 @@ describe("generating with an item", () => {
     });
     expect(response.status).toBe(404);
     expect((await readJson(response)).error.message).toContain("@vanished");
+  });
+});
+
+describe("item packs", () => {
+  it("round-trips a character through a pack, and forks on a handle collision", async () => {
+    const { mkdtemp, readFile } = await import("node:fs/promises");
+    const { tmpdir } = await import("node:os");
+    const nodePath = await import("node:path");
+
+    const plate = await adoptRealAsset(7);
+    const created = await post("/v1/items/adopt", {
+      handle: "packed",
+      kind: "character",
+      name: "Packed",
+      plates: [{ assetId: plate, role: "face" }],
+      traits: [{ text: "green eyes", facet: "face", priority: 0, driftProne: true }],
+    });
+    const { item } = ItemResponseSchema.parse(await readJson(created));
+
+    const outDir = await mkdtemp(nodePath.join(tmpdir(), "seed-pack-"));
+    const exported = await post(`/v1/items/${item.item.id}/export`, { outDir });
+    expect(exported.status).toBe(200);
+    const { path: packDir, plates } = await readJson(exported);
+    expect(plates).toBe(1);
+
+    // The manifest addresses media by hash, never by a local asset id — and it
+    // must not carry an asset:// id, which would export the ability to
+    // generate with that likeness.
+    const manifest = JSON.parse(await readFile(nodePath.join(packDir, "item.json"), "utf8"));
+    expect(manifest.handle).toBe("packed");
+    expect(manifest.variants[0].revisions.at(-1).plates[0].sha256).toMatch(/^[0-9a-f]{64}$/);
+    expect(JSON.stringify(manifest)).not.toContain("asset://");
+    expect(JSON.stringify(manifest)).not.toContain(plate);
+
+    const imported = await post("/v1/items/import", { dir: packDir });
+    expect(imported.status).toBe(201);
+    const body = await readJson(imported);
+    // The handle is taken here, so it forks and says so rather than overwriting
+    // the character already being generated with.
+    expect(body.item.item.handle).toBe("packed_imported");
+    expect(body.warnings.join(" ")).toContain("already exists");
+    expect(body.item.revisions.at(-1).traits[0].text).toBe("green eyes");
+    expect(body.item.revisions.at(-1).plates).toHaveLength(1);
+  });
+
+  it("refuses something that is not a pack", async () => {
+    const { mkdtemp } = await import("node:fs/promises");
+    const { tmpdir } = await import("node:os");
+    const nodePath = await import("node:path");
+    const empty = await mkdtemp(nodePath.join(tmpdir(), "seed-nopack-"));
+    const response = await post("/v1/items/import", { dir: empty });
+    expect(response.status).toBe(400);
   });
 });

@@ -2,6 +2,7 @@ import { createReadStream } from "node:fs";
 import { readFile, stat, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import {
+  type Asset,
   ListAssetsQuerySchema,
   RegisterAssetRequestSchema,
   SeedError,
@@ -171,6 +172,26 @@ export function adoptFileRoute(deps: AppDeps) {
   return async ({ req }: RequestContext) => {
     const body = await readJsonBody(req);
     const request = parseWith(AdoptFileSchema, body);
+    const asset = await adoptFileIntoLibrary(deps, request.path, request.project);
+    return json({ asset }, 201);
+  };
+}
+
+/**
+ * Copies a file on disk into the library and registers it by what its bytes
+ * actually are.
+ *
+ * Shared with pack import, which needs exactly this and must not grow a second
+ * slightly different version of it — two ingest paths is how a `.png` full of
+ * JPEG gets registered correctly in one place and wrongly in the other.
+ */
+export async function adoptFileIntoLibrary(
+  deps: AppDeps,
+  filePath: string,
+  project?: string,
+): Promise<Asset> {
+  {
+    const request = { path: filePath, ...(project ? { project } : {}) };
     const source = path.resolve(request.path);
 
     const info = await stat(source).catch(() => undefined);
@@ -257,7 +278,7 @@ export function adoptFileRoute(deps: AppDeps) {
       byteSize: bytes.length,
     });
 
-    return json({ asset: registered }, 201);
+    return registered;
   };
 }
 

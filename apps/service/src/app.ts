@@ -67,6 +67,7 @@ import {
   resolvePromptRoute,
   updateItemRoute,
 } from "./routes/items.js";
+import { exportPackRoute, importPackRoute } from "./routes/packs.js";
 import { healthRoute } from "./routes/health.js";
 
 export interface AppDeps {
@@ -118,6 +119,8 @@ export function buildRouter(deps: AppDeps): Router {
     .post("/v1/items", createItemRoute(deps))
     .post("/v1/items/adopt", adoptItemRoute(deps))
     .post("/v1/items/resolve", resolvePromptRoute(deps))
+    // Literal paths before `:id`, or "import" is read as an item id.
+    .post("/v1/items/import", importPackRoute(deps))
     .get("/v1/items", listItemsRoute(deps))
     .get("/v1/items/:id", getItemRoute(deps))
     .post("/v1/items/:id", updateItemRoute(deps))
@@ -125,6 +128,7 @@ export function buildRouter(deps: AppDeps): Router {
     .post("/v1/items/:id/variants", createVariantRoute(deps))
     .post("/v1/items/:id/revisions", addRevisionRoute(deps))
     .get("/v1/items/:id/generations", itemGenerationsRoute(deps))
+    .post("/v1/items/:id/export", exportPackRoute(deps))
     .post("/v1/generations", startGenerationRoute(deps))
     .get("/v1/generations", listGenerationsRoute(deps))
     .get("/v1/generations/:id", getGenerationRoute(deps))

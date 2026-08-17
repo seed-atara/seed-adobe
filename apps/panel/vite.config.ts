@@ -17,5 +17,16 @@ export default defineConfig({
   },
   // Relative base so the built panel can be loaded from a file:// CEP host.
   base: "./",
-  build: { outDir: "dist", emptyOutDir: true },
+  build: {
+    outDir: "dist",
+    emptyOutDir: true,
+    rollupOptions: {
+      input: {
+        // The panel, and the standalone item tool. One bundle, two entries —
+        // the alternative is a second app that drifts from this one.
+        index: "index.html",
+        items: "items.html",
+      },
+    },
+  },
 });
