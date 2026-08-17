@@ -119,6 +119,20 @@ const bBytes = readFileSync(generated);
 const a = decodePng(aBytes);
 const b = decodePng(bBytes);
 
+/*
+ * decodePng returns undefined for anything it cannot read — a JPEG, most
+ * often, since Ark returns JPEG through a response that says nothing about
+ * format. Saying so beats six lines of "possibly undefined" further down.
+ */
+if (!a) {
+  console.error(`${path.basename(plate)} is not a PNG this can decode`);
+  process.exit(1);
+}
+if (!b) {
+  console.error(`${path.basename(generated)} is not a PNG this can decode`);
+  process.exit(1);
+}
+
 console.log(`A  ${path.basename(plate)}  ${a.width}x${a.height}`);
 console.log(`   ${readCicp(aBytes)}`);
 console.log(`B  ${path.basename(generated)}  ${b.width}x${b.height}`);

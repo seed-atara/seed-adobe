@@ -243,3 +243,82 @@ describe("ExtendScript reserved words", () => {
     }
   });
 });
+
+describe("items", () => {
+  /** A client stub: these tests are about rendering, not about the network. */
+  function stubClient(overrides: Record<string, unknown> = {}) {
+    return {
+      listItems: async () => ({ items: [], total: 0 }),
+      getItem: async () => ({ item: undefined }),
+      adoptItem: async () => ({ item: undefined }),
+      resolvePrompt: async () => ({ bundle: undefined }),
+      ...overrides,
+    } as never;
+  }
+
+  it("renders the empty state without a host, a token or a network", async () => {
+    // The standalone tool is this component with no Adobe anywhere near it.
+    const { ItemsView } = await import("../src/components/ItemsView.tsx");
+    const html = renderToString(
+      createElement(ItemsView, {
+        client: stubClient(),
+        assets: [],
+        onError: () => {},
+      }),
+    );
+    expect(html).toContain("No items yet");
+    expect(html).toContain("@handle");
+  });
+
+  it("offers every kind, including style", async () => {
+    const { ItemsView } = await import("../src/components/ItemsView.tsx");
+    const html = renderToString(
+      createElement(ItemsView, {
+        client: stubClient(),
+        assets: [],
+        onError: () => {},
+      }),
+    );
+    for (const kind of ["character", "location", "prop", "style"]) {
+      expect(html).toContain(`>${kind}<`);
+    }
+  });
+
+  it("draws nothing when the prompt mentions no item", async () => {
+    const { PromptPreview } = await import("../src/components/PromptPreview.tsx");
+    const html = renderToString(
+      createElement(PromptPreview, {
+        client: stubClient(),
+        prompt: "a lighthouse at dusk",
+        providerId: "mock-image",
+        mentions: [],
+        items: [],
+        attachedAssetIds: [],
+        allowBeyondStable: false,
+        onMentionsChange: () => {},
+        onAllowBeyondStable: () => {},
+      }),
+    );
+    expect(html).toBe("");
+  });
+
+  it("says it is working before the resolved bundle arrives", async () => {
+    const { PromptPreview } = await import("../src/components/PromptPreview.tsx");
+    const html = renderToString(
+      createElement(PromptPreview, {
+        client: stubClient(),
+        prompt: "@sara at the bar",
+        providerId: "mock-image",
+        mentions: [
+          { token: "sara", itemId: "itm_1", influence: 70, muteText: false },
+        ],
+        items: [],
+        attachedAssetIds: [],
+        allowBeyondStable: false,
+        onMentionsChange: () => {},
+        onAllowBeyondStable: () => {},
+      }),
+    );
+    expect(html).toContain("What will be sent");
+  });
+});

@@ -1,8 +1,9 @@
 # How other platforms hold a character, a place, or a look
 
 Date: 2026-08-17
-Status: **desk research, not measured here.** Everything below is what vendors
-and papers say. Nothing in this file has been run against Ark. Claims about
+Status: **Parts 1 and 2 are desk research; Part 3 is measured.** Parts 1 and 2
+are what vendors and papers say and have not been run against Ark — treat them
+as hypotheses. Part 3 reports real generations and says so. Claims about
 Seedream/Seedance behaviour must come from `MODEL_API_NOTES.md`, which is
 measured, or from a probe.
 
@@ -383,3 +384,65 @@ The repo has a signed OpenAPI client and a live account, so these are cheap:
 - [DetailMaster: Can Your Text-to-Image Model Handle Long Prompts? (arXiv 2505.16915)](https://arxiv.org/pdf/2505.16915)
 - [Seedream 4.0: Toward Next-generation Multimodal Image Generation (arXiv 2509.20427)](https://arxiv.org/abs/2509.20427)
 - [Attention dilution](https://github.com/yiheinchai/attention-dilution)
+
+---
+
+# Part 3 — English beats Chinese for the manifest — MEASURED (2026-08-17)
+
+§15 question 2 is answered. `scripts/probe-manifest-language.ts`, on
+`seedream-4-0-250828`: one generated reference plate, then four shots × two
+manifest languages, paired on the same plate, the same shot text and the same
+seed, so the language of the materials block is the only variable. Nine real
+generations — unlike the parameter probes this one costs money, because quality
+cannot be read off a validation error.
+
+**Verdict: keep the English manifest. It is the default already, and it is
+right.**
+
+| | English (`Materials:` / `Image 1`) | Chinese (`【素材职责】` / `@图片1`) |
+|---|---|---|
+| Identity retention | held | held |
+| Shot adherence | **followed** | **under-shot, repeatedly** |
+
+Identity was indistinguishable: the bob, the eyebrow scar and the olive field
+jacket survived in every one of the eight images. That part of the design works
+in both languages, which is itself worth knowing.
+
+Shot adherence did not. Asked for a *close-up, laughing*, English gave a true
+close-up with an open laugh and the tungsten lamp in frame; Chinese returned
+what was essentially the plate's framing with a lamp added and a polite smile.
+Asked for a *wide shot walking away*, English gave a full figure down the alley;
+Chinese gave head-and-shoulders. In both pairs the Chinese version stayed nearer
+the reference and further from the direction.
+
+The reading that fits: a Chinese block inside an otherwise-English prompt does
+not read as instructions in the same register as the direction around it. It
+anchors harder to the reference and competes with the sentence that says what
+is supposed to happen — which is the attention-budget problem in Part 1 arriving
+from an unexpected direction. Ark's guide is written for prompts that are
+Chinese throughout; ours are not, and the guide's form does not transplant.
+
+**A methodological warning, because this nearly went the other way.** The
+script's colour-distance-to-plate proxy was *lower* for Chinese in all four
+shots — 27 against 67 in the starkest pair — and read as a clean win. It is the
+opposite. Distance to the plate mostly measures how little the image moved, so
+a low number means the shot direction was ignored. The metric is now documented
+as inverted for this purpose. Reporting those numbers without opening the images
+would have produced a confident, backwards recommendation, and would have
+flipped a correct default.
+
+One false finding was also caught by checking the control. The Chinese run put
+Chinese-script neon in the alley, which looked like the manifest language
+leaking into the set — until the English image showed the same signage. It is
+the character's ethnicity plus "neon alley", not the manifest.
+
+Two questions this does not answer: it was run on **Seedream**, where
+`requiresBindingText` is false, so it measures prompt language rather than the
+manifest's necessity; and Seedance, which actually requires the mapping, is
+untested here because each clip is minutes rather than seconds. If the same
+effect holds there it matters more, not less.
+
+Remaining open from §15: 1 (asset groups), 3 (`asset://` vs links), 4 (plate
+count), 6 (multi-character), 7 (style leakage), 8 (liveness). Question 5 is now
+partly answered by Part 2's measurement that Ark exposes no influence dial at
+all.

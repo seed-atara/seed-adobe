@@ -20,3 +20,6 @@ reference/
 
 # Plugin build output
 plugins/*/build/
+
+# Probe output: generated images, not source.
+.seed-probes/

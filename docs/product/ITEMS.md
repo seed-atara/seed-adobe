@@ -172,9 +172,12 @@ does not blur the shot direction.
 At `full` — text-to-image with no references at all — there is nothing else to
 carry her, so the description returns in full.
 
-**Unverified:** ByteDance's guide is Chinese and SEED's prompts are English.
-Whether an English `Materials:` block performs as well as 【素材职责】 is a
-straight A/B nobody here has run — probe question 2.
+**Measured 2026-08-17, and the English form won.** Identity held equally in
+both, but a Chinese block inside an otherwise-English prompt consistently
+*under-shot the direction* — a close-up came back at the plate's framing, a wide
+shot came back head-and-shoulders. Ark's guide is written for prompts that are
+Chinese throughout, and its form does not transplant. See
+`CONSISTENCY_PLATFORMS.md` Part 3.
 
 ### Traits, not prose
 
