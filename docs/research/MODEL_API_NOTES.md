@@ -885,3 +885,58 @@ The refusal on two first frames is why SEED models this as a **role** (`loop`)
 rather than letting the artist add one reference to the list twice: duplicating
 a reference is a request the API rejects, while one still carrying both roles is
 one it names.
+
+### `output_format` is real, acted on at execution — VERIFIED BY GENERATING (2026-08-18)
+
+ByteDance answered, and we then generated a clip per cell and ffprobed each one
+rather than reading the validator. `scripts/probe-output-quality.ts` — **the one
+probe here that bills**, necessarily: `output_format` is never touched by the
+request validator, which is exactly why every free probe reported it missing.
+That was a limit of the method, not a fact about the API.
+
+Measured on `dreamina-seedance-2-5-260628`, 4s each:
+
+| cell | codec / profile | chroma | colour signalling | our bitrate | theirs |
+|---|---|---|---|---|---|
+| 1080p mov | HEVC **Rext** | **yuv444p10le** | tv / bt709 / bt709 / bt709 | 12.79 Mb/s | 23.51 |
+| 1080p mp4 | HEVC Main 10 | yuv420p10le | tv / bt709 / bt709 / bt709 | 5.64 Mb/s | 17.34 |
+| 720p mov | H.264 **High 4:4:4 Predictive** | **yuv444p** | all unset | 7.78 Mb/s | 12.86 |
+
+**Every structural claim confirmed exactly** — codec, profile, chroma, depth and
+colour signalling all match what we were told.
+
+**Bitrates came in around half theirs, and that is expected rather than a
+discrepancy.** `bitrate_mode` is a quality target (CRF), not a rate, so the bits
+follow the content. Our probe prompt is deliberately still — "a slow push in on
+a still object, locked off" — so there is little to encode. Treat the published
+figures as an example, not a guarantee, and never as a way to predict file size.
+
+**What this changes, and it is large.** Two things this document recorded as
+uncorrectable are now both fixable:
+
+- **Chroma.** "4:2:0 halves the colour resolution. This part is not correctable"
+  — `output_format: "mov"` has no subsampling at any resolution.
+- **Colour signalling.** The long-standing "it does not say" is only true below
+  1080p. At 1080p the output is fully tagged.
+
+So the maximum-quality combination is **1080p + mov**: HEVC Rext, 4:4:4, 10-bit,
+correctly tagged. The two halves are worth separating in the UI, because they
+cost differently: **`mov` is free** and strictly better at any resolution, while
+1080p costs a larger render and is the artist's call.
+
+`resolution` selects the codec — 480p/720p are 8-bit H.264, 1080p is 10-bit
+HEVC — and `output_format` independently selects chroma. That coupling is not
+guessable and is the reason the table above exists.
+
+Still limited range everywhere, including the tagged 1080p output, while what we
+send is full-range sRGB. That is the remaining lossy step and it is question one
+in `BYTEDANCE_REPLY_FULL_RANGE.md`.
+
+**Ingest already copes**, checked against the real files: `sniffMimeType` returns
+`video/quicktime` for the MOV (`ftypqt  `), and `readMp4Size` reads 1920x1080 /
+1280x720 and 4.04s out of both containers, since MOV is the same box structure.
+
+**One thing that will break.** Posters are extracted by decoding the clip in
+Chromium, which cannot decode H.264 4:4:4 Predictive or HEVC Rext. A `mov`
+result will fall back to the "video" badge. `return_last_frame` is measured real
+and is the obvious fix.
