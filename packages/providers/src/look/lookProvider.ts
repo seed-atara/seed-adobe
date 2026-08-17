@@ -78,10 +78,17 @@ export class LookProvider implements GenerationProvider {
        * with a config, not a model with context.
        */
       maxImageReferences: 1,
+      stableImageReferences: 1,
+      addressing: ["inline"],
+      nativeGrouping: false,
+      requiresBindingText: false,
+      mentionSyntax: "positional-en",
+      supportsNegativePrompt: false,
       textToVideo: false,
       imageToVideo: false,
       videoReferences: false,
       startEndFrames: false,
+      framesExcludeReferences: false,
       audioReferences: false,
       generatesAudio: false,
       // Grain is seeded, and the seed is part of the config rather than a

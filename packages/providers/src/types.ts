@@ -1,10 +1,21 @@
-import type { GenerationOperation, JobStatus } from "@seed-ae/domain";
+import type {
+  GenerationOperation,
+  JobStatus,
+  ReferenceCapabilities,
+} from "@seed-ae/domain";
 
 /**
  * What a provider can actually do. The panel enables controls from this —
  * nothing in the UI may assume a capability that a provider has not declared.
+ *
+ * Extends `ReferenceCapabilities`, which is the slice `@seed-ae/items` needs to
+ * expand an `@item` mention. That slice lives in the domain rather than here so
+ * the resolver can stay pure: it reads declared numbers and never learns that
+ * Ark exists. Everything a provider does differently about references —
+ * addressing, budgets, whether the mapping must be written into the prompt —
+ * is therefore data, not a conditional somewhere downstream.
  */
-export interface ProviderCapabilities {
+export interface ProviderCapabilities extends ReferenceCapabilities {
   id: string;
   displayName: string;
   /** Model ids come from runtime configuration, never from hard-coded guesses. */
@@ -12,12 +23,9 @@ export interface ProviderCapabilities {
   operations: GenerationOperation[];
   textToImage: boolean;
   imageToImage: boolean;
-  /** 0 means references are not accepted at all. */
-  maxImageReferences: number;
   textToVideo: boolean;
   imageToVideo: boolean;
   videoReferences: boolean;
-  startEndFrames: boolean;
   audioReferences: boolean;
   /**
    * Whether the model can generate a soundtrack of its own.

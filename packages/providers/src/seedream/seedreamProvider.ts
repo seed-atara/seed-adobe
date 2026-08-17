@@ -121,10 +121,33 @@ export class SeedreamProvider implements GenerationProvider {
       textToImage: true,
       imageToImage: true,
       maxImageReferences: MAX_REFERENCES,
+      /*
+       * No narrower working range is published for Seedream, unlike Seedance,
+       * so the stable range is the maximum rather than a number invented to
+       * look cautious. If a probe finds identity degrades past some count,
+       * this is where that finding lands.
+       */
+      stableImageReferences: MAX_REFERENCES,
+      /*
+       * `asset://` ids are rejected by images/generations in every form — see
+       * ADR 0010. A hosted link is the accepted shape, with inline data URLs
+       * still working for imagery that is not a recognisable person.
+       */
+      addressing: ["hosted-url", "inline"],
+      nativeGrouping: false,
+      /*
+       * Measured: the model refers to inputs by position and does not resolve
+       * ids in prose. It does not ask for a mapping block the way Seedance
+       * does, so items bind by position alone here.
+       */
+      requiresBindingText: false,
+      mentionSyntax: "positional-en",
+      supportsNegativePrompt: false,
       textToVideo: false,
       imageToVideo: false,
       videoReferences: false,
       startEndFrames: false,
+      framesExcludeReferences: false,
       audioReferences: false,
       generatesAudio: false,
       seed: true,

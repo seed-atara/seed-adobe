@@ -32,6 +32,27 @@ export interface SeedanceConfig {
    * configuration rather than a constant.
    */
   maxReferences?: number;
+  /**
+   * How many references to actually *build budgets against*.
+   *
+   * Distinct from `maxReferences`, which is what validation will accept.
+   * ByteDance publishes a stable working range of 1–8 primary subject images
+   * against a stated maximum of 30, and our own probing found validation
+   * enforcing nothing at all — 30 and 64 both passed. Accepting is not using,
+   * so items are allocated against this number and reaching past it has to be
+   * asked for.
+   */
+  stableReferences?: number;
+  /**
+   * How the prompt names a reference.
+   *
+   * ByteDance's own guide uses `@图片N`, and that is very likely the form the
+   * model was trained to read. But our *measured* note says inputs are referred
+   * to by position ("Image 1"), and mixing Chinese labels into an otherwise
+   * English prompt is unverified — so the measured form is the default and this
+   * exists for the probe to flip. See CONSISTENCY_PLATFORMS.md §15 question 2.
+   */
+  mentionSyntax?: "positional-en" | "ark-cn";
   timeoutMs?: number;
   fetchImpl?: typeof fetch;
 }
@@ -186,6 +207,29 @@ export class SeedanceProvider implements GenerationProvider {
        * becomes r2v rather than i2v — the mode appears in its error messages.
        */
       maxImageReferences: this.config.maxReferences ?? 30,
+      stableImageReferences: this.config.stableReferences ?? 8,
+      /*
+       * An `asset://` id is permanent, free to register, and the sanctioned
+       * route for recognisable people — requests carrying them are intercepted
+       * on the inline path. So it is preferred, with a hosted link next and
+       * inline last, which is the reverse of what convenience would suggest.
+       */
+      addressing: ["provider-asset-id", "hosted-url", "inline"],
+      /*
+       * An Ark Asset Group is documented as the several references of *one*
+       * character, which is exactly an item. Declaring this is what lets an
+       * item own a group of its own instead of sharing the single
+       * product-wide one.
+       */
+      nativeGrouping: true,
+      /*
+       * 素材映射关系必须写进提示词 — the material mapping must be written into
+       * the prompt, including what must *not* be taken from each reference.
+       * This is the one thing an item always contributes in text.
+       */
+      requiresBindingText: true,
+      mentionSyntax: this.config.mentionSyntax ?? "positional-en",
+      supportsNegativePrompt: false,
       textToVideo: true,
       imageToVideo: true,
       /*
@@ -198,6 +242,12 @@ export class SeedanceProvider implements GenerationProvider {
       // A first_frame + last_frame pair passes validation; more than one of
       // either is refused by count.
       startEndFrames: true,
+      /*
+       * Measured: "first/last frame content cannot be mixed with reference
+       * media content." So anchoring a shot to a frame costs every item plate,
+       * and the items have to speak entirely in text instead.
+       */
+      framesExcludeReferences: true,
       /*
        * The part shape is real — `audio_url` with role `reference_audio`, and
        * unlike video it takes a data URL — but every render carrying one has
