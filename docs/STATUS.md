@@ -1,6 +1,6 @@
 # Status
 
-Last updated: 2026-08-13
+Last updated: 2026-08-17
 
 ## Current milestone
 
@@ -401,6 +401,87 @@ Verified end to end at the time of writing:
    duration asked for.
 4. The render swaps in underneath, scaled from its real dimensions.
 5. Pick a variant, composite into a region, or insert at the playhead.
+
+## Items — the consistency layer (2026-08-17)
+
+Built end to end. An **Item** is a named identity that must look the same across
+shots: a character, a location, a prop, or a **look**. Write `@sara` in a prompt
+and the service expands it into that character's reference plates plus a compact
+materials manifest, records the exact revision it used, and shows the artist
+what it did before anything is generated.
+
+```
+Item        @sara               identity — handle, kind, real-person state
+ └─ Variant @sara/red-coat      a deliberate alternate state
+     └─ Revision  rev 3         immutable; what a generation records
+```
+
+An item is mutable and a revision is not, enforced by trigger. A shot generated
+against revision 2 reopens as revision 2 whatever the character has become
+since — the failure that video recipes already hit once, when they dropped
+duration and roles and quietly changed length on reopen.
+
+**What an item contributes to a prompt is binding, not description.** The plate
+carries appearance better than a sentence, and Runway states the principle
+outright — references define who the character is, prompts define what happens
+to them. But Ark requires the mapping to be written in
+(素材映射关系必须写进提示词), including what must *not* be taken from each
+reference, and nothing else can carry that. So an item emits a materials
+manifest derived from its plate roles, and grows it with drift-prone traits only
+as plates are lost to the budget. It scales with the number of materials, not
+with how much personality anyone wrote down.
+
+- **`packages/items`** — the resolver. Pure: no network, no database, no Adobe,
+  and no provider ids. Per-model behaviour arrives as declared
+  `ReferenceCapabilities`, so the package stays liftable into a studio service.
+- **Round-robin allocation, never depth-first.** Three characters and a budget
+  of three gets one plate each; the alternative leaves two characters named in
+  the prompt with no reference at all.
+- **Budgets build against the stable range, not the maximum.** Seedance
+  validates 30 and 64; the published working range is 1–8.
+- **A first or last frame drops every plate** and raises every item to full
+  text, because Ark will not mix frames with references.
+- **Items map onto Ark's own concepts.** An Asset Group is documented as the
+  several references of one character — which is an item — and `asset://` ids
+  are permanent and free to register. A plate holds both that id and a hosted
+  URL, because `asset://` is video-only.
+- **Real people are a state, not a flag.** A real likeness needs the subject's
+  own liveness authorisation; a generated character needs none.
+- **Item Packs** — `item.json` plus content-addressed media, committable to a
+  show's repo and readable without SEED. They never carry `asset://` ids:
+  exporting a character must not export the ability to impersonate someone.
+- **The standalone tool** is the same bundle behind a second Vite entry
+  (`items.html`), with the generation tabs left out.
+- `npx tsx scripts/item.ts resolve "wide of @sara in @bar"` prints exactly what
+  a prompt would send, and spends nothing.
+
+Research behind it: `docs/research/CONSISTENCY_PLATFORMS.md`. Decision: ADR
+0011. Product spec: `docs/product/ITEMS.md`.
+
+**Not yet measured:** whether these models actually hold an identity given N
+plates. The system guarantees identical inputs; retention is the model's
+behaviour. The probe list is in `CONSISTENCY_PLATFORMS.md` §15 and no UI copy
+claims consistency before it has numbers.
+
+## Video output quality — measured, and mostly a correction (2026-08-17)
+
+`scripts/probe-output-format.ts`, against the live API, free (every request
+carries a duration the model refuses so validation always fails):
+
+| Parameter | Verdict |
+|---|---|
+| `bitrate_mode` | **real** — `standard` / `high`; now defaults to `high` |
+| `return_last_frame` | **real** — a genuine PNG from the provider |
+| `output_format` | **does not exist**, in t2v or i2v |
+
+So there is no 4:4:4 MOV output and the chroma finding stands: 4:2:0 is what
+Seedance delivers. The adapter had been sending `output_format: "mp4"` for
+months — a no-op that looked like a decision — and it is gone.
+
+Render profiles now choose by what a clip is **for**. `delivery` stays in a
+codec Ark accepts (H.264/H.265) and is the default; `quality` prefers ProRes
+4444 for a clip that stays local. A ProRes reference is not a better reference,
+it is a rejected one.
 
 ## Next engineering actions
 

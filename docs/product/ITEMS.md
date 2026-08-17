@@ -1,6 +1,7 @@
 # Items — the consistency layer
 
-Status: **design, not yet built**
+Status: **built** (2026-08-17) — see `docs/STATUS.md`. Slices 1–3 are complete;
+slice 4's probe list is still open.
 Date: 2026-08-17 (revised — see §4, which replaces the first draft's approach)
 
 An **Item** is a thing a production needs to look the same every time it
