@@ -3,9 +3,12 @@ import type { Asset } from "@seed-ae/domain";
 import type { SeedClient } from "../api/client.ts";
 import {
   assetToken,
+  completeItemMention,
   completeMention,
   matchAssets,
+  matchItems,
   mentionQueryAt,
+  type ItemLike,
 } from "../mentions.ts";
 import { AssetImage } from "./primitives.tsx";
 
@@ -24,6 +27,14 @@ import { AssetImage } from "./primitives.tsx";
 interface Props {
   client: SeedClient;
   assets: Asset[];
+  /**
+   * The items already added to this shot.
+   *
+   * Only those, never the whole library: membership is decided by the picker,
+   * so `@` is for placing something already chosen rather than for summoning
+   * one. That also keeps this list short enough to be worth reading.
+   */
+  items?: ItemLike[];
   value: string;
   placeholder?: string;
   onChange: (value: string) => void;
@@ -33,20 +44,29 @@ interface Props {
 export interface Run {
   text: string;
   asset?: Asset;
+  item?: ItemLike;
 }
 
-export function splitRuns(text: string, assets: Asset[]): Run[] {
+export function splitRuns(
+  text: string,
+  assets: Asset[],
+  items: ItemLike[] = [],
+): Run[] {
   const byToken = new Map(assets.map((asset) => [assetToken(asset), asset]));
+  const byHandle = new Map(items.map((item) => [item.handle.toLowerCase(), item]));
   const runs: Run[] = [];
   let cursor = 0;
 
   for (const match of text.matchAll(/@([A-Za-z0-9_-]+)/g)) {
     const at = match.index ?? 0;
-    const asset = byToken.get(match[1] as string);
+    const token = match[1] as string;
+    // An item wins a name it shares with a file: the artist added it on purpose.
+    const item = byHandle.get(token.toLowerCase());
+    const asset = item ? undefined : byToken.get(token);
     // An @ that names nothing is prose, not a mention, and stays unmarked.
-    if (!asset) continue;
+    if (!item && !asset) continue;
     if (at > cursor) runs.push({ text: text.slice(cursor, at) });
-    runs.push({ text: match[0], asset });
+    runs.push({ text: match[0], ...(item ? { item } : { asset }) });
     cursor = at + match[0].length;
   }
 
@@ -57,6 +77,7 @@ export function splitRuns(text: string, assets: Asset[]): Run[] {
 export function PromptField({
   client,
   assets,
+  items = [],
   value,
   placeholder,
   onChange,
@@ -66,14 +87,37 @@ export function PromptField({
   const [mentionQuery, setMentionQuery] = useState<string>();
   const [hovered, setHovered] = useState<{ asset: Asset; top: number }>();
 
-  const runs = useMemo(() => splitRuns(value, assets), [value, assets]);
+  const runs = useMemo(() => splitRuns(value, assets, items), [value, assets, items]);
 
+  /*
+   * Items lead. They are the things that have to stay the same across shots,
+   * there are few of them because they were added deliberately, and a file
+   * whose name happens to start the same way is almost never what was meant.
+   */
+  const itemMatches =
+    mentionQuery === undefined ? [] : matchItems(items, mentionQuery);
   const matches =
     mentionQuery === undefined ? [] : matchAssets(assets, mentionQuery);
 
   /** Tracks the `@…` being typed so the library can be offered inline. */
   const syncMentionQuery = (element: HTMLTextAreaElement) =>
     setMentionQuery(mentionQueryAt(element.value, element.selectionStart ?? 0)?.query);
+
+  const insertItem = (item: ItemLike) => {
+    const element = inputRef.current;
+    if (!element) return;
+    const next = completeItemMention(
+      value,
+      element.selectionStart ?? value.length,
+      item,
+    );
+    onChange(next.text);
+    setMentionQuery(undefined);
+    requestAnimationFrame(() => {
+      element.focus();
+      element.setSelectionRange(next.caret, next.caret);
+    });
+  };
 
   const insertMention = (asset: Asset) => {
     const element = inputRef.current;
@@ -109,7 +153,11 @@ export function PromptField({
     <div className="prompt-field">
       <div className="prompt-mirror" ref={mirrorRef} aria-hidden="true">
         {runs.map((run, index) =>
-          run.asset ? (
+          run.item ? (
+            <span key={index} className="mention item">
+              {run.text}
+            </span>
+          ) : run.asset ? (
             <span
               key={index}
               className="mention"
@@ -144,8 +192,22 @@ export function PromptField({
         onBlur={() => setMentionQuery(undefined)}
       />
 
-      {matches.length > 0 ? (
+      {itemMatches.length + matches.length > 0 ? (
         <ul className="mention-menu">
+          {itemMatches.map((item) => (
+            <li key={item.id}>
+              <button
+                onMouseDown={(event) => {
+                  event.preventDefault();
+                  insertItem(item);
+                }}
+              >
+                <span className="badge">{item.kind}</span>
+                <span className="mono">@{item.handle}</span>
+                <span className="faint">{item.name}</span>
+              </button>
+            </li>
+          ))}
           {matches.map((asset) => (
             <li key={asset.id}>
               {/* onMouseDown fires before the textarea's blur closes this. */}

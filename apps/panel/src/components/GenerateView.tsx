@@ -859,6 +859,9 @@ export function GenerateView({
           <PromptField
             client={client}
             assets={assets}
+            items={form.itemMentions
+              .map((mention) => items.find((entry) => entry.id === mention.itemId))
+              .filter((entry) => entry !== undefined)}
             value={form.prompt}
             placeholder={
               onDirect

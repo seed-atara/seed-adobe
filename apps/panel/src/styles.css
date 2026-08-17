@@ -1481,3 +1481,10 @@ button.listRow:hover {
   max-height: 220px;
   overflow-y: auto;
 }
+
+/* An item mention reads differently from a file mention: it is an identity
+   that must survive the shot, not one picture being pointed at. */
+.mention.item {
+  background: #d0e0ff;
+  border-bottom: 1px solid var(--title);
+}

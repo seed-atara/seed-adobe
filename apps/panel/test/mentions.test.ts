@@ -178,3 +178,35 @@ describe("item mentions", () => {
     expect(result.caret).toBe(result.text.length);
   });
 });
+
+describe("marking up item mentions", () => {
+  const items = [{ id: "itm_1", handle: "gptw_state1", kind: "location", name: "GPTW_STATE1" }];
+
+  it("marks an item handle as a mention", () => {
+    const runs = splitRuns("wide of @gptw_state1 at dusk", [], items);
+    const marked = runs.find((run) => run.item);
+    expect(marked?.text).toBe("@gptw_state1");
+    expect(marked?.item?.id).toBe("itm_1");
+  });
+
+  it("lets an item win a name it shares with a file", () => {
+    // The item was added on purpose; a filename that collides was not.
+    const asset = {
+      id: "ast_1",
+      kind: "image",
+      status: "ready",
+      filename: "gptw_state1.png",
+      mimeType: "image/png",
+      storageUri: "s",
+      createdAt: "2026-08-17T09:00:00.000Z",
+      source: { type: "imported" },
+    } as never;
+    const runs = splitRuns("@gptw_state1", [asset], items);
+    expect(runs[0]?.item?.id).toBe("itm_1");
+    expect(runs[0]?.asset).toBeUndefined();
+  });
+
+  it("still leaves an unknown handle as prose", () => {
+    expect(splitRuns("email me @ home", [], items).some((run) => run.item)).toBe(false);
+  });
+});
