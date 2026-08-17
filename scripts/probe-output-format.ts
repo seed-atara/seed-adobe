@@ -61,8 +61,32 @@ interface Probe {
 }
 
 const PROBES: Probe[] = [
+  /*
+   * `file_format` is the real name. `output_format` came from third-party
+   * documentation and is not read by this API at all, which is why the first
+   * pass of this probe concluded there was no container parameter — it was
+   * asking about a field that does not exist, and getting silence.
+   *
+   * Sweep the plausible names rather than trusting one: the cost is a few
+   * unbillable requests and the alternative is a confident negative.
+   */
   {
-    label: 'output_format: "banana"  (is the field read at all?)',
+    label: 'file_format: "banana"    (THE REAL FIELD — is it read?)',
+    body: { file_format: "banana" },
+    names: /file_format/i,
+  },
+  {
+    label: 'file_format: "mov"       (the one that matters)',
+    body: { file_format: "mov" },
+    names: /file_format/i,
+  },
+  {
+    label: 'file_format: "mp4"       (control)',
+    body: { file_format: "mp4" },
+    names: /file_format/i,
+  },
+  {
+    label: 'output_format: "banana"  (third-party name — expected dead)',
     body: { output_format: "banana" },
     names: /output_format|output format/i,
   },

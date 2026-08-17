@@ -803,3 +803,48 @@ to it", and the regex for `bitrate_mode` matched the word *model* inside that
 message. It reported 8/8 confident readings of a field it had never reached.
 The script now detects a pre-validation failure explicitly and anchors its
 patterns to the parameter names.
+
+### Correction: the field is `file_format`, and it must be empty — VERIFIED (2026-08-17)
+
+The section above concluded there is no container parameter. **That was wrong,
+and wrong in an instructive way: it asked about `output_format`, which this API
+does not read, and took the silence as an answer.** The real name is
+`file_format`, found by sweeping plausible names instead of trusting one.
+
+Swept across **all four configured models** — 2.5, 2.0, 2.0-fast, 2.0-mini —
+and **three modes**, t2v, i2v and r2v, with `duration: 3` so nothing billed:
+
+```
+the specified parameter file_format is not supported for model
+dreamina-seedance-2-5 in r2v, must be empty
+```
+
+| Field | Status |
+|---|---|
+| `file_format` | **real and validated** — and refused on every model in every mode tested, `mp4` as firmly as `mov`. "Must be empty." |
+| `bitrate_mode` | real; `standard` / `high`. **Not** read by `2.0-mini`. |
+| `return_last_frame` | real, boolean |
+| `output_format`, `container`, `video_format`, `codec`, `pix_fmt`, `pixel_format`, `format`, `output_type`, `quality` | not read at all |
+
+**What this changes.** "There is no MOV" becomes "**MOV is a parameter this API
+knows about, and no model on this account may send it.**" The wording is
+specific — *not supported for model X in mode Y* — so the field plausibly exists
+for a model or a mode we do not have. That is a question worth putting to
+ByteDance by name: *which model and which mode accept `file_format`, and what
+values?* It is a far better question than "can we have MOV output", and it came
+out of a probe rather than a doc.
+
+The practical answer is unchanged: we send no `file_format`, and 4:2:0 H.264 is
+what arrives. `bitrate_mode: "high"` remains the only quality lever, and it is
+on by default.
+
+**One mode is still untested:** video editing, where a `reference_video` is
+attached. It needs a real hosted clip, so it cannot be probed with a data URL
+the way the others can. If `file_format` is supported anywhere, that is the
+likeliest place — it is the mode where a clip is decoded and re-encoded, which
+is exactly where a lossless container would earn its keep.
+
+**Method note.** Two probes in a row now would have shipped a confident false
+negative. The first asked a field that did not exist; the second asked the right
+field but only of one model, in one mode. A negative result is only as wide as
+the sweep behind it, and the sweep has to include the name itself.
