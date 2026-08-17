@@ -284,6 +284,22 @@ describe("items", () => {
     }
   });
 
+  it("offers a way to add an item, and lists none until one is added", async () => {
+    // Membership is explicit: typing @ no longer summons a character.
+    const { ItemPicker } = await import("../src/components/ItemPicker.tsx");
+    const html = renderToString(
+      createElement(ItemPicker, {
+        client: stubClient(),
+        chosenIds: [],
+        onChoose: () => {},
+        onClose: () => {},
+        onError: () => {},
+      }),
+    );
+    expect(html).toContain("Add an item");
+    expect(html).toContain("Search characters");
+  });
+
   it("draws nothing when the prompt mentions no item", async () => {
     const { PromptPreview } = await import("../src/components/PromptPreview.tsx");
     const html = renderToString(

@@ -93,19 +93,28 @@ export function bindingLine(
 /**
  * The traits worth spending words on at this tier.
  *
- * `anchor` keeps only the drift-prone ones — the discrete nameable details a
- * reference reliably loses, which are exactly the ones a sentence holds well.
- * Descriptions of things the plate already shows are not repeated.
+ * Drift-prone traits survive even at `none`, where every plate travelled. That
+ * is the whole point of the flag: a scar, a logo, an exact colour is precisely
+ * what a model drops when it reconstructs from a reference rather than copying
+ * it, and no number of plates fixes that. Cutting them when the references are
+ * strongest was cutting them exactly where the flag was supposed to apply.
+ *
+ * The gradient is a cap rather than a switch — two words' worth when the plates
+ * are complete, three when some were lost, everything by priority once the
+ * references stop carrying the identity at all.
+ *
+ * Descriptions of what a plate already shows are never repeated. Only what it
+ * loses.
  */
 export function traitsForTier(
   traits: ItemTrait[],
   tier: ItemTextTier,
 ): ItemTrait[] {
-  if (tier === "none") return [];
   const byPriority = [...traits].sort((a, b) => a.priority - b.priority);
   if (tier === "full") return byPriority;
   if (tier === "brief") return byPriority.slice(0, 4);
-  return byPriority.filter((trait) => trait.driftProne).slice(0, 3);
+  const drifting = byPriority.filter((trait) => trait.driftProne);
+  return tier === "none" ? drifting.slice(0, 2) : drifting.slice(0, 3);
 }
 
 export function traitLine(name: string, traits: ItemTrait[]): string | undefined {

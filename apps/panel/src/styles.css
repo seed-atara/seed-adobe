@@ -1441,3 +1441,43 @@ button.listRow:hover {
   background: var(--title);
   color: var(--white);
 }
+
+/* An item in this shot. Visible membership, and therefore visible cost:
+   every chip spends part of a small reference budget. */
+.itemTag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 2px 1px 4px;
+  background: var(--face);
+  border: 1px solid;
+  border-color: var(--white) var(--shadow) var(--shadow) var(--white);
+  font-size: 11px;
+}
+
+.tagRemove {
+  border: 1px solid var(--shadow);
+  background: var(--face);
+  font: 10px/1 var(--mono);
+  padding: 1px 3px;
+  cursor: default;
+}
+
+.tagRemove:hover {
+  background: #ffc0c0;
+}
+
+/* The add-an-item list, inline rather than modal: a CEP panel is narrow and a
+   floating dialog in it is a fight. */
+.picker {
+  background: var(--well);
+  border: 2px solid;
+  border-color: var(--shadow) var(--white) var(--white) var(--shadow);
+  padding: var(--gap);
+  margin-bottom: var(--gap);
+}
+
+.picker .list {
+  max-height: 220px;
+  overflow-y: auto;
+}

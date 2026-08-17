@@ -1175,6 +1175,7 @@ export function App({ tabs }: AppProps = {}) {
           {tab === "generate" ? (
             <GenerateView
               client={client}
+              onError={report}
               providers={providers}
               assets={assets}
               form={form}

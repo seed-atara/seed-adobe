@@ -223,14 +223,58 @@ describe("influence", () => {
 });
 
 describe("text tiers", () => {
-  it("says nothing descriptive when every plate fitted", () => {
+  it("drops description when every plate fitted, but keeps what a plate loses", () => {
+    /*
+     * A scar is exactly what a model drops when it reconstructs from a
+     * reference, and no number of plates fixes that — so the tier with every
+     * plate is the last place a drift-prone trait should be cut.
+     */
     const bundle = resolveBundle({
       prompt: "@a walks in",
-      bindings: [bind("a", [plate("a1")], { traits: [trait("a scar", true)] })],
+      bindings: [
+        bind("a", [plate("a1")], {
+          traits: [trait("a scar", true), trait("olive jacket", false)],
+        }),
+      ],
       capabilities: SEEDREAM,
     });
     expect(bundle.items[0]?.tier).toBe("none");
-    expect(bundle.prompt).not.toContain("a scar");
+    expect(bundle.prompt).toContain("a scar");
+    // What the plate already shows is still never repeated.
+    expect(bundle.prompt).not.toContain("olive jacket");
+  });
+
+  it("caps `none` tighter than `anchor`, since the references are complete", () => {
+    const traits = [
+      trait("scar", true, 0),
+      trait("tattoo", true, 1),
+      trait("gold tooth", true, 2),
+    ];
+    const complete = resolveBundle({
+      prompt: "@a",
+      bindings: [bind("a", [plate("a1")], { traits })],
+      capabilities: SEEDREAM,
+    });
+    expect(complete.prompt).toContain("scar, tattoo");
+    expect(complete.prompt).not.toContain("gold tooth");
+
+    const partial = resolveBundle({
+      prompt: "@a",
+      bindings: [bind("a", [plate("a1"), plate("a2")], { traits })],
+      capabilities: { ...SEEDREAM, stableImageReferences: 1 },
+    });
+    expect(partial.items[0]?.tier).toBe("anchor");
+    expect(partial.prompt).toContain("gold tooth");
+  });
+
+  it("says nothing at all when an item has no drift-prone traits", () => {
+    const bundle = resolveBundle({
+      prompt: "@a walks in",
+      bindings: [bind("a", [plate("a1")], { traits: [trait("olive jacket", false)] })],
+      capabilities: SEEDREAM,
+    });
+    expect(bundle.prompt).not.toContain("olive jacket");
+    expect(bundle.prompt).not.toContain("Notes");
   });
 
   it("keeps only drift-prone traits at anchor", () => {
@@ -268,12 +312,19 @@ describe("text tiers", () => {
     });
     expect(overridden.prompt).toContain("olive jacket");
 
+    // Mute is absolute: plates only, whatever the traits are marked.
     const muted = resolveBundle({
       prompt: "@a",
-      bindings: [bind("a", [], { mention: { muteText: true }, traits: [trait("olive jacket")] })],
+      bindings: [
+        bind("a", [], {
+          mention: { muteText: true },
+          traits: [trait("olive jacket"), trait("a scar", true)],
+        }),
+      ],
       capabilities: SEEDREAM,
     });
     expect(muted.prompt).not.toContain("olive jacket");
+    expect(muted.prompt).not.toContain("a scar");
   });
 });
 

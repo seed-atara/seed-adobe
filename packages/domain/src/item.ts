@@ -233,6 +233,10 @@ export type ItemDetail = z.infer<typeof ItemDetailSchema>;
  * written into the prompt and nothing else can carry it. What shrinks as plates
  * fit is *description*, which the plate already carries better than any
  * sentence.
+ *
+ * `none` is not silence: traits marked drift-prone survive it. They name what a
+ * reference loses however many plates travel, so the tier that has every plate
+ * is the last place they should be cut.
  */
 export const ItemTextTierSchema = z.enum(["none", "anchor", "brief", "full"]);
 export type ItemTextTier = z.infer<typeof ItemTextTierSchema>;

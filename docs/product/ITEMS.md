@@ -164,7 +164,7 @@ does not blur the shot direction.
 
 | Tier | When | Contributes | Size |
 |---|---|---|---|
-| `none` | all plates fitted | binding clause only | ~8 words/plate |
+| `none` | all plates fitted | binding clause + drift-prone traits (max 2) | ~8 words/plate |
 | `anchor` | most plates fitted (default) | binding + drift-prone traits | +6–10 words |
 | `brief` | plates partly dropped | binding + top traits by priority | +20 words |
 | `full` | no plates fitted, or provider takes no references | the character sheet | unbounded |
@@ -195,6 +195,12 @@ The tiers only work if the text can be cut intelligently, so identity is
   "avoid": ["sunglasses", "modern logos"]
 }
 ```
+
+`driftProne` survives every tier including `none`, which is the point: a scar
+or a logo is what a model drops when it *reconstructs* from a reference rather
+than copying it, and no number of plates fixes that. The tier with every plate
+present is the last place those words should be cut. (An artist who wants
+genuine silence has "plates only", which suppresses text outright.)
 
 `driftProne` is the field that earns its place. References and text are **not
 redundant** — they are good at different things. A plate carries face,

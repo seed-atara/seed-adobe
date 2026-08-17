@@ -141,7 +141,15 @@ export function resolveBundle(request: ResolveRequest): ResolvedBundle {
       if (line) manifestLines.push(line);
     }
 
-    const traits = traitsForTier(revision.traits, tier);
+    /*
+     * "Plates only" means plates only.
+     *
+     * Mute used to be expressible as the `none` tier, and stopped being so when
+     * drift-prone traits started surviving `none` — which is right for the
+     * automatic case and wrong for an artist who ticked a box that says the
+     * item should contribute no words at all.
+     */
+    const traits = binding.mention.muteText ? [] : traitsForTier(revision.traits, tier);
     const note = traitLine(displayName, traits);
     if (note) noteLines.push(note);
     avoid.push(...revision.avoid);
