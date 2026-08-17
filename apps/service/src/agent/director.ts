@@ -42,7 +42,7 @@ export interface DraftPlan {
   concerns: string[];
 }
 
-const DRAFT_SCHEMA = {
+export const DRAFT_SCHEMA = {
   type: "object",
   additionalProperties: false,
   required: [

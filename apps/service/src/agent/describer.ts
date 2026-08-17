@@ -48,24 +48,34 @@ Rules:
 - Only what you can actually see. Do not invent a backstory, a name, or a detail that is not in the plates.
 - \`priority\` orders them: 0 is the most important thing to preserve.
 - Put in \`avoid\` only things that would clearly be wrong for this subject and are likely to appear anyway — a modern logo on a period costume, sunglasses hiding a face you need. Leave it empty if nothing qualifies.
+- At most 16 traits and 8 avoid entries. Each trait under 200 characters.
 - \`summary\` is one plain sentence for the artist, saying what you saw and what you think matters most.
 
 If the plates disagree with each other — different people, different rooms — say so in \`summary\` rather than averaging them into a subject that does not exist.`;
 
-const TRAIT_SCHEMA = {
+/**
+ * Deliberately plain.
+ *
+ * The structured-output validator accepts a narrow subset of JSON Schema and
+ * rejects the request outright for anything outside it — `maxItems` on an
+ * array, `maxLength` on a string and `minimum` on a number are all refused,
+ * which is what broke the first version of this. Bounds are stated in the
+ * prompt and enforced in code below instead, where they can be clamped rather
+ * than turned into a 400 the artist has to read.
+ */
+export const TRAIT_SCHEMA = {
   type: "object",
   additionalProperties: false,
   required: ["traits", "avoid", "summary"],
   properties: {
     traits: {
       type: "array",
-      maxItems: 16,
       items: {
         type: "object",
         additionalProperties: false,
         required: ["text", "facet", "priority", "driftProne"],
         properties: {
-          text: { type: "string", maxLength: 120 },
+          text: { type: "string" },
           facet: {
             type: "string",
             enum: [
@@ -85,13 +95,13 @@ const TRAIT_SCHEMA = {
               "other",
             ],
           },
-          priority: { type: "integer", minimum: 0 },
+          priority: { type: "integer" },
           driftProne: { type: "boolean" },
         },
       },
     },
-    avoid: { type: "array", maxItems: 8, items: { type: "string", maxLength: 80 } },
-    summary: { type: "string", maxLength: 400 },
+    avoid: { type: "array", items: { type: "string" } },
+    summary: { type: "string" },
   },
 } as const;
 
@@ -217,15 +227,27 @@ export class ItemDescriber {
       throw new SeedError("provider_error", "the description came back unreadable");
     }
 
+    /*
+     * Clamped rather than validated. The schema cannot carry these bounds, and
+     * the domain's ItemTrait can (text 200, 40 traits, avoid 20) — so anything
+     * over is trimmed here, where the cost is a shorter trait rather than a
+     * failed request.
+     */
     return {
-      traits: (parsed.traits ?? []).map((trait, index) => ({
-        text: trait.text,
-        facet: trait.facet,
-        priority: trait.priority ?? index,
-        driftProne: trait.driftProne ?? false,
-      })),
-      avoid: parsed.avoid ?? [],
-      summary: parsed.summary ?? "",
+      traits: (parsed.traits ?? [])
+        .filter((trait) => typeof trait?.text === "string" && trait.text.trim().length > 0)
+        .slice(0, 16)
+        .map((trait, index) => ({
+          text: trait.text.trim().slice(0, 200),
+          facet: trait.facet,
+          priority: typeof trait.priority === "number" ? Math.max(0, trait.priority) : index,
+          driftProne: trait.driftProne ?? false,
+        })),
+      avoid: (parsed.avoid ?? [])
+        .filter((entry) => typeof entry === "string" && entry.trim().length > 0)
+        .slice(0, 8)
+        .map((entry) => entry.trim().slice(0, 120)),
+      summary: (parsed.summary ?? "").slice(0, 400),
     };
   }
 }
