@@ -121,6 +121,12 @@ export interface ProviderConfig {
    * exist, so there is no MOV to choose and offering one would be a lie.
    */
   seedanceBitrateMode?: "standard" | "high";
+  /**
+   * Container, which on this API is really a chroma choice: `mov` is 4:4:4 and
+   * `mp4` is 4:2:0, at the same resolution and price. Defaults to `mov`, and is
+   * only sent to models that accept it.
+   */
+  seedanceOutputFormat?: "mov" | "mp4";
   /** Path to a real video file the mock video provider replays. */
   mockVideoFixture?: string;
   /** Simulated latency for the mock image provider, so demos show job states. */
@@ -222,6 +228,10 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServiceConfig 
       ...(env.SEEDANCE_BITRATE_MODE?.trim() === "standard" ||
       env.SEEDANCE_BITRATE_MODE?.trim() === "high"
         ? { seedanceBitrateMode: env.SEEDANCE_BITRATE_MODE.trim() as "standard" | "high" }
+        : {}),
+      ...(env.SEEDANCE_OUTPUT_FORMAT?.trim() === "mov" ||
+      env.SEEDANCE_OUTPUT_FORMAT?.trim() === "mp4"
+        ? { seedanceOutputFormat: env.SEEDANCE_OUTPUT_FORMAT.trim() as "mov" | "mp4" }
         : {}),
       ...(env.SEED_AE_MOCK_VIDEO_FIXTURE?.trim()
         ? { mockVideoFixture: path.resolve(env.SEED_AE_MOCK_VIDEO_FIXTURE.trim()) }

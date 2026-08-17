@@ -366,6 +366,9 @@ export function buildRegistry(
           ...(config.seedanceBitrateMode
             ? { bitrateMode: config.seedanceBitrateMode }
             : {}),
+          ...(config.seedanceOutputFormat
+            ? { outputFormat: config.seedanceOutputFormat }
+            : {}),
         }),
       );
     }

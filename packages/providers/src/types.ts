@@ -35,6 +35,14 @@ export interface ProviderCapabilities extends ReferenceCapabilities {
    * is awkward to undo once it is baked into a clip.
    */
   generatesAudio: boolean;
+  /**
+   * Containers this provider will honour, best first. Empty means the request
+   * has no say — most providers.
+   *
+   * On Seedance this is not cosmetic: `mov` carries 4:4:4 where `mp4` carries
+   * 4:2:0, at the same resolution and for the same money.
+   */
+  outputFormats: string[];
   seed: boolean;
   durationSecondsRange?: [number, number];
   sizes: string[];
@@ -93,6 +101,15 @@ export interface ProviderOutput {
   width?: number;
   height?: number;
   seed?: number | string;
+  /**
+   * A still the provider returned alongside a clip.
+   *
+   * Worth having for any video and necessary for some: a 4:4:4 or HEVC Rext
+   * result cannot be decoded by the browser, so the panel's own poster
+   * extraction fails and the card would otherwise say "video" forever. A frame
+   * from the provider is also a truer frame than one we transcode.
+   */
+  posterUrl?: string;
 }
 
 export interface ProviderJobState {

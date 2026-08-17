@@ -91,6 +91,7 @@ export class LookProvider implements GenerationProvider {
       framesExcludeReferences: false,
       audioReferences: false,
       generatesAudio: false,
+      outputFormats: [],
       // Grain is seeded, and the seed is part of the config rather than a
       // separate control the caller sets per run.
       seed: false,

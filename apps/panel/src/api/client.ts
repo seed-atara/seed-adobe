@@ -42,6 +42,8 @@ export interface ProviderCapabilitiesDto {
   audioReferences: boolean;
   /** Whether the model can score the clip itself. */
   generatesAudio: boolean;
+  /** Containers the provider will honour. On Seedance this decides chroma. */
+  outputFormats: string[];
   durationSecondsRange?: [number, number];
   sizes: string[];
   aspectRatios: string[];

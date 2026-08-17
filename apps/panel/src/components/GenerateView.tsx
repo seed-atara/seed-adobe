@@ -1028,6 +1028,21 @@ export function GenerateView({
           </Field>
         </div>
 
+        {/*
+          Resolution quietly selects the codec here, and that is worth saying
+          where the choice is made rather than leaving it to be discovered in
+          ffprobe. Only shown where the provider actually offers a container,
+          because everywhere else it would be a claim about nothing.
+        */}
+        {(provider?.outputFormats ?? []).length > 0 ? (
+          <div className="hint">
+            Clips come back <b>4:4:4</b>, no chroma subsampling.{" "}
+            {/1080/.test(form.size)
+              ? "At 1080p that is 10-bit HEVC, and the colour is properly tagged."
+              : "At 1080p it would also be 10-bit and carry colour tags — below that nothing is signalled and every tool assumes BT.709 limited."}
+          </div>
+        ) : null}
+
         {/* Seed is enabled from declared capabilities, never assumed. */}
         <Field
           label="Seed"

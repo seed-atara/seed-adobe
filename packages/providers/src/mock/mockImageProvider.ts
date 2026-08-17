@@ -77,6 +77,7 @@ export class MockImageProvider implements GenerationProvider {
       framesExcludeReferences: false,
       audioReferences: false,
       generatesAudio: false,
+      outputFormats: [],
       seed: true,
       sizes: this.sizes,
       aspectRatios: ["1:1", "16:9", "9:16"],

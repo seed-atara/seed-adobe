@@ -70,6 +70,7 @@ export class MockVideoProvider implements GenerationProvider {
       framesExcludeReferences: false,
       audioReferences: false,
       generatesAudio: false,
+      outputFormats: [],
       seed: true,
       durationSecondsRange: [2, 10],
       sizes: ["1920x1080", "1080x1920"],

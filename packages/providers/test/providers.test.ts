@@ -391,14 +391,17 @@ describe("SeedanceProvider", () => {
       duration: 5,
       ratio: "16:9",
       resolution: "720p",
-      // Measured 2026-08-17: `output_format` is not read by this API at all —
-      // `banana` passes as quietly as `mp4`. `bitrate_mode` is real, and
-      // defaults to the quality end because the file size is irrelevant next
-      // to what the render costs.
+      /*
+       * Quality defaults, both measured. `bitrate_mode: high` is CRF 11
+       * against 18. `output_format: mov` is 4:4:4 where mp4 is 4:2:0, at the
+       * same resolution and the same price — verified 2026-08-18 by generating
+       * and ffprobing, because this field is acted on at execution and is
+       * invisible to the request validator.
+       */
       bitrate_mode: "high",
       return_last_frame: true,
+      output_format: "mov",
     });
-    expect(body).not.toHaveProperty("output_format");
     expect(job.providerJobId).toBe("cgt-1");
     expect(job.state.status).toBe("queued");
   });

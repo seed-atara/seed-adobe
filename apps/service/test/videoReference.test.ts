@@ -643,3 +643,102 @@ describe("a library shared by two projects", () => {
     }
   });
 });
+
+describe("a poster the provider handed back", () => {
+  it("becomes the clip's thumbnail, so a 4:4:4 result is not a blank card", async () => {
+    /*
+     * Nothing here decodes video, and no browser opens H.264 4:4:4 Predictive
+     * or HEVC Rext — so without this a `mov` clip shows the "video" badge
+     * forever. Seedance answers `return_last_frame` with a real JPEG frame.
+     */
+    const { MediaIngestor } = await import("../src/generation/mediaIngestor.js");
+    const { AssetRepository, openMigratedDatabase, ensureWorkspace, resolveWorkspace } =
+      await import("@seed-ae/storage");
+    const { encodePng } = await import("@seed-ae/media");
+    const { mkdtemp } = await import("node:fs/promises");
+    const { tmpdir } = await import("node:os");
+    const nodePath = await import("node:path");
+
+    const root = await mkdtemp(nodePath.join(tmpdir(), "seed-poster "));
+    const workspace = await ensureWorkspace(resolveWorkspace(root));
+    const db = openMigratedDatabase({ path: ":memory:" });
+    const assets = new AssetRepository(db);
+    const ingestor = new MediaIngestor(workspace, assets);
+    // An asset's generation_id is a foreign key, so the row has to exist.
+    db.prepare(
+      `INSERT INTO generations (id, provider, model, operation, prompt, job_id, status, created_at)
+       VALUES ('gen_poster', 'seedance', 'm', 'video.generate', 'p', 'job_p', 'succeeded', '2026-08-18T09:00:00.000Z')`,
+    ).run();
+
+    const poster = encodePng(4, 4, new Uint8Array(4 * 4 * 4).fill(200));
+    // An mp4 box header is enough for the ingestor to call it a video.
+    const clip = Buffer.concat([
+      Buffer.from([0, 0, 0, 0x14]),
+      Buffer.from("ftypqt  ", "latin1"),
+      Buffer.alloc(64),
+    ]);
+
+    const asset = await ingestor.ingest(
+      {
+        mimeType: "video/quicktime",
+        base64: clip.toString("base64"),
+        posterUrl: "https://example.test/last-frame.png",
+      },
+      {
+        generationId: "gen_poster",
+        provider: "seedance",
+        model: "m",
+        index: 0,
+        fetchImpl: (async () =>
+          new Response(poster, { status: 200 })) as unknown as typeof fetch,
+      },
+    );
+
+    expect(asset.kind).toBe("video");
+    expect(asset.thumbnailUri).toBeDefined();
+  });
+
+  it("keeps the clip when the poster cannot be fetched", async () => {
+    // The clip is already paid for; a missing tile is not worth losing it.
+    const { MediaIngestor } = await import("../src/generation/mediaIngestor.js");
+    const { AssetRepository, openMigratedDatabase, ensureWorkspace, resolveWorkspace } =
+      await import("@seed-ae/storage");
+    const { mkdtemp } = await import("node:fs/promises");
+    const { tmpdir } = await import("node:os");
+    const nodePath = await import("node:path");
+
+    const root = await mkdtemp(nodePath.join(tmpdir(), "seed-poster-fail "));
+    const workspace = await ensureWorkspace(resolveWorkspace(root));
+    const db = openMigratedDatabase({ path: ":memory:" });
+    const assets = new AssetRepository(db);
+    const ingestor = new MediaIngestor(workspace, assets);
+    db.prepare(
+      `INSERT INTO generations (id, provider, model, operation, prompt, job_id, status, created_at)
+       VALUES ('gen_poster_fail', 'seedance', 'm', 'video.generate', 'p', 'job_pf', 'succeeded', '2026-08-18T09:00:00.000Z')`,
+    ).run();
+
+    const clip = Buffer.concat([
+      Buffer.from([0, 0, 0, 0x14]),
+      Buffer.from("ftypqt  ", "latin1"),
+      Buffer.alloc(64),
+    ]);
+
+    const asset = await ingestor.ingest(
+      {
+        mimeType: "video/quicktime",
+        base64: clip.toString("base64"),
+        posterUrl: "https://example.test/gone.png",
+      },
+      {
+        generationId: "gen_poster_fail",
+        provider: "seedance",
+        model: "m",
+        index: 0,
+        fetchImpl: (async () => new Response("", { status: 404 })) as unknown as typeof fetch,
+      },
+    );
+
+    expect(asset.kind).toBe("video");
+    expect(asset.thumbnailUri).toBeUndefined();
+  });
+});

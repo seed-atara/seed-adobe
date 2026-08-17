@@ -131,8 +131,53 @@ export class MediaIngestor {
     }
 
     const asset = this.assets.create(draft);
+
+    /*
+     * A poster the provider handed back beats anything we can make.
+     *
+     * Nothing here decodes video, so a clip's thumbnail has always been
+     * borrowed from the frame it came from or extracted later by the panel in
+     * Chromium. Neither works for a 4:4:4 or HEVC Rext result — no browser
+     * will open one — so a `mov` clip would show the "video" badge forever.
+     * Seedance answers `return_last_frame` with a JPEG, which is a real frame
+     * of this clip rather than a transcode or a borrowed neighbour.
+     */
+    if (output.posterUrl) {
+      const written = await this.thumbnailFromUrl(
+        output.posterUrl,
+        asset.id,
+        options.fetchImpl ?? fetch,
+      );
+      if (written) return this.assets.getById(asset.id) ?? asset;
+    }
+
     const thumbnailUri = await this.writeThumbnail(bytes, asset.id);
     return thumbnailUri ? this.assets.setThumbnail(asset.id, thumbnailUri) : asset;
+  }
+
+  /**
+   * Fetches a poster the provider produced and makes it this asset's thumbnail.
+   *
+   * Best effort by design: a poster that will not download costs a grid tile,
+   * and failing the whole ingest over it would throw away a clip that is
+   * already paid for and perfectly good.
+   */
+  async thumbnailFromUrl(
+    url: string,
+    assetId: string,
+    fetchImpl: typeof fetch = fetch,
+  ): Promise<boolean> {
+    try {
+      const response = await fetchImpl(url);
+      if (!response.ok) return false;
+      const bytes = Buffer.from(await response.arrayBuffer());
+      const uri = await this.writeThumbnail(bytes, assetId);
+      if (!uri) return false;
+      this.assets.setThumbnail(assetId, uri);
+      return true;
+    } catch {
+      return false;
+    }
   }
 
   /**

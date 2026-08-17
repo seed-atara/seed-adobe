@@ -73,6 +73,20 @@ export interface SeedanceConfig {
    * provider rather than one the panel decoded out of an mp4.
    */
   returnLastFrame?: boolean;
+  /**
+   * Container, which on this API is really a chroma choice.
+   *
+   * Measured 2026-08-18 by generating and ffprobing: `mov` is 4:4:4 at every
+   * resolution — H.264 High 4:4:4 Predictive below 1080p, HEVC Rext with
+   * yuv444p10le at 1080p — while `mp4` is 4:2:0. Same resolution, same money.
+   * So `mov` is the default, and there is no case for preferring `mp4` beyond
+   * a downstream tool that cannot open it.
+   *
+   * Acted on at *execution*, never by the request validator, which is why
+   * every free probe here reported it missing. Only 2.5 accepts it; 2.0 and
+   * 2.0-fast reject it at submit, so it is sent only where declared.
+   */
+  outputFormat?: "mov" | "mp4";
   timeoutMs?: number;
   fetchImpl?: typeof fetch;
 }
@@ -134,6 +148,18 @@ export type SeedanceImageRole = "first_frame" | "last_frame" | "reference_image"
  * constant: 2.0 reaches 4K where 2.5 stops at 1080p, and the fast and mini
  * variants stop at 720p. Neither family accepts a 2K tier at all.
  */
+/**
+ * Which containers a model will take.
+ *
+ * 2.0 and 2.0-fast reject `output_format` at submit, so sending it there turns
+ * a working request into a failed one. A table rather than a flag, for the same
+ * reason `seedanceSizesFor` is one: the families genuinely differ and neither
+ * can be guessed from the other.
+ */
+export function seedanceOutputFormatsFor(model: string): string[] {
+  return /seedance-2-5/.test(model) ? ["mov", "mp4"] : [];
+}
+
 export function seedanceSizesFor(model: string): string[] {
   if (/seedance-2-0-(fast|mini)/.test(model)) return ["480p", "720p"];
   if (/seedance-2-0/.test(model)) return ["480p", "720p", "1080p", "4K"];
@@ -278,6 +304,7 @@ export class SeedanceProvider implements GenerationProvider {
        */
       audioReferences: true,
       generatesAudio: true,
+      outputFormats: seedanceOutputFormatsFor(this.config.model),
       seed: true,
       /*
        * Verified against the live API for this model in i2v: 3s is rejected,
@@ -376,6 +403,16 @@ export class SeedanceProvider implements GenerationProvider {
       generate_audio: request.generateAudio ?? this.config.generateAudio ?? false,
     };
     if (this.config.returnLastFrame ?? true) body.return_last_frame = true;
+
+    /*
+     * Only where the model accepts it. 2.0 and 2.0-fast refuse the field at
+     * submit, so sending it everywhere would break the models it does not
+     * apply to in order to improve the one it does.
+     */
+    const formats = seedanceOutputFormatsFor(body.model as string);
+    if (formats.length > 0) {
+      body.output_format = this.config.outputFormat ?? formats[0];
+    }
     if (request.seed !== undefined) body.seed = request.seed;
 
     /*
@@ -448,7 +485,7 @@ export class SeedanceProvider implements GenerationProvider {
     const payload = await this.call("GET", `${TASKS_PATH}/${providerJobId}`);
     const task = payload as {
       status?: string;
-      content?: { video_url?: string };
+      content?: { video_url?: string; last_frame_url?: string };
       error?: { code?: string; message?: string };
     };
 
@@ -470,6 +507,15 @@ export class SeedanceProvider implements GenerationProvider {
         // content type.
         mimeType: "",
         url,
+        /*
+         * `return_last_frame` comes back as `content.last_frame_url`, a JPEG.
+         * Worth taking for any clip and necessary for a `mov` one: 4:4:4 and
+         * HEVC Rext are not decodable in the browser, so the panel's own
+         * poster extraction cannot run and the card would say "video" forever.
+         */
+        ...(task.content?.last_frame_url
+          ? { posterUrl: task.content.last_frame_url }
+          : {}),
       };
       return { status: "succeeded", progress: 1, outputs: [output], raw: payload };
     }
