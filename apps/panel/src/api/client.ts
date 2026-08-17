@@ -317,6 +317,11 @@ export class SeedClient {
     });
   }
 
+  /** Only possible while nothing has been generated with it. */
+  removeItem(id: string): Promise<{ removed: boolean }> {
+    return this.request(`/v1/items/${encodeURIComponent(id)}`, { method: "DELETE" });
+  }
+
   renameItem(id: string, handle: string): Promise<{ item: ItemDetail }> {
     return this.request(`/v1/items/${encodeURIComponent(id)}/rename`, {
       method: "POST",

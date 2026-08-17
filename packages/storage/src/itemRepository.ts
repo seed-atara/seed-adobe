@@ -301,6 +301,53 @@ export class ItemRepository {
       .run(JSON.stringify(groups), nowIso(), id);
   }
 
+  /**
+   * Removes an item entirely — but only while nothing has been generated with it.
+   *
+   * Unlike an asset, which is hidden rather than deleted because recipes name
+   * it forever, an unused item is a draft. Refusing to delete drafts is how a
+   * library fills with half-made characters nobody can tidy away.
+   *
+   * The moment a generation points at any of its revisions this refuses, and
+   * says how many — the provenance those recipes carry is exactly what the
+   * whole design exists to protect.
+   */
+  remove(id: string): void {
+    const detail = this.get(id);
+    if (!detail) throw new SeedError("not_found", `no item ${id}`);
+
+    const used = this.generationIdsFor(id).length;
+    if (used > 0) {
+      throw new SeedError(
+        "conflict",
+        `@${detail.item.handle} has been used in ${used} generation${used === 1 ? "" : "s"}, ` +
+          `so deleting it would break ${used === 1 ? "that recipe" : "those recipes"}. ` +
+          `Rename it, or leave it and stop using it.`,
+      );
+    }
+
+    this.db.exec("BEGIN");
+    try {
+      const revisionIds = detail.revisions.map((revision) => revision.id);
+      for (const revisionId of revisionIds) {
+        this.db.prepare("DELETE FROM item_plates WHERE revision_id = ?").run(revisionId);
+        this.db.prepare("DELETE FROM item_traits WHERE revision_id = ?").run(revisionId);
+      }
+      // Children first: the trigger guarding revisions fires per row, and the
+      // foreign keys are enforced.
+      this.db.prepare("DELETE FROM item_revisions WHERE variant_id IN (SELECT id FROM item_variants WHERE item_id = ?)").run(id);
+      this.db.prepare("DELETE FROM item_variants WHERE item_id = ?").run(id);
+      this.db.prepare("DELETE FROM item_handles WHERE item_id = ?").run(id);
+      this.db.prepare("DELETE FROM items WHERE id = ?").run(id);
+      this.db.exec("COMMIT");
+    } catch (cause) {
+      this.db.exec("ROLLBACK");
+      throw cause instanceof SeedError
+        ? cause
+        : new SeedError("storage_error", "could not remove the item", { cause });
+    }
+  }
+
   /* ---------------------------------------------------------------- *
    * Variants and revisions
    * ---------------------------------------------------------------- */

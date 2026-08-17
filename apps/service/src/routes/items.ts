@@ -177,6 +177,20 @@ export function addRevisionRoute(deps: AppDeps) {
   };
 }
 
+/**
+ * Removes an item, while nothing has been generated with it.
+ *
+ * Refuses once a generation points at it, naming the count — those recipes
+ * carry the provenance this whole design exists to protect.
+ */
+export function removeItemRoute(deps: AppDeps) {
+  return ({ params }: RequestContext) => {
+    requireItem(deps, params.id as string);
+    deps.items.remove(params.id as string);
+    return json({ removed: true });
+  };
+}
+
 /** Where a character has been used — the other half of lineage. */
 export function itemGenerationsRoute(deps: AppDeps) {
   return ({ params }: RequestContext) => {

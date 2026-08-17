@@ -65,6 +65,7 @@ import {
   getItemRoute,
   itemGenerationsRoute,
   listItemsRoute,
+  removeItemRoute,
   renameItemRoute,
   resolvePromptRoute,
   updateItemRoute,
@@ -128,6 +129,7 @@ export function buildRouter(deps: AppDeps): Router {
     .post("/v1/items/import", importPackRoute(deps))
     .get("/v1/items", listItemsRoute(deps))
     .get("/v1/items/:id", getItemRoute(deps))
+    .delete("/v1/items/:id", removeItemRoute(deps))
     .post("/v1/items/:id", updateItemRoute(deps))
     .post("/v1/items/:id/rename", renameItemRoute(deps))
     .post("/v1/items/:id/variants", createVariantRoute(deps))

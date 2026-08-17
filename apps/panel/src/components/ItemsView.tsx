@@ -510,6 +510,20 @@ function ItemDetailView({ client, assets, detail, onBack, onChanged, onError }: 
   const revisions = detail.revisions.filter((entry) => entry.variantId === variant?.id);
   const latest = revisions.at(-1);
 
+  const remove = async () => {
+    if (!confirm(`Remove @${detail.item.handle}? This cannot be undone.`)) return;
+    setBusy(true);
+    try {
+      await client.removeItem(detail.item.id);
+      onBack();
+    } catch (error) {
+      // A refusal is the interesting case: it means shots depend on this.
+      onError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const addTrait = async () => {
     if (!latest || !traitText.trim()) return;
     setBusy(true);
@@ -548,9 +562,19 @@ function ItemDetailView({ client, assets, detail, onBack, onChanged, onError }: 
             {detail.item.kind}
           </span>
         </div>
-        <button className="btn" onClick={onBack}>
-          Back
-        </button>
+        <div className="row" style={{ gap: 6 }}>
+          <button
+            className="btn"
+            disabled={busy}
+            title="Only possible while nothing has been generated with it"
+            onClick={() => void remove()}
+          >
+            Remove
+          </button>
+          <button className="btn" onClick={onBack}>
+            Back
+          </button>
+        </div>
       </div>
 
       {detail.item.realPerson && detail.item.authorisation !== "authorised" ? (

@@ -343,6 +343,29 @@ MIGRATIONS.push({
   `,
 });
 
+MIGRATIONS.push({
+  version: 6,
+  name: "items-deletable-until-used",
+  sql: `
+    -- A revision is undeletable *because a generation may point at it*, not
+    -- because rows are sacred. An item nobody has generated with is just a
+    -- draft, and refusing to delete a draft is how a library fills with
+    -- half-made characters that cannot be tidied away.
+    --
+    -- So the guard becomes conditional: abort only when something actually
+    -- references this revision. Provenance is protected exactly as before, and
+    -- a mistake made two minutes ago can be undone.
+    DROP TRIGGER IF EXISTS item_revisions_no_delete;
+
+    CREATE TRIGGER item_revisions_no_delete_when_used
+    BEFORE DELETE ON item_revisions
+    WHEN EXISTS (SELECT 1 FROM generation_items WHERE revision_id = OLD.id)
+    BEGIN
+      SELECT RAISE(ABORT, 'this revision has been generated with: deleting it would break a recipe');
+    END;
+  `,
+});
+
 export const LATEST_SCHEMA_VERSION = MIGRATIONS.reduce(
   (max, migration) => Math.max(max, migration.version),
   0,

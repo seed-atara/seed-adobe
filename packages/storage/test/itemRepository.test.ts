@@ -91,13 +91,20 @@ describe("revisions", () => {
     ).toThrow(/immutable/);
   });
 
-  it("refuses to let a revision be deleted", () => {
+  it("lets an unused revision go, because a draft is not provenance", () => {
+    /*
+     * The guard on revisions exists to protect recipes, not rows. Until a
+     * generation points at one, an item is a draft — and refusing to delete
+     * drafts is how a library fills with half-made characters nobody can tidy
+     * away. The paired test in "removing an item" proves the guard still bites
+     * the moment a shot depends on it.
+     */
     const detail = items.create({ handle: "sara", kind: "character", name: "Sara" });
     expect(() =>
       db
         .prepare("DELETE FROM item_revisions WHERE id = ?")
         .run(detail.revisions[0]?.id as string),
-    ).toThrow(/append-only/);
+    ).not.toThrow();
   });
 
   it("round-trips plates and traits through storage", () => {
@@ -256,5 +263,68 @@ describe("listing", () => {
     expect(listed).toContain("sara");
     expect(listed).toContain("hero");
     expect(listed).not.toContain("other");
+  });
+});
+
+describe("removing an item", () => {
+  it("removes a draft nobody has generated with", () => {
+    const detail = items.create({ handle: "draft", kind: "prop", name: "Draft" });
+    items.remove(detail.item.id);
+    expect(items.get(detail.item.id)).toBeUndefined();
+    expect(items.findByHandle("draft")).toBeUndefined();
+    // The handle is free again, which is the point of removing it.
+    expect(() => items.create({ handle: "draft", kind: "prop", name: "Again" })).not.toThrow();
+  });
+
+  it("refuses once a generation points at it, and says how many", () => {
+    const detail = items.create({ handle: "used", kind: "character", name: "Used" });
+    db.prepare(
+      `INSERT INTO generations (id, provider, model, operation, prompt, job_id, status, created_at)
+       VALUES ('gen_x', 'p', 'm', 'image.generate', 'p', 'job_x', 'succeeded', '2026-08-17T09:00:00.000Z')`,
+    ).run();
+    items.recordForGeneration("gen_x", [
+      {
+        itemId: detail.item.id,
+        variantId: detail.variants[0]?.id as string,
+        revisionId: detail.revisions[0]?.id as string,
+        handle: "used",
+        labels: [],
+        tier: "none",
+        influence: 70,
+        plateAssetIds: [],
+        droppedPlateAssetIds: [],
+      },
+    ]);
+
+    expect(() => items.remove(detail.item.id)).toThrow(/1 generation/);
+    // And it is still there, whole.
+    expect(items.get(detail.item.id)?.revisions).toHaveLength(1);
+  });
+
+  it("still refuses to delete a revision a generation used", () => {
+    // The guard is now conditional, not absent.
+    const detail = items.create({ handle: "guard", kind: "prop", name: "Guard" });
+    db.prepare(
+      `INSERT INTO generations (id, provider, model, operation, prompt, job_id, status, created_at)
+       VALUES ('gen_y', 'p', 'm', 'image.generate', 'p', 'job_y', 'succeeded', '2026-08-17T09:00:00.000Z')`,
+    ).run();
+    items.recordForGeneration("gen_y", [
+      {
+        itemId: detail.item.id,
+        variantId: detail.variants[0]?.id as string,
+        revisionId: detail.revisions[0]?.id as string,
+        handle: "guard",
+        labels: [],
+        tier: "none",
+        influence: 70,
+        plateAssetIds: [],
+        droppedPlateAssetIds: [],
+      },
+    ]);
+    expect(() =>
+      db
+        .prepare("DELETE FROM item_revisions WHERE id = ?")
+        .run(detail.revisions[0]?.id as string),
+    ).toThrow(/would break a recipe/);
   });
 });
