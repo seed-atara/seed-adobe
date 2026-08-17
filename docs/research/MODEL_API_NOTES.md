@@ -844,6 +844,23 @@ the way the others can. If `file_format` is supported anywhere, that is the
 likeliest place — it is the mode where a clip is decoded and re-encoded, which
 is exactly where a lossless container would earn its keep.
 
+**The method has a ceiling, and ByteDance's reply found it.** Told on
+2026-08-18 that `output_format` "accepts mov or mp4", which contradicts our
+result that it is never named even for a nonsense value. Both can be true: every
+probe here poisons `duration` so validation fails, which establishes what the
+*request validator* reads and says nothing about what the executor honours. A
+parameter acted on only at execution is invisible to this technique.
+
+So "output_format does not exist" was overstated. What is measured is narrower:
+it is not rejected by request validation, while `file_format` is — and is
+refused on every model on this account, `mp4` included. The open question is now
+a question for ByteDance rather than a finding, and it is written up with the
+exact curls in `BYTEDANCE_QUESTION_OUTPUT_FORMAT.md`.
+
+Settling it needs one real, billable generation with `output_format: "mov"` and
+an inspection of what comes back. That is the only test that can distinguish
+ignored from honoured.
+
 **Method note.** Two probes in a row now would have shipped a confident false
 negative. The first asked a field that did not exist; the second asked the right
 field but only of one model, in one mode. A negative result is only as wide as
