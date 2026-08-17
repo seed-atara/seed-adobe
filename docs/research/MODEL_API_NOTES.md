@@ -698,3 +698,61 @@ so after the render has been paid for.
 Until something is shown to survive that filter, `audioReferences` describes a
 part shape rather than a usable feature, and the panel says so where one is
 attached.
+
+## A 4:4:4 MOV output may exist — UNVERIFIED, PROBE FIRST (2026-08-17)
+
+Prompted by ByteDance telling us directly that a less-compressed MOV can be
+used instead of the compressed MP4. Desk research turned up matching parameter
+names, and **none of this has been sent to the API.** It is a probe list, not a
+contract — the section above on colour is measured, this one is not.
+
+Reported parameters for Seedance 2.5:
+
+| Parameter | Reported values | Why it matters here |
+|---|---|---|
+| `output_format` | `mp4` (default, "standard color") / `mov` (`yuv444p` or `yuv444p10le`) | 4:4:4 chroma, and 10-bit in the `10le` variant |
+| `bitrate_mode` | `standard` (CRF 18) / `high` (CRF 11, 3–5× the file) | `high` is reported as the 2.5 default |
+| `return_last_frame` | `true` returns the final frame as a PNG | a real frame, from the provider, for nothing |
+| `camera_fixed` | `true` biases toward a locked-off camera | — |
+
+If `output_format: "mov"` is real it settles something this document currently
+records as unfixable. "Why a generated frame does not match its plate" ends on
+chroma: *"4:2:0 halves the colour resolution. This part is not correctable, and
+is why pixel perfection is not available through an H.264 delivery."* A
+`yuv444p` MOV is exactly the correction — no subsampling — and `yuv444p10le`
+adds the bit depth that the range and transfer mismatches were eating into.
+
+The advice that came with it is worth as much as the parameter: **use MOV for
+both input and output when a clip goes round the loop repeatedly.** That is
+precisely reskinning and iterate-in-place, where the same shot is decoded,
+re-encoded and re-referenced several times and generation loss compounds
+silently.
+
+Reference *input* is reported as MP4 or MOV, H.264 or H.265, 24–60fps,
+constant frame rate preferred, 2–15s, with per-file limits already recorded
+elsewhere here. Our own render path writes H.264 MP4 out of the host, so the
+input half is a change to the capture route, not just a request field.
+
+**One reported value contradicts our own measurement and should be trusted
+less than we trust ourselves.** The same source lists `4K` among 2.5's
+resolutions; our probe found 2.5 accepting only 480p, 720p and 1080p and
+refusing `4k`/`4K`/`2160p` across eight repetitions. Measurement wins. Treat
+the whole list as equally likely to contain errors of that kind.
+
+### How to probe it for free
+
+The technique from `scripts/seedance-references.ts` applies directly: send a
+`duration` this model rejects, so validation always fails and no billable task
+is created, and read what the complaint names. An unknown *field* is usually
+ignored silently, so the informative probe is an unknown **value** —
+`output_format: "banana"` — which gets named if the field is read at all.
+
+Repeat it. When two parameters are invalid the API names only one, and which
+one varies between identical requests; a single silent pass is not evidence.
+Eight repetitions put a false accept near 1 in 15,000 at the observed ~30%
+naming rate.
+
+Sources (third-party, none official):
+[awesome-seedance-2.5-api-prompts](https://github.com/Anil-matcha/awesome-seedance-2.5-api-prompts),
+[kie.ai Seedance 2.5](https://kie.ai/seedance-2-5),
+[Runware Seedance 2.0](https://runware.ai/docs/models/bytedance-seedance-2-0).
