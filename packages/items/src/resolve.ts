@@ -13,13 +13,20 @@ import type {
 } from "@seed-ae/domain";
 import {
   bindingLine,
+  candidateTraits,
   countWords,
   referenceLabel,
+  traitCapForTier,
   traitLine,
-  traitsForTier,
   type PlateBinding,
 } from "./binding.js";
-import { allocatePlates, type AllocationInput } from "./budget.js";
+import {
+  DEFAULT_TRAIT_WORD_BUDGET,
+  allocatePlates,
+  allocateTraits,
+  type AllocationInput,
+  type TraitAllocationInput,
+} from "./budget.js";
 import { parseMentions, replaceMentions } from "./mentions.js";
 
 /**
@@ -54,6 +61,13 @@ export interface ResolveRequest {
   attachedRoles?: Array<"first" | "last" | "reference">;
   /** Raise the ceiling from the stable range to the hard maximum, knowingly. */
   allowBeyondStable?: boolean;
+  /**
+   * How many words every item together may add.
+   *
+   * Shared rather than per-item, so seven items do not make a prompt seven
+   * times longer. See `DEFAULT_TRAIT_WORD_BUDGET`.
+   */
+  traitWordBudget?: number;
 }
 
 const MANIFEST_HEADING = { "positional-en": "Materials:", "ark-cn": "【素材职责】" };
@@ -114,6 +128,30 @@ export function resolveBundle(request: ResolveRequest): ResolvedBundle {
     platesByItem.set(entry.itemIndex, list);
   });
 
+  /*
+   * Tiers first, then words — because how much an item may say depends on how
+   * many of its plates travelled, and how much it *actually* says depends on
+   * what every other item in the shot is also trying to say.
+   */
+  const tiers = request.bindings.map((binding, index) =>
+    tierFor(
+      binding.mention,
+      binding.definition.revision.plates.length,
+      (platesByItem.get(index) ?? []).length,
+    ),
+  );
+  const traitInputs: TraitAllocationInput[] = request.bindings.map((binding, index) => ({
+    itemIndex: index,
+    candidates: binding.mention.muteText
+      ? []
+      : candidateTraits(binding.definition.revision.traits, tiers[index] as ItemTextTier),
+    cap: traitCapForTier(tiers[index] as ItemTextTier),
+  }));
+  const traitsByItem = allocateTraits(
+    traitInputs,
+    request.traitWordBudget ?? DEFAULT_TRAIT_WORD_BUDGET,
+  );
+
   const spans = spansFor(request.prompt, request.bindings);
   const manifestLines: string[] = [];
   const noteLines: string[] = [];
@@ -126,7 +164,7 @@ export function resolveBundle(request: ResolveRequest): ResolvedBundle {
     const { item, variant, revision } = binding.definition;
     const fitted = platesByItem.get(index) ?? [];
     const dropped = droppedByItem.get(index) ?? [];
-    const tier = tierFor(binding.mention, revision.plates.length, fitted.length);
+    const tier = tiers[index] as ItemTextTier;
     const labels = fitted.map((entry) =>
       referenceLabel(caps.mentionSyntax, entry.position, plateMediaKind(entry.plate)),
     );
@@ -142,14 +180,12 @@ export function resolveBundle(request: ResolveRequest): ResolvedBundle {
     }
 
     /*
-     * "Plates only" means plates only.
-     *
-     * Mute used to be expressible as the `none` tier, and stopped being so when
-     * drift-prone traits started surviving `none` — which is right for the
-     * automatic case and wrong for an artist who ticked a box that says the
-     * item should contribute no words at all.
+     * Already cut to the shared budget, and already empty when the artist
+     * ticked "plates only" — that box means the item contributes no words at
+     * all, which stopped being the same thing as the `none` tier once
+     * drift-prone traits started surviving it.
      */
-    const traits = binding.mention.muteText ? [] : traitsForTier(revision.traits, tier);
+    const traits = traitsByItem.get(index) ?? [];
     const note = traitLine(displayName, traits);
     if (note) noteLines.push(note);
     avoid.push(...revision.avoid);
@@ -167,6 +203,14 @@ export function resolveBundle(request: ResolveRequest): ResolvedBundle {
     if (item.realPerson && item.authorisation !== "authorised") {
       warnings.push(
         `@${item.handle} is a real person and is not authorised yet (${item.authorisation}). The provider is likely to refuse this generation.`,
+      );
+    }
+
+    const wantedTraits = traitInputs[index]?.candidates.length ?? 0;
+    if (wantedTraits > traits.length && !binding.mention.muteText) {
+      const unsaid = wantedTraits - traits.length;
+      warnings.push(
+        `@${item.handle}: ${unsaid} trait${unsaid === 1 ? "" : "s"} left unsaid — ${request.bindings.length} item${request.bindings.length === 1 ? "" : "s"} are sharing a ${request.traitWordBudget ?? DEFAULT_TRAIT_WORD_BUDGET}-word budget so the direction still leads.`,
       );
     }
 

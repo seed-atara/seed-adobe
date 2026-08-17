@@ -1,4 +1,4 @@
-import type { ItemPlate } from "@seed-ae/domain";
+import type { ItemPlate, ItemTrait } from "@seed-ae/domain";
 
 /**
  * Which plates fit, when there are more plates than the provider will take.
@@ -65,26 +65,35 @@ export function allocatePlates(
     cap: plateCapFor(input.influence, input.plates.length),
   }));
 
-  // Two passes so a style Item never takes a slot a character still wants.
+  /*
+   * One round-robin, with style Items last *within* each round rather than in
+   * a second pass of their own.
+   *
+   * Deferring them wholesale starves them: seven items and seven slots gave a
+   * character its second plate before the look got its first, which is
+   * depth-first behaviour wearing a different hat. Every item gets one plate
+   * before any item gets two; only from the second round does being a style
+   * Item cost it its place. That keeps the original intent — when the budget
+   * runs out it is the look that loses a plate, not the character — without
+   * ever leaving an item that was named in the prompt with nothing at all.
+   */
   const order = [
-    queues.filter((queue) => !queue.input.deferred),
-    queues.filter((queue) => queue.input.deferred),
+    ...queues.filter((queue) => !queue.input.deferred),
+    ...queues.filter((queue) => queue.input.deferred),
   ];
 
   let budget = available;
-  for (const group of order) {
-    let progressed = true;
-    while (budget > 0 && progressed) {
-      progressed = false;
-      for (const queue of group) {
-        if (budget <= 0) break;
-        if (queue.cap <= 0 || queue.remaining.length === 0) continue;
-        const plate = queue.remaining.shift() as ItemPlate;
-        taken.push({ itemIndex: queue.input.itemIndex, plate });
-        queue.cap -= 1;
-        budget -= 1;
-        progressed = true;
-      }
+  let progressed = true;
+  while (budget > 0 && progressed) {
+    progressed = false;
+    for (const queue of order) {
+      if (budget <= 0) break;
+      if (queue.cap <= 0 || queue.remaining.length === 0) continue;
+      const plate = queue.remaining.shift() as ItemPlate;
+      taken.push({ itemIndex: queue.input.itemIndex, plate });
+      queue.cap -= 1;
+      budget -= 1;
+      progressed = true;
     }
   }
 
@@ -94,4 +103,85 @@ export function allocatePlates(
     }
   }
   return { taken, droppedByItem };
+}
+
+/* ------------------------------------------------------------------ *
+ * Words are scarce too
+ * ------------------------------------------------------------------ */
+
+/**
+ * How many words the whole item block may spend.
+ *
+ * A location, four props, a character and a look is seven items. On a stable
+ * budget of eight references, with the artist's own frame taking one, that is
+ * a single plate each — so the text has to carry far more than usual, and
+ * seven items each writing four fragments is its own kind of bloat. The point
+ * of a shared budget is that the *number of items* stops multiplying the
+ * prompt.
+ *
+ * The number is a judgement, not a measurement: long enough to say something
+ * useful about seven things, short enough that the artist's direction still
+ * leads. It is overridable per request so it can be measured rather than
+ * argued about.
+ */
+export const DEFAULT_TRAIT_WORD_BUDGET = 70;
+
+export interface TraitAllocationInput {
+  itemIndex: number;
+  /** Ordered best-first by the caller: drift-prone, then by priority. */
+  candidates: ItemTrait[];
+  /** The most this item may take, from its text tier. */
+  cap: number;
+}
+
+/**
+ * Which traits actually get written, across every item at once.
+ *
+ * Round-robin, for the same reason plates are: depth-first would let a
+ * talkative character spend the whole budget and leave four props with nothing
+ * said about them at all. Every item gets its first trait before any item gets
+ * its second, so what survives a tight budget is the single most important
+ * thing about each of them.
+ */
+export function allocateTraits(
+  inputs: TraitAllocationInput[],
+  wordBudget: number,
+): Map<number, ItemTrait[]> {
+  const chosen = new Map<number, ItemTrait[]>();
+  const queues = inputs.map((input) => ({
+    input,
+    remaining: [...input.candidates],
+    taken: 0,
+  }));
+
+  let spent = 0;
+  let progressed = true;
+  while (progressed) {
+    progressed = false;
+    for (const queue of queues) {
+      if (queue.taken >= queue.input.cap || queue.remaining.length === 0) continue;
+      const trait = queue.remaining[0] as ItemTrait;
+      const cost = wordsIn(trait.text);
+      /*
+       * A first trait is always affordable. An item that was mentioned and then
+       * said nothing at all is worse than a prompt a few words over — the
+       * prompt still names it, so the model will invent whatever was not said.
+       */
+      const mustHaveOne = queue.taken === 0;
+      if (!mustHaveOne && spent + cost > wordBudget) continue;
+      queue.remaining.shift();
+      queue.taken += 1;
+      spent += cost;
+      chosen.set(queue.input.itemIndex, [
+        ...(chosen.get(queue.input.itemIndex) ?? []),
+        trait,
+      ]);
+      progressed = true;
+    }
+  }
+  return chosen;
+}
+
+function wordsIn(text: string): number {
+  return text.split(/\s+/).filter((word) => /[\p{L}\p{N}]/u.test(word)).length;
 }

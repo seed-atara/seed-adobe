@@ -153,7 +153,12 @@ describe("reference budgeting", () => {
     expect(bundle.warnings.join(" ")).toContain("already attached");
   });
 
-  it("takes plates from a style item before a character", () => {
+  it("gives a style item its first plate before a character gets its second", () => {
+    /*
+     * A look with no plate is a look that does nothing but take up words. What
+     * a style item loses is its *second* plate, not its only one — deferring
+     * them wholesale was depth-first behaviour wearing a different hat.
+     */
     const bundle = resolveBundle({
       prompt: "@hero lit like @look",
       bindings: [
@@ -163,10 +168,20 @@ describe("reference budgeting", () => {
       capabilities: { ...SEEDREAM, stableImageReferences: 2 },
     });
 
-    expect(bundle.inputAssetIds).toEqual(["h1", "h2"]);
-    const look = bundle.items.find((entry) => entry.handle === "look");
-    expect(look?.plateAssetIds).toEqual([]);
-    expect(look?.tier).toBe("full");
+    expect(bundle.inputAssetIds).toEqual(["h1", "l1"]);
+  });
+
+  it("makes the style item lose the next plate once everyone has one", () => {
+    const bundle = resolveBundle({
+      prompt: "@hero lit like @look",
+      bindings: [
+        bind("hero", [plate("h1"), plate("h2")]),
+        bind("look", [plate("l1"), plate("l2")], { kind: "style" }),
+      ],
+      capabilities: { ...SEEDREAM, stableImageReferences: 3 },
+    });
+    // Round one: one each. Round two: the character, not the look.
+    expect(bundle.inputAssetIds).toEqual(["h1", "l1", "h2"]);
   });
 
   it("sorts plates by weight before spending the budget", () => {
@@ -486,5 +501,111 @@ describe("mentions in prose", () => {
       capabilities: SEEDREAM,
     });
     expect(bundle.prompt.startsWith("Image 1 walks past Image 1 again")).toBe(true);
+  });
+});
+
+describe("a crowded shot", () => {
+  /** A location, four props, a character and a look — seven identities. */
+  function crowd() {
+    // Realistic length: a real trait reads "faint scar through the left
+    // eyebrow", not "detail one". Length is what makes the shared budget bite.
+    const wordy = (name: string) => [
+      trait(`${name} has a faint mark across one edge`, true, 0),
+      trait(`${name} carries a small stamped brass label`, true, 1),
+      trait(`${name} shows one corner worn back to metal`, true, 2),
+    ];
+    return [
+      bind("bar", [plate("bar1"), plate("bar2")], { kind: "location", traits: wordy("bar") }),
+      bind("lantern", [plate("l1"), plate("l2")], { kind: "prop", traits: wordy("lantern") }),
+      bind("knife", [plate("k1"), plate("k2")], { kind: "prop", traits: wordy("knife") }),
+      bind("coat", [plate("c1"), plate("c2")], { kind: "prop", traits: wordy("coat") }),
+      bind("glass", [plate("g1"), plate("g2")], { kind: "prop", traits: wordy("glass") }),
+      bind("sara", [plate("s1"), plate("s2")], { traits: wordy("sara") }),
+      bind("look", [plate("lk1")], { kind: "style", traits: wordy("look") }),
+    ];
+  }
+
+  it("gives every item a plate before any item gets a second", () => {
+    const bundle = resolveBundle({
+      prompt: "@bar with @lantern, @knife, @coat, @glass, @sara, @look",
+      bindings: crowd(),
+      capabilities: SEEDANCE,
+      attachedAssetIds: ["frame"],
+      attachedRoles: ["reference"],
+    });
+    // Seven items, eight stable references, one taken by the artist's frame.
+    for (const resolved of bundle.items) {
+      expect(resolved.plateAssetIds.length).toBeGreaterThanOrEqual(1);
+    }
+  });
+
+  it("still says something about every item when each has only one plate", () => {
+    // The case that matters: text has to carry what the plates no longer can,
+    // and an item named in the prompt but described nowhere is the worst
+    // outcome — the model invents whatever was not said.
+    const bundle = resolveBundle({
+      prompt: "@bar with @lantern, @knife, @coat, @glass, @sara, @look",
+      bindings: crowd(),
+      capabilities: SEEDANCE,
+    });
+    for (const resolved of bundle.items) {
+      expect(bundle.prompt).toContain(resolved.handle.toUpperCase());
+    }
+  });
+
+  it("caps the descriptive text however many items are in the shot", () => {
+    /*
+     * Binding lines legitimately scale — every material has to be mapped, and
+     * that is one line each. What must NOT scale is the descriptive text, so
+     * that is what this measures, against the same shot with the budget
+     * effectively removed.
+     */
+    const notes = (bundle: { prompt: string }) => {
+      // SEEDANCE declares the ark-cn vocabulary, so the heading is 【细节】.
+      const heading = bundle.prompt.includes("Notes:") ? "Notes:" : "【细节】";
+      const at = bundle.prompt.indexOf(heading);
+      return at < 0
+        ? 0
+        : bundle.prompt.slice(at + heading.length).trim().split(/\s+/).length;
+    };
+
+    const budgeted = resolveBundle({
+      prompt: "@bar @lantern @knife @coat @glass @sara @look",
+      bindings: crowd(),
+      capabilities: SEEDANCE,
+    });
+    const unbounded = resolveBundle({
+      prompt: "@bar @lantern @knife @coat @glass @sara @look",
+      bindings: crowd(),
+      capabilities: SEEDANCE,
+      traitWordBudget: 10_000,
+    });
+
+    expect(notes(budgeted)).toBeLessThan(notes(unbounded));
+    // Inside the default budget, allowing for the one-trait-each floor.
+    expect(notes(budgeted)).toBeLessThanOrEqual(90);
+  });
+
+  it("says which traits went unsaid rather than dropping them in silence", () => {
+    const bundle = resolveBundle({
+      prompt: "@bar @lantern @knife @coat @glass @sara @look",
+      bindings: crowd(),
+      capabilities: SEEDANCE,
+      traitWordBudget: 12,
+    });
+    expect(bundle.warnings.join(" ")).toContain("left unsaid");
+    expect(bundle.warnings.join(" ")).toContain("12-word budget");
+  });
+
+  it("gives one trait to every item even under an impossible budget", () => {
+    const bundle = resolveBundle({
+      prompt: "@bar @lantern @knife @coat @glass @sara @look",
+      bindings: crowd(),
+      capabilities: SEEDANCE,
+      traitWordBudget: 1,
+    });
+    for (const resolved of bundle.items) {
+      expect(bundle.prompt).toContain(resolved.handle.toUpperCase());
+    }
   });
 });

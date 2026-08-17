@@ -436,8 +436,37 @@ function NewItem({ client, assets, activeProject, busy, onCancel, onCreate }: Ne
 
       <button
         className="btn primary"
-        disabled={busy || !name || !effectiveHandle || plates.length === 0}
-        onClick={() =>
+        disabled={busy || reading || !name || !effectiveHandle || plates.length === 0}
+        onClick={async () => {
+          /*
+           * Always describe. An item with no traits is fine while all its
+           * plates travel and useless the moment they stop — and they stop as
+           * soon as a shot holds a location, four props and a character, which
+           * is an ordinary shot. Creating one with nothing written down builds
+           * a character that silently degrades later.
+           */
+          let written = traits.filter((trait) => trait.text.trim().length > 0);
+          if (written.length === 0) {
+            setReading(true);
+            try {
+              const result = await client.describeItem({
+                kind,
+                ...(name ? { name } : {}),
+                plates: plates.map((plate) => ({
+                  assetId: plate.assetId,
+                  role: plate.role,
+                })),
+              });
+              written = result.traits;
+              setTraits(result.traits);
+              setSummary(result.summary);
+            } catch {
+              // Without a key, or on a refusal, the item is still worth having.
+              // It just has no text to fall back on, which the panel says.
+            } finally {
+              setReading(false);
+            }
+          }
           onCreate({
             handle: effectiveHandle,
             kind,
@@ -446,12 +475,12 @@ function NewItem({ client, assets, activeProject, busy, onCancel, onCreate }: Ne
             realPerson,
             plates,
             // Only what survived the artist's editing.
-            traits: traits.filter((trait) => trait.text.trim().length > 0),
-          })
-        }
+            traits: written,
+          });
+        }}
         style={{ marginTop: 10 }}
       >
-        {busy ? "Creating…" : "Create item"}
+        {reading ? "Reading the plates…" : busy ? "Creating…" : "Create item"}
       </button>
     </div>
   );

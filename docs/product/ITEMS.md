@@ -158,6 +158,26 @@ software generates and an artist never types. And it grows with the *number of
 materials*, not with how much personality someone wrote down, which is why it
 does not blur the shot direction.
 
+### Words are budgeted across the whole shot, not per item
+
+A location, four props, a character and a look is seven items. Against a stable
+budget of eight references, with the artist's own frame taking one, that is a
+**single plate each** — so the text has to carry far more than usual, and seven
+items each writing four fragments is its own kind of bloat.
+
+So traits are allocated the way plates are: **round-robin under one shared word
+budget** (70 by default, overridable). Every item gets its most important trait
+before any item gets its second, and the *number of items stops multiplying the
+prompt*. An item always gets at least one trait even when the budget is spent —
+a subject named in the prompt and described nowhere is worse than a few words
+over, because the model will invent whatever was not said. Anything left unsaid
+is reported.
+
+The same correction applied to plates: style items used to be deferred to a
+second pass entirely, which starved them — seven items and seven slots gave a
+character its *second* plate before the look got its *first*. Now deferral only
+costs a style item from the second round onward.
+
 ### The rule
 
 > **Description shrinks as plates fit. Binding is always present.**
@@ -423,7 +443,13 @@ colours, specific materials — and marks exactly those `driftProne`. Obvious
 attributes are still recorded, unmarked, as a written record and a fallback for
 when no plate can travel.
 
-It is a separate button rather than part of Create: it costs a model call and a
+**Create always describes.** If nothing has been written down by the time the
+artist presses Create, the plates are read first. An item with no traits is fine
+while all its plates travel and useless the moment they stop — which is exactly
+what happens in a crowded shot — so creating one with nothing written down
+builds a character that silently degrades later.
+
+The button exists as well, for seeing and editing before committing: it costs a model call and a
 few seconds, and an artist who already knows what matters should not wait for a
 machine to agree. Everything it proposes is editable and nothing is saved until
 Create. Without `ANTHROPIC_API_KEY` the route says so and points at writing them

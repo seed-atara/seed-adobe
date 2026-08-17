@@ -110,11 +110,46 @@ export function traitsForTier(
   traits: ItemTrait[],
   tier: ItemTextTier,
 ): ItemTrait[] {
+  return candidateTraits(traits, tier).slice(0, traitCapForTier(tier));
+}
+
+/**
+ * This item's traits, best first, for the tier it landed on.
+ *
+ * Drift-prone traits always lead: they name what the plates lose, so they are
+ * the words most worth having whatever else gets cut. Below `brief` the rest
+ * are not candidates at all — repeating what a plate plainly shows is the
+ * bloat this design exists to avoid.
+ */
+export function candidateTraits(
+  traits: ItemTrait[],
+  tier: ItemTextTier,
+): ItemTrait[] {
   const byPriority = [...traits].sort((a, b) => a.priority - b.priority);
-  if (tier === "full") return byPriority;
-  if (tier === "brief") return byPriority.slice(0, 4);
   const drifting = byPriority.filter((trait) => trait.driftProne);
-  return tier === "none" ? drifting.slice(0, 2) : drifting.slice(0, 3);
+  if (tier === "none" || tier === "anchor") return drifting;
+  // Once the plates stop carrying the identity, everything is fair game —
+  // still drift-prone first, because those are the load-bearing ones.
+  return [...drifting, ...byPriority.filter((trait) => !trait.driftProne)];
+}
+
+/**
+ * The most one item may say at this tier, before the shared budget has its say.
+ *
+ * A cap rather than a switch: two when every plate travelled, three when some
+ * were lost, more as the references stop carrying the identity at all.
+ */
+export function traitCapForTier(tier: ItemTextTier): number {
+  switch (tier) {
+    case "none":
+      return 2;
+    case "anchor":
+      return 3;
+    case "brief":
+      return 5;
+    default:
+      return 12;
+  }
 }
 
 export function traitLine(name: string, traits: ItemTrait[]): string | undefined {
