@@ -639,7 +639,17 @@ export class GenerationService {
     if (roles && roles.length > 0 && capabilities.startEndFrames) {
       inputs.forEach((input, index) => {
         const role = roles[index] ?? "reference";
-        if (role === "first" && !firstFrame && isFrame(input)) firstFrame = input;
+        /*
+         * `loop` is one still standing in both slots, which is how a graphic
+         * ends exactly where it began. Ark treats that as its own mode —
+         * `flf2v` — and accepts the same image twice; what it refuses is two
+         * *first* frames, which is why this is a role rather than the artist
+         * adding the same reference to the list twice.
+         */
+        if (role === "loop" && !firstFrame && !lastFrame && isFrame(input)) {
+          firstFrame = input;
+          lastFrame = input;
+        } else if (role === "first" && !firstFrame && isFrame(input)) firstFrame = input;
         else if (role === "last" && !lastFrame && isFrame(input)) lastFrame = input;
         else references.push(input);
       });

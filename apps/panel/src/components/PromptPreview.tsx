@@ -19,7 +19,7 @@ interface Props {
   mentions: ItemMention[];
   items: Item[];
   attachedAssetIds: string[];
-  attachedRoles?: Array<"first" | "last" | "reference">;
+  attachedRoles?: Array<"first" | "last" | "reference" | "loop">;
   allowBeyondStable: boolean;
   onMentionsChange: (mentions: ItemMention[]) => void;
   onAllowBeyondStable: (allow: boolean) => void;

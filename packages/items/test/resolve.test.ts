@@ -609,3 +609,24 @@ describe("a crowded shot", () => {
     }
   });
 });
+
+describe("a looping graphic", () => {
+  it("excludes item plates as firmly as any other frame", () => {
+    // A loop is both frames at once, so it is still frame mode — and Ark will
+    // not mix frames with references.
+    const bundle = resolveBundle({
+      prompt: "@logo spinning",
+      bindings: [bind("logo", [plate("p1")], { kind: "prop", traits: [trait("brass rim", true)] })],
+      capabilities: SEEDANCE,
+      attachedAssetIds: ["card"],
+      attachedRoles: ["loop"],
+    });
+
+    expect(bundle.inputAssetIds).toEqual(["card"]);
+    expect(bundle.inputRoles).toEqual(["loop"]);
+    expect(bundle.items[0]?.tier).toBe("full");
+    expect(bundle.warnings.join(" ")).toContain("will not mix a first or last frame");
+    // And the item still says its piece, in words.
+    expect(bundle.prompt).toContain("brass rim");
+  });
+});

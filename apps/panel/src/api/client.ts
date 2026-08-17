@@ -357,7 +357,7 @@ export class SeedClient {
     providerId: string;
     itemMentions: ItemMention[];
     attachedAssetIds?: string[];
-    attachedRoles?: Array<"first" | "last" | "reference">;
+    attachedRoles?: Array<"first" | "last" | "reference" | "loop">;
     allowBeyondStable?: boolean;
   }): Promise<{ bundle: ResolvedBundle }> {
     return this.request("/v1/items/resolve", {

@@ -425,6 +425,42 @@ describe("SeedanceProvider", () => {
     ]);
   });
 
+  it("sends one still as both the first and the last frame, for a seamless loop", async () => {
+    /*
+     * The cycle a motion graphic wants: the shot ends exactly where it began.
+     * Ark treats this as a mode of its own — it reported `flf2v` when probed on
+     * 2026-08-17 — and accepts the same image twice, while refusing two
+     * *first* frames by count. That is what makes it a role rather than the
+     * artist adding one reference to the list twice.
+     */
+    let body: any;
+    const still = { kind: "base64" as const, value: "AA", mimeType: "image/png" };
+    await provider((_url, init) => {
+      body = JSON.parse(String(init.body));
+      return created("cgt-loop");
+    }).generateVideo({
+      model: MODEL,
+      prompt: "a slow rotation",
+      correlationId: "cor_loop",
+      firstFrame: still,
+      lastFrame: still,
+    });
+
+    expect(body.content).toEqual([
+      { type: "text", text: "a slow rotation" },
+      {
+        type: "image_url",
+        image_url: { url: "data:image/png;base64,AA" },
+        role: "first_frame",
+      },
+      {
+        type: "image_url",
+        image_url: { url: "data:image/png;base64,AA" },
+        role: "last_frame",
+      },
+    ]);
+  });
+
   it("sends several images as references, which is what makes it r2v", async () => {
     // Beyond one image the API refuses a roleless request outright:
     // "role must be specified for image contents".

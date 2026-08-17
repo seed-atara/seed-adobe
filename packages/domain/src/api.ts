@@ -97,7 +97,17 @@ export const StartGenerationRequestSchema = z.object({
    * same thing. Without this the service can only guess from the count, which
    * makes an end frame impossible to ask for.
    */
-  inputRoles: z.array(z.enum(["first", "last", "reference"])).max(30).optional(),
+  /**
+   * `loop` puts one still in *both* frame slots, so the shot ends where it
+   * began — the seamless cycle a motion graphic wants. Ark has a mode of its
+   * own for it (`flf2v`) and accepts the same image twice, measured
+   * 2026-08-17; two *first* frames is refused by count, which is what makes
+   * this a role rather than a duplicated reference.
+   */
+  inputRoles: z
+    .array(z.enum(["first", "last", "reference", "loop"]))
+    .max(30)
+    .optional(),
   /**
    * `@item` mentions in the prompt, resolved by the panel to ids.
    *

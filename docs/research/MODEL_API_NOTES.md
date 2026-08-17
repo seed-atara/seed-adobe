@@ -848,3 +848,23 @@ is exactly where a lossless container would earn its keep.
 negative. The first asked a field that did not exist; the second asked the right
 field but only of one model, in one mode. A negative result is only as wide as
 the sweep behind it, and the sweep has to include the name itself.
+
+### One still in both frame slots is its own mode — VERIFIED (2026-08-17)
+
+Probed the free way, `duration: 3` so validation always fails and nothing bills:
+
+| Request | Mode the API reports |
+|---|---|
+| `first_frame` + `last_frame`, **the same image** | **`flf2v`** — accepted |
+| `first_frame` alone | `i2v` |
+| two `first_frame` parts | refused: "expected at most one first frame image content but got 2" |
+
+So a seamless loop — the shot ending exactly where it began, which is what a
+motion graphic wants — is a first-class thing here rather than a trick. Ark has
+a distinct mode name for it, `flf2v`, alongside the `i2v` and `r2v` already
+recorded above.
+
+The refusal on two first frames is why SEED models this as a **role** (`loop`)
+rather than letting the artist add one reference to the list twice: duplicating
+a reference is a request the API rejects, while one still carrying both roles is
+one it names.

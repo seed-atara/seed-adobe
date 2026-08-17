@@ -57,8 +57,12 @@ export interface GenerateForm {
   generateAudio: boolean;
   /** Hold the cut open in the host while the render runs. */
   reserveSpace: boolean;
-  /** What each reference is for, positionally matched to inputAssetIds. */
-  inputRoles: Array<"first" | "last" | "reference">;
+  /**
+   * What each reference is for, positionally matched to inputAssetIds.
+   *
+   * `loop` is one still in both frame slots, so the shot ends where it began.
+   */
+  inputRoles: Array<"first" | "last" | "reference" | "loop">;
   /** How many to generate at once, each with its own seed. */
   variants: string;
   /** Blank means the provider's own default. */
@@ -738,6 +742,13 @@ export function GenerateView({
             and so on. Use ◀ ▶ to reorder.
           </div>
         ) : null}
+        {form.inputRoles.includes("loop") ? (
+          <div className="hint">
+            <b>loop</b> sends that still as both the first and the last frame, so
+            the shot ends exactly where it began. The provider treats it as its
+            own mode and will not take other references alongside it.
+          </div>
+        ) : null}
         {mixesModes ? (
           <div className="notice">
             A first or last frame cannot be combined with references — the
@@ -817,14 +828,17 @@ export function GenerateView({
                   title="What this reference is for"
                   onChange={(event) => {
                     const role = event.target.value as GenerateForm["inputRoles"][number];
-                    // Only one frame can be first, and only one last.
-                    const roles = form.inputRoles.map((existing, at) =>
-                      at === index
-                        ? role
-                        : existing === role && role !== "reference"
-                          ? "reference"
-                          : existing,
-                    );
+                    /*
+                     * Only one frame can be first and only one last — and a
+                     * loop is both at once, so it clears any other frame role
+                     * rather than sitting beside one the provider would refuse.
+                     */
+                    const roles = form.inputRoles.map((existing, at) => {
+                      if (at === index) return role;
+                      if (existing === "reference") return existing;
+                      if (role === "loop" || existing === "loop") return "reference";
+                      return existing === role ? "reference" : existing;
+                    });
                     roles[index] = role;
                     patch({ inputRoles: roles });
                   }}
@@ -832,6 +846,8 @@ export function GenerateView({
                   <option value="reference">ref</option>
                   <option value="first">first</option>
                   <option value="last">last</option>
+                  {/* One still in both slots: the shot ends where it began. */}
+                  <option value="loop">loop</option>
                 </select>
               ) : null}
 

@@ -295,7 +295,7 @@ export const ResolvedBundleSchema = z.object({
   prompt: z.string(),
   negativePrompt: z.string().optional(),
   inputAssetIds: z.array(z.string()).default([]),
-  inputRoles: z.array(z.enum(["first", "last", "reference"])).default([]),
+  inputRoles: z.array(z.enum(["first", "last", "reference", "loop"])).default([]),
   items: z.array(ResolvedItemSchema).default([]),
   /** Anything clamped, dropped or unavailable — surfaced before Generate, never after. */
   warnings: z.array(z.string()).default([]),

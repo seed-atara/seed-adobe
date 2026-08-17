@@ -58,7 +58,7 @@ export interface ResolveRequest {
   capabilities: ReferenceCapabilities;
   /** What the artist attached themselves. Always kept; never demoted. */
   attachedAssetIds?: string[];
-  attachedRoles?: Array<"first" | "last" | "reference">;
+  attachedRoles?: Array<"first" | "last" | "reference" | "loop">;
   /** Raise the ceiling from the stable range to the hard maximum, knowingly. */
   allowBeyondStable?: boolean;
   /**
@@ -88,7 +88,10 @@ export function resolveBundle(request: ResolveRequest): ResolvedBundle {
    * frame, no plate can travel and the Items have to speak entirely in text.
    * This is the tiering rule doing its most useful work.
    */
-  const hasFrame = attachedRoles.some((role) => role === "first" || role === "last");
+  // A loop is both frames at once, so it excludes references just as firmly.
+  const hasFrame = attachedRoles.some(
+    (role) => role === "first" || role === "last" || role === "loop",
+  );
   const framesBlockPlates = hasFrame && caps.framesExcludeReferences;
 
   const ceiling = request.allowBeyondStable
@@ -115,7 +118,7 @@ export function resolveBundle(request: ResolveRequest): ResolvedBundle {
 
   // The artist's own inputs come first; plates follow in allocation order.
   const inputAssetIds = [...attachedAssetIds, ...taken.map((entry) => entry.plate.assetId)];
-  const inputRoles: Array<"first" | "last" | "reference"> = [
+  const inputRoles: Array<"first" | "last" | "reference" | "loop"> = [
     ...attachedRoles,
     ...taken.map(() => "reference" as const),
   ];
