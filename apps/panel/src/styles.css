@@ -1417,3 +1417,27 @@ button.listRow:hover {
   outline: 2px solid var(--title);
   outline-offset: -2px;
 }
+
+/* A header row: the label takes the slack, the button keeps its own width.
+   `.row > *` is flex:1, which stretches a lone button across the panel. */
+.head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--gap);
+  margin-bottom: var(--gap);
+}
+
+/* Which plate this is, and therefore which one survives a tight budget. */
+.plate-order {
+  position: absolute;
+  left: 3px;
+  top: 3px;
+  min-width: 14px;
+  padding: 0 3px;
+  text-align: center;
+  font-family: var(--mono);
+  font-size: 10px;
+  background: var(--title);
+  color: var(--white);
+}

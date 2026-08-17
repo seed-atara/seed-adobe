@@ -210,7 +210,7 @@ function NewItem({ client, assets, activeProject, busy, onCancel, onCreate }: Ne
 
   return (
     <div>
-      <div className="row" style={{ justifyContent: "space-between", marginBottom: 8 }}>
+      <div className="head">
         <SectionLabel>New item</SectionLabel>
         <button className="btn" onClick={onCancel}>
           Cancel
@@ -297,11 +297,16 @@ function NewItem({ client, assets, activeProject, busy, onCancel, onCreate }: Ne
             <button
               key={asset.id}
               className={`card ${index >= 0 ? "selected" : ""}`}
+              aria-current={index >= 0}
               onClick={() => toggle(asset.id)}
             >
-              <AssetImage client={client} asset={asset} />
-              {index >= 0 ? <span className="badge">{index + 1}</span> : null}
-              <span className="dim">{asset.filename}</span>
+              <div className="thumb">
+                <AssetImage client={client} asset={asset} variant="thumbnail" />
+                {index >= 0 ? <span className="plate-order">{index + 1}</span> : null}
+              </div>
+              <div className="meta">
+                <div className="prompt">{asset.filename}</div>
+              </div>
             </button>
           );
         })}
@@ -414,7 +419,7 @@ function ItemDetailView({ client, assets, detail, onBack, onChanged, onError }: 
 
   return (
     <div>
-      <div className="row" style={{ justifyContent: "space-between", marginBottom: 8 }}>
+      <div className="head">
         <div>
           <b>@{detail.item.handle}</b> <span className="dim">{detail.item.name}</span>
           <span className="badge" style={{ marginLeft: 6 }}>
@@ -439,9 +444,18 @@ function ItemDetailView({ client, assets, detail, onBack, onChanged, onError }: 
           const asset = assets.find((entry) => entry.id === plate.assetId);
           return (
             <div key={`${plate.assetId}-${index}`} className="card">
-              {asset ? <AssetImage client={client} asset={asset} /> : null}
-              <span className="badge">{plate.role}</span>
-              <span className="dim">weight {plate.weight}</span>
+              <div className="thumb">
+                {asset ? (
+                  <AssetImage client={client} asset={asset} variant="thumbnail" />
+                ) : (
+                  <span className="placeholder">media missing</span>
+                )}
+                <span className="plate-order">{index + 1}</span>
+              </div>
+              <div className="meta">
+                <div className="prompt">{plate.role}</div>
+                <div className="stamp">weight {plate.weight}</div>
+              </div>
             </div>
           );
         })}

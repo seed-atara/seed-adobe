@@ -99,6 +99,19 @@ export interface ProviderConfig {
   seedanceMaxReferences?: number;
   /** Overrides the offered resolutions for every Seedance model. */
   seedanceSizes?: string[];
+  /**
+   * How many references to build item budgets against, as distinct from the
+   * maximum validation will accept. Published stable range is 1-8.
+   */
+  seedanceStableReferences?: number;
+  /**
+   * Encoder quality: `high` is CRF 11 against `standard`'s 18.
+   *
+   * Defaults to `high` in the adapter. There is deliberately no container
+   * setting here — `output_format` was measured on 2026-08-17 and does not
+   * exist, so there is no MOV to choose and offering one would be a lie.
+   */
+  seedanceBitrateMode?: "standard" | "high";
   /** Path to a real video file the mock video provider replays. */
   mockVideoFixture?: string;
   /** Simulated latency for the mock image provider, so demos show job states. */
@@ -190,6 +203,13 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServiceConfig 
         : {}),
       ...(parsePositiveInt(env.SEEDANCE_MAX_REFERENCES)
         ? { seedanceMaxReferences: parsePositiveInt(env.SEEDANCE_MAX_REFERENCES) }
+        : {}),
+      ...(parsePositiveInt(env.SEEDANCE_STABLE_REFERENCES)
+        ? { seedanceStableReferences: parsePositiveInt(env.SEEDANCE_STABLE_REFERENCES) }
+        : {}),
+      ...(env.SEEDANCE_BITRATE_MODE?.trim() === "standard" ||
+      env.SEEDANCE_BITRATE_MODE?.trim() === "high"
+        ? { seedanceBitrateMode: env.SEEDANCE_BITRATE_MODE.trim() as "standard" | "high" }
         : {}),
       ...(env.SEED_AE_MOCK_VIDEO_FIXTURE?.trim()
         ? { mockVideoFixture: path.resolve(env.SEED_AE_MOCK_VIDEO_FIXTURE.trim()) }

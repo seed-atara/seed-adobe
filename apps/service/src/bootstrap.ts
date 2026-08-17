@@ -332,6 +332,12 @@ export function buildRegistry(
             ? { maxReferences: config.seedanceMaxReferences }
             : {}),
           ...(config.seedanceSizes ? { sizes: config.seedanceSizes } : {}),
+          ...(config.seedanceStableReferences
+            ? { stableReferences: config.seedanceStableReferences }
+            : {}),
+          ...(config.seedanceBitrateMode
+            ? { bitrateMode: config.seedanceBitrateMode }
+            : {}),
         }),
       );
     }

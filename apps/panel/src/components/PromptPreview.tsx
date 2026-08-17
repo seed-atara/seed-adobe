@@ -96,7 +96,7 @@ export function PromptPreview({
 
   return (
     <div className="promptPreview">
-      <div className="row" style={{ justifyContent: "space-between" }}>
+      <div className="head">
         <SectionLabel>What will be sent</SectionLabel>
         <button className="btn" onClick={() => setOpen(!open)}>
           {open ? "Hide" : "Show"}
