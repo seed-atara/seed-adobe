@@ -123,6 +123,25 @@ export async function bootstrap({
     }
   }
 
+  /*
+   * And a quality preset, for a clip that is not going to a provider. Looked
+   * for separately and allowed to be absent: most installs will have no ProRes
+   * preset exported, and that is not a failure — it just means the quality
+   * route is unavailable and delivery is used throughout.
+   */
+  let qualityPreset = config.pproQualityPreset;
+  if (!qualityPreset) {
+    const discovered = await findVideoPreset(undefined, "quality");
+    if (discovered && discovered.codec === "ProRes") {
+      qualityPreset = discovered.path;
+      activeLogger.info("ppro.quality_preset_found", {
+        name: discovered.name,
+        path: discovered.path,
+        codec: discovered.codec,
+      });
+    }
+  }
+
   // Catch up any asset that never got a thumbnail. Not awaited: the service
   // should start serving immediately, and a missing thumbnail is cosmetic.
   void (async () => {
@@ -169,6 +188,7 @@ export async function bootstrap({
       ...config,
       ...(stillPreset ? { pproStillPreset: stillPreset } : {}),
       ...(videoPreset ? { pproVideoPreset: videoPreset } : {}),
+      ...(qualityPreset ? { pproQualityPreset: qualityPreset } : {}),
     },
     db,
     workspace,

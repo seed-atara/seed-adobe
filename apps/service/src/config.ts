@@ -30,6 +30,15 @@ export interface ServiceConfig {
    * also looks where Adobe ships its own.
    */
   pproVideoPreset?: string;
+  /**
+   * A ProRes preset for clips that stay local.
+   *
+   * Separate from `pproVideoPreset`, which must stay in a codec Ark accepts:
+   * a ProRes reference is not a better reference, it is a refused one. This is
+   * the Premiere half of the delivery/quality split After Effects already makes
+   * by choosing an output module template.
+   */
+  pproQualityPreset?: string;
   /** Present only when direction is configured; absent disables the feature. */
   director?: DirectorConfig;
 }
@@ -171,6 +180,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServiceConfig 
       : {}),
     ...(env.SEED_PPRO_VIDEO_PRESET?.trim()
       ? { pproVideoPreset: path.resolve(env.SEED_PPRO_VIDEO_PRESET.trim()) }
+      : {}),
+    ...(env.SEED_PPRO_QUALITY_PRESET?.trim()
+      ? { pproQualityPreset: path.resolve(env.SEED_PPRO_QUALITY_PRESET.trim()) }
       : {}),
     providers: {
       ...(env.ARK_API_KEY?.trim() ? { arkApiKey: env.ARK_API_KEY.trim() } : {}),

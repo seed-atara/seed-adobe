@@ -858,7 +858,14 @@ export function GenerateView({
         <Field label="Prompt">
           <PromptField
             client={client}
-            assets={assets}
+            /*
+             * Only what is attached. `@` places what the shot already has —
+             * it does not reach into the library and pull something in, which
+             * is the same rule items follow and for the same reason: what a
+             * generation sends should be visible above the prompt, not
+             * discovered by reading it.
+             */
+            assets={references}
             items={form.itemMentions
               .map((mention) => items.find((entry) => entry.id === mention.itemId))
               .filter((entry) => entry !== undefined)}

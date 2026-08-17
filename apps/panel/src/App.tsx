@@ -788,7 +788,16 @@ export function App({ tabs }: AppProps = {}) {
     setDirecting(true);
     setError(undefined);
     try {
-      const mentions = findMentions(form.prompt, assets);
+      /*
+       * Mentions resolve against what is attached, not the whole library —
+       * the same rule the prompt field follows. It also matches what this
+       * function already believed: once references are chosen, those are the
+       * references.
+       */
+      const attached = form.inputAssetIds
+        .map((id) => assets.find((asset) => asset.id === id))
+        .filter((asset) => asset !== undefined);
+      const mentions = findMentions(form.prompt, attached);
 
       /*
        * Once the artist has attached references, those are the references.

@@ -146,6 +146,8 @@ export class SeedClient {
     pproStillPreset?: string;
     /** An H.264 .epr; without it Premiere cannot export a range. */
     pproVideoPreset?: string;
+    /** ProRes, for a clip that stays local. Absent when none is exported. */
+    pproQualityPreset?: string;
   }> {
     return this.request("/v1/workspace");
   }

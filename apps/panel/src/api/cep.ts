@@ -430,20 +430,28 @@ export class CepAeBridge {
     quality?: "delivery" | "quality";
   }): Promise<{ asset: Asset; captured: RangeCaptureResult }> {
     await this.ensureHost();
-    const { workspace, pproVideoPreset } = await this.client.workspace();
+    const { workspace, pproVideoPreset, pproQualityPreset } = await this.client.workspace();
     const context = await this.getContext();
     const compName = typeof context.compName === "string" ? context.compName : "comp";
 
     /*
-     * The fifth argument is Premiere's H.264 preset; After Effects ignores it
-     * and renders through its own queue. Both hosts take the same call, which
-     * is what keeps this method one method.
+     * The fifth argument is Premiere's preset; After Effects ignores it and
+     * renders through its own queue, choosing an output module template from
+     * the sixth. Both hosts take the same call, which is what keeps this one
+     * method — and both now honour `quality` the only way each host can.
+     *
+     * Premiere falls back to the delivery preset when no ProRes one has been
+     * exported, because a clip in the wrong codec beats no clip at all.
      */
+    const preset =
+      range?.quality === "quality" && pproQualityPreset
+        ? pproQualityPreset
+        : pproVideoPreset;
     const captured = await evalHost<RangeCaptureResult>(
       `${hostPrefix()}captureRange(${quote(workspace.originalsDir)}, ${quote(compName)}, ${
         range?.startSeconds ?? "null"
       }, ${range?.durationSeconds ?? "null"}, ${
-        pproVideoPreset ? quote(pproVideoPreset) : "null"
+        preset ? quote(preset) : "null"
       }, ${quote(range?.quality ?? "delivery")})`,
     );
 

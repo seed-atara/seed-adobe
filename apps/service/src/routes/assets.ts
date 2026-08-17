@@ -336,6 +336,9 @@ export function workspaceRoute(deps: AppDeps) {
       ...(deps.config.pproStillPreset
         ? { pproStillPreset: deps.config.pproStillPreset }
         : {}),
+      ...(deps.config.pproQualityPreset
+        ? { pproQualityPreset: deps.config.pproQualityPreset }
+        : {}),
       ...(deps.config.pproVideoPreset
         ? { pproVideoPreset: deps.config.pproVideoPreset }
         : {}),

@@ -151,3 +151,44 @@ describe("finding an H.264 preset", () => {
     expect(await findVideoPreset(home)).toBeUndefined();
   });
 });
+
+describe("delivery and quality are different questions", () => {
+  /** What Premiere's Export Settings dialog writes, for a given codec. */
+  const exported = (name: string, fileType: string) =>
+    `<PremiereData Version="3"><PresetName>${name}</PresetName>
+     <PresetComments>Custom</PresetComments>
+     <ExporterFileType>${fileType}</ExporterFileType></PremiereData>`;
+
+  const H264 = "1211250228";
+  const QUICKTIME = "1298425421";
+
+  async function bothPresets() {
+    const home = await mkdtemp(path.join(tmpdir(), "seed intent "));
+    made.push(home);
+    const dir = path.join(home, "Documents/Adobe/Adobe Media Encoder/26.0/Presets");
+    await mkdir(dir, { recursive: true });
+    await writeFile(path.join(dir, "prores.epr"), exported("SEED ProRes 4444", QUICKTIME));
+    await writeFile(path.join(dir, "h264.epr"), exported("SEED H264", H264));
+    return home;
+  }
+
+  it("never hands a provider clip a ProRes preset", async () => {
+    // Ark accepts H.264 or H.265 and refuses the rest, so ProRes here is not a
+    // better reference — it is a rejected one.
+    expect((await findVideoPreset(await bothPresets()))?.codec).toBe("H264");
+  });
+
+  it("prefers ProRes once quality is asked for", async () => {
+    expect((await findVideoPreset(await bothPresets(), "quality"))?.codec).toBe("ProRes");
+  });
+
+  it("falls back to a delivery codec when nothing lossless was exported", async () => {
+    // Most installs have no ProRes preset, and that is not a failure.
+    const home = await mkdtemp(path.join(tmpdir(), "seed nolossless "));
+    made.push(home);
+    const dir = path.join(home, "Documents/Adobe/Adobe Media Encoder/26.0/Presets");
+    await mkdir(dir, { recursive: true });
+    await writeFile(path.join(dir, "h264.epr"), exported("SEED H264", H264));
+    expect((await findVideoPreset(home, "quality"))?.codec).toBe("H264");
+  });
+});
