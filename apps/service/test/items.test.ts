@@ -1,0 +1,248 @@
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { ItemResponseSchema, ResolvePromptResponseSchema } from "@seed-ae/domain";
+import { readJson, startTestService, type TestService } from "./helpers.js";
+
+let service: TestService;
+
+beforeAll(async () => {
+  service = await startTestService();
+});
+
+afterAll(async () => {
+  await service.close();
+});
+
+async function registerAsset(filename: string): Promise<string> {
+  const response = await service.call("/v1/assets", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      kind: "image",
+      filename,
+      mimeType: "image/png",
+      storageUri: `assets/originals/${filename}`,
+      source: { type: "imported", originalPath: `/tmp/${filename}` },
+    }),
+  });
+  expect(response.status).toBe(201);
+  return (await readJson(response)).asset.id;
+}
+
+async function post(pathname: string, body: unknown): Promise<Response> {
+  return service.call(pathname, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+  });
+}
+
+describe("adopting an item from the library", () => {
+  it("creates the item, its base variant and a revision holding the plates", async () => {
+    const face = await registerAsset("sara_face.png");
+    const body = await registerAsset("sara_body.png");
+
+    const response = await post("/v1/items/adopt", {
+      handle: "sara",
+      kind: "character",
+      name: "Sara Kim",
+      plates: [
+        { assetId: body, role: "full-body" },
+        { assetId: face, role: "face" },
+      ],
+      traits: [
+        { text: "faint scar through the left eyebrow", facet: "face", priority: 0, driftProne: true },
+      ],
+    });
+
+    expect(response.status).toBe(201);
+    const { item } = ItemResponseSchema.parse(await readJson(response));
+    expect(item.item.handle).toBe("sara");
+    const latest = item.revisions.at(-1);
+    expect(latest?.plates.map((plate) => plate.role)).toEqual(["full-body", "face"]);
+    // Drag order is the artist saying what matters most; weight is what the
+    // resolver spends the budget by.
+    expect(latest?.plates.map((plate) => plate.weight)).toEqual([0, 1]);
+    expect(latest?.traits[0]?.driftProne).toBe(true);
+  });
+
+  it("refuses to adopt an asset that does not exist, without creating the item", async () => {
+    const response = await post("/v1/items/adopt", {
+      handle: "ghost",
+      kind: "prop",
+      name: "Ghost",
+      plates: [{ assetId: "ast_missing", role: "detail" }],
+    });
+    expect(response.status).toBe(404);
+
+    const listed = await service.call("/v1/items?query=ghost");
+    expect((await readJson(listed)).items).toHaveLength(0);
+  });
+
+  it("refuses a handle that is taken", async () => {
+    const asset = await registerAsset("dup.png");
+    const payload = {
+      handle: "duplicate",
+      kind: "prop" as const,
+      name: "Duplicate",
+      plates: [{ assetId: asset, role: "detail" as const }],
+    };
+    expect((await post("/v1/items/adopt", payload)).status).toBe(201);
+    const second = await post("/v1/items/adopt", payload);
+    expect(second.status).toBe(409);
+  });
+});
+
+describe("revisions through the API", () => {
+  it("appends a revision and leaves the previous one intact", async () => {
+    const asset = await registerAsset("prop.png");
+    const created = await post("/v1/items/adopt", {
+      handle: "lantern",
+      kind: "prop",
+      name: "Lantern",
+      plates: [{ assetId: asset, role: "detail" }],
+    });
+    const { item } = ItemResponseSchema.parse(await readJson(created));
+    const before = item.revisions.length;
+
+    const revised = await post(`/v1/items/${item.item.id}/revisions`, {
+      message: "tightened the description",
+      traits: [{ text: "brass, dented", facet: "material", priority: 0, driftProne: false }],
+    });
+    expect(revised.status).toBe(201);
+    const { item: after } = ItemResponseSchema.parse(await readJson(revised));
+    expect(after.revisions).toHaveLength(before + 1);
+    expect(after.revisions[before - 1]?.traits).toHaveLength(0);
+  });
+
+  it("creates a variant that inherits from its parent", async () => {
+    const asset = await registerAsset("bar.png");
+    const created = await post("/v1/items/adopt", {
+      handle: "bar",
+      kind: "location",
+      name: "The Bar",
+      plates: [{ assetId: asset, role: "establishing" }],
+    });
+    const { item } = ItemResponseSchema.parse(await readJson(created));
+
+    const variant = await post(`/v1/items/${item.item.id}/variants`, {
+      slug: "night",
+      name: "Night",
+    });
+    expect(variant.status).toBe(201);
+
+    const detail = await service.call(`/v1/items/${item.item.id}`);
+    const { item: full } = ItemResponseSchema.parse(await readJson(detail));
+    const nightVariant = full.variants.find((entry) => entry.slug === "night");
+    const nightRevision = full.revisions.find(
+      (entry) => entry.variantId === nightVariant?.id,
+    );
+    expect(nightRevision?.plates).toHaveLength(1);
+  });
+});
+
+describe("renaming", () => {
+  it("keeps the old handle resolving", async () => {
+    const asset = await registerAsset("rename.png");
+    const created = await post("/v1/items/adopt", {
+      handle: "oldname",
+      kind: "character",
+      name: "Old Name",
+      plates: [{ assetId: asset, role: "face" }],
+    });
+    const { item } = ItemResponseSchema.parse(await readJson(created));
+
+    const renamed = await post(`/v1/items/${item.item.id}/rename`, { handle: "newname" });
+    expect(renamed.status).toBe(200);
+
+    const listed = await service.call("/v1/items?query=newname");
+    expect((await readJson(listed)).items[0]?.handle).toBe("newname");
+  });
+});
+
+describe("previewing what a prompt would send", () => {
+  it("returns the plates, the binding text and the budget without generating", async () => {
+    const face = await registerAsset("preview_face.png");
+    const created = await post("/v1/items/adopt", {
+      handle: "hero",
+      kind: "character",
+      name: "Hero",
+      plates: [{ assetId: face, role: "face" }],
+    });
+    const { item } = ItemResponseSchema.parse(await readJson(created));
+
+    const response = await post("/v1/items/resolve", {
+      prompt: "Wide shot, @hero crossing the bar",
+      providerId: "mock-image",
+      itemMentions: [{ token: "hero", itemId: item.item.id, influence: 100, muteText: false }],
+    });
+
+    expect(response.status).toBe(200);
+    const { bundle } = ResolvePromptResponseSchema.parse(await readJson(response));
+    expect(bundle.inputAssetIds).toEqual([face]);
+    expect(bundle.prompt).toContain("Image 1 crossing the bar");
+    expect(bundle.items[0]?.revisionId).toBe(item.revisions.at(-1)?.id);
+    expect(bundle.budget.referencesUsed).toBe(1);
+  });
+
+  it("says so rather than failing when a mention names an item that is gone", async () => {
+    const response = await post("/v1/items/resolve", {
+      prompt: "@ghost walks in",
+      providerId: "mock-image",
+      itemMentions: [{ token: "ghost", itemId: "itm_gone", influence: 100, muteText: false }],
+    });
+    expect(response.status).toBe(200);
+    const { bundle } = ResolvePromptResponseSchema.parse(await readJson(response));
+    expect(bundle.warnings.join(" ")).toContain("no longer exists");
+    expect(bundle.prompt).toBe("@ghost walks in");
+  });
+});
+
+describe("generating with an item", () => {
+  it("expands the mention, records the revision, and keeps it in the recipe", async () => {
+    const face = await registerAsset("gen_face.png");
+    const created = await post("/v1/items/adopt", {
+      handle: "lead",
+      kind: "character",
+      name: "Lead",
+      plates: [{ assetId: face, role: "face" }],
+    });
+    const { item } = ItemResponseSchema.parse(await readJson(created));
+    const revisionId = item.revisions.at(-1)?.id as string;
+
+    const started = await post("/v1/generations", {
+      providerId: "mock-image",
+      operation: "image.generate",
+      prompt: "@lead at the window",
+      size: "64x64",
+      itemMentions: [{ token: "lead", itemId: item.item.id, influence: 100, muteText: false }],
+    });
+    expect(started.status).toBe(202);
+    const { generation } = await readJson(started);
+
+    // The prompt that reached the provider is the expanded one.
+    expect(generation.prompt).toContain("Image 1 at the window");
+    expect(generation.inputAssetIds).toEqual([face]);
+    // And the mentions as typed survive, so a reopened recipe shows @lead.
+    expect(generation.parameters.itemMentions[0].token).toBe("lead");
+    expect(generation.parameters.itemBundle.items[0].revisionId).toBe(revisionId);
+
+    const usage = await service.call(`/v1/items/${item.item.id}/generations`);
+    expect((await readJson(usage)).generations[0]?.id).toBe(generation.id);
+  });
+
+  it("refuses rather than quietly dropping an item it cannot resolve", async () => {
+    // A prompt that names three characters and sends two is a generation the
+    // artist would accept and then wonder about, having paid for it.
+    const response = await post("/v1/generations", {
+      providerId: "mock-image",
+      operation: "image.generate",
+      prompt: "@vanished at the window",
+      size: "64x64",
+      itemMentions: [
+        { token: "vanished", itemId: "itm_nope", influence: 100, muteText: false },
+      ],
+    });
+    expect(response.status).toBe(404);
+    expect((await readJson(response)).error.message).toContain("@vanished");
+  });
+});

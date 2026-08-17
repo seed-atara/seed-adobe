@@ -12,6 +12,7 @@
     "@anthropic-ai/sdk": "^0.116.0",
     "@seed-ae/ae-host": "*",
     "@seed-ae/domain": "*",
+    "@seed-ae/items": "*",
     "@seed-ae/media": "*",
     "@seed-ae/providers": "*",
     "@seed-ae/storage": "*",

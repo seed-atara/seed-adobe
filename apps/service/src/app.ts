@@ -12,6 +12,7 @@ import type {
   AssetRepository,
   Database,
   GenerationRepository,
+  ItemRepository,
   JobRepository,
   WorkspaceLayout,
 } from "@seed-ae/storage";
@@ -54,6 +55,18 @@ import {
   startGenerationRoute,
 } from "./routes/generations.js";
 import { composeRoute } from "./routes/agent.js";
+import {
+  addRevisionRoute,
+  adoptItemRoute,
+  createItemRoute,
+  createVariantRoute,
+  getItemRoute,
+  itemGenerationsRoute,
+  listItemsRoute,
+  renameItemRoute,
+  resolvePromptRoute,
+  updateItemRoute,
+} from "./routes/items.js";
 import { healthRoute } from "./routes/health.js";
 
 export interface AppDeps {
@@ -61,6 +74,7 @@ export interface AppDeps {
   db: Database;
   assets: AssetRepository;
   generations: GenerationRepository;
+  items: ItemRepository;
   jobs: JobRepository;
   registry: ProviderRegistry;
   generation: GenerationService;
@@ -101,6 +115,16 @@ export function buildRouter(deps: AppDeps): Router {
     .get("/v1/placeholder", placeholderRoute(deps))
     .get("/v1/providers", listProvidersRoute(deps))
     .post("/v1/agent/compose", composeRoute(deps))
+    .post("/v1/items", createItemRoute(deps))
+    .post("/v1/items/adopt", adoptItemRoute(deps))
+    .post("/v1/items/resolve", resolvePromptRoute(deps))
+    .get("/v1/items", listItemsRoute(deps))
+    .get("/v1/items/:id", getItemRoute(deps))
+    .post("/v1/items/:id", updateItemRoute(deps))
+    .post("/v1/items/:id/rename", renameItemRoute(deps))
+    .post("/v1/items/:id/variants", createVariantRoute(deps))
+    .post("/v1/items/:id/revisions", addRevisionRoute(deps))
+    .get("/v1/items/:id/generations", itemGenerationsRoute(deps))
     .post("/v1/generations", startGenerationRoute(deps))
     .get("/v1/generations", listGenerationsRoute(deps))
     .get("/v1/generations/:id", getGenerationRoute(deps))

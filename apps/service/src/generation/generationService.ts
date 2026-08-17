@@ -20,9 +20,12 @@ import { isTerminal } from "@seed-ae/providers";
 import type {
   AssetRepository,
   GenerationRepository,
+  ItemRepository,
   Job,
   JobRepository,
 } from "@seed-ae/storage";
+import { resolveBundle, type MentionBinding } from "@seed-ae/items";
+import type { ResolvedBundle } from "@seed-ae/domain";
 import type { Logger } from "../logger.js";
 import type { InputMaterializer } from "./inputMaterializer.js";
 import type { MediaIngestor } from "./mediaIngestor.js";
@@ -31,6 +34,7 @@ export interface GenerationServiceOptions {
   registry: ProviderRegistry;
   assets: AssetRepository;
   generations: GenerationRepository;
+  items: ItemRepository;
   jobs: JobRepository;
   materializer: InputMaterializer;
   ingestor: MediaIngestor;
@@ -82,6 +86,19 @@ export class GenerationService {
         `provider ${provider.id} has no model configured`,
       );
     }
+
+    /*
+     * `@item` mentions are expanded *here*, not in the panel.
+     *
+     * The expanded bundle is the reproducibility record — it names the exact
+     * revision of every character the shot used — so it has to be produced by
+     * the same code that persists it. A panel that built its own would be a
+     * second implementation of the rules that matter most, drifting silently
+     * against the one that ends up in the recipe.
+     */
+    const expansion = this.expandItems(request, capabilities);
+    request = expansion.request;
+
     assertSupported(capabilities, request, model);
 
     // Fail before creating a job if an input is unknown — a job that could
@@ -120,6 +137,22 @@ export class GenerationService {
         ...(request.inputRoles && request.inputRoles.length > 0
           ? { inputRoles: request.inputRoles }
           : {}),
+        /*
+         * The mentions as typed, and what they expanded to. The first lets a
+         * reopened recipe show `@sara` again rather than "Image 2"; the second
+         * is the audit trail for a shot that came back wrong.
+         */
+        ...(expansion.bundle
+          ? {
+              itemMentions: request.itemMentions,
+              itemBundle: {
+                prompt: expansion.bundle.prompt,
+                items: expansion.bundle.items,
+                warnings: expansion.bundle.warnings,
+                budget: expansion.bundle.budget,
+              },
+            }
+          : {}),
       },
       inputAssetIds: request.inputAssetIds,
       ...(request.parentAssetId ? { parentAssetId: request.parentAssetId } : {}),
@@ -128,6 +161,10 @@ export class GenerationService {
         : {}),
       jobId: job.id,
     });
+
+    if (expansion.bundle && expansion.bundle.items.length > 0) {
+      this.options.items.recordForGeneration(generation.id, expansion.bundle.items);
+    }
 
     const linkedJob = this.options.jobs.update(job.id, {
       generationId: generation.id,
@@ -160,6 +197,86 @@ export class GenerationService {
   }
 
   /** Resolves once the background task for a job has finished. */
+
+  /**
+   * Turns `@item` mentions into plates, binding text and a recorded bundle.
+   *
+   * Returns the request untouched when nothing was mentioned, so a generation
+   * that uses no items costs nothing here and behaves exactly as it did before
+   * items existed.
+   */
+  private expandItems(
+    request: StartGenerationRequest,
+    capabilities: ProviderCapabilities,
+  ): { request: StartGenerationRequest; bundle?: ResolvedBundle } {
+    if (request.itemMentions.length === 0) return { request };
+
+    const bindings: MentionBinding[] = [];
+    const missing: string[] = [];
+    for (const mention of request.itemMentions) {
+      const definition = this.options.items.resolveRevision(
+        this.latestRevisionFor(mention.itemId, mention.variantId) ?? "",
+      );
+      if (!definition) {
+        missing.push(mention.token);
+        continue;
+      }
+      bindings.push({ mention, definition });
+    }
+
+    if (missing.length > 0) {
+      /*
+       * Refused rather than silently dropped. A prompt that names three
+       * characters and sends two is a generation the artist would accept and
+       * then wonder about, and it costs real money to find out.
+       */
+      throw new SeedError(
+        "not_found",
+        `these items could not be resolved: ${missing.map((token) => `@${token}`).join(", ")}`,
+      );
+    }
+
+    const bundle = resolveBundle({
+      prompt: request.prompt,
+      bindings,
+      capabilities,
+      attachedAssetIds: request.inputAssetIds,
+      ...(request.inputRoles ? { attachedRoles: request.inputRoles } : {}),
+      ...(request.allowBeyondStable !== undefined
+        ? { allowBeyondStable: request.allowBeyondStable }
+        : {}),
+    });
+
+    this.options.logger.info("generation.items_expanded", {
+      items: bundle.items.length,
+      referencesUsed: bundle.budget.referencesUsed,
+      promptWords: bundle.budget.promptWords,
+      warnings: bundle.warnings.length,
+    });
+
+    return {
+      request: {
+        ...request,
+        prompt: bundle.prompt,
+        inputAssetIds: bundle.inputAssetIds,
+        inputRoles: bundle.inputRoles,
+      },
+      bundle,
+    };
+  }
+
+  /** The revision a mention resolves to right now. */
+  private latestRevisionFor(itemId: string, variantId?: string): string | undefined {
+    const detail = this.options.items.get(itemId);
+    if (!detail) return undefined;
+    const variant = variantId
+      ? detail.variants.find((entry) => entry.id === variantId)
+      : (detail.variants.find((entry) => entry.id === detail.item.defaultVariantId) ??
+        detail.variants[0]);
+    if (!variant) return undefined;
+    return this.options.items.latestRevision(variant.id)?.id;
+  }
+
   async whenSettled(jobId: string): Promise<void> {
     await this.running.get(jobId);
   }

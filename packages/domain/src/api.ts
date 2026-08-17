@@ -2,6 +2,19 @@ import { z } from "zod";
 import { AssetDraftSchema, AssetSchema } from "./asset.js";
 import { AeContextSchema } from "./ae.js";
 import { GenerationOperationSchema, GenerationSchema, JobStatusSchema } from "./generation.js";
+import {
+  ItemAuthorisationSchema,
+  ItemDetailSchema,
+  ItemKindSchema,
+  ItemLookBindingSchema,
+  ItemMentionSchema,
+  ItemPlateSchema,
+  ItemSchema,
+  ItemTraitSchema,
+  ItemVariantSchema,
+  PlateRoleSchema,
+  ResolvedBundleSchema,
+} from "./item.js";
 
 /**
  * Wire contracts shared by the panel and the local service. Both sides parse
@@ -85,12 +98,141 @@ export const StartGenerationRequestSchema = z.object({
    * makes an end frame impossible to ask for.
    */
   inputRoles: z.array(z.enum(["first", "last", "reference"])).max(30).optional(),
+  /**
+   * `@item` mentions in the prompt, resolved by the panel to ids.
+   *
+   * The service expands these itself rather than trusting an expansion sent to
+   * it: the resolved bundle is the reproducibility record, and a panel that
+   * built its own would be a second implementation of the rules that matter
+   * most, drifting against the one that gets persisted.
+   */
+  itemMentions: z.array(ItemMentionSchema).max(12).default([]),
+  /** Spend past the provider's stable reference range, knowingly. */
+  allowBeyondStable: z.boolean().optional(),
   /** Set when this generation descends from an existing asset/recipe. */
   parentAssetId: z.string().optional(),
   parentGenerationId: z.string().optional(),
   parameters: z.record(z.string(), z.unknown()).default({}),
 });
 export type StartGenerationRequest = z.infer<typeof StartGenerationRequestSchema>;
+
+/* ------------------------------------------------------------------ *
+ * Items
+ * ------------------------------------------------------------------ */
+
+export const CreateItemRequestSchema = z.object({
+  handle: z.string().min(1).max(48),
+  kind: ItemKindSchema,
+  name: z.string().min(1).max(120),
+  tags: z.array(z.string().min(1).max(40)).max(20).default([]),
+  project: z.string().min(1).optional(),
+  realPerson: z.boolean().default(false),
+});
+export type CreateItemRequest = z.infer<typeof CreateItemRequestSchema>;
+
+export const UpdateItemRequestSchema = z.object({
+  name: z.string().min(1).max(120).optional(),
+  tags: z.array(z.string().min(1).max(40)).max(20).optional(),
+  kind: ItemKindSchema.optional(),
+  project: z.string().min(1).optional(),
+  realPerson: z.boolean().optional(),
+  authorisation: ItemAuthorisationSchema.optional(),
+});
+export type UpdateItemRequest = z.infer<typeof UpdateItemRequestSchema>;
+
+export const RenameItemRequestSchema = z.object({
+  handle: z.string().min(1).max(48),
+});
+export type RenameItemRequest = z.infer<typeof RenameItemRequestSchema>;
+
+export const CreateVariantRequestSchema = z.object({
+  slug: z.string().min(1).max(48),
+  name: z.string().min(1).max(120),
+  parentVariantId: z.string().optional(),
+});
+export type CreateVariantRequest = z.infer<typeof CreateVariantRequestSchema>;
+
+/** A new revision. Never an edit — the previous one stays exactly as it was. */
+export const AddRevisionRequestSchema = z.object({
+  variantId: z.string().min(1).optional(),
+  message: z.string().max(500).optional(),
+  traits: z.array(ItemTraitSchema).max(40).optional(),
+  avoid: z.array(z.string().min(1).max(120)).max(20).optional(),
+  plates: z.array(ItemPlateSchema).max(40).optional(),
+  attributes: z.record(z.string(), z.string()).optional(),
+  seedHint: z.number().int().optional(),
+  look: ItemLookBindingSchema.optional(),
+});
+export type AddRevisionRequest = z.infer<typeof AddRevisionRequestSchema>;
+
+/**
+ * Make an item out of assets already in the library.
+ *
+ * The commonest way an item is really born: the artist has just captured the
+ * frame that made them want the character.
+ */
+export const AdoptItemRequestSchema = z.object({
+  handle: z.string().min(1).max(48),
+  kind: ItemKindSchema,
+  name: z.string().min(1).max(120),
+  project: z.string().min(1).optional(),
+  realPerson: z.boolean().default(false),
+  plates: z
+    .array(
+      z.object({
+        assetId: z.string().min(1),
+        role: PlateRoleSchema.default("reference"),
+        notes: z.string().max(500).optional(),
+      }),
+    )
+    .min(1)
+    .max(40),
+  traits: z.array(ItemTraitSchema).max(40).default([]),
+});
+export type AdoptItemRequest = z.infer<typeof AdoptItemRequestSchema>;
+
+export const ItemResponseSchema = z.object({ item: ItemDetailSchema });
+export type ItemResponse = z.infer<typeof ItemResponseSchema>;
+
+export const ListItemsQuerySchema = z.object({
+  kind: ItemKindSchema.optional(),
+  project: z.string().min(1).optional(),
+  query: z.string().min(1).optional(),
+  limit: z.coerce.number().int().min(1).max(200).default(100),
+  offset: z.coerce.number().int().min(0).default(0),
+});
+export type ListItemsQuery = z.infer<typeof ListItemsQuerySchema>;
+
+export const ListItemsResponseSchema = z.object({
+  items: z.array(ItemSchema),
+  total: z.number().int().min(0),
+});
+export type ListItemsResponse = z.infer<typeof ListItemsResponseSchema>;
+
+export const VariantResponseSchema = z.object({ variant: ItemVariantSchema });
+export type VariantResponse = z.infer<typeof VariantResponseSchema>;
+
+/**
+ * What a prompt would actually send, without sending it.
+ *
+ * The panel draws its prompt preview from this, and `scripts/item.ts resolve`
+ * prints it. When a shot comes back wrong this is the first thing to look at,
+ * and it costs nothing.
+ */
+export const ResolvePromptRequestSchema = z.object({
+  prompt: z.string().max(8000),
+  providerId: z.string().min(1),
+  itemMentions: z.array(ItemMentionSchema).max(12).default([]),
+  attachedAssetIds: z.array(z.string()).max(30).default([]),
+  attachedRoles: z.array(z.enum(["first", "last", "reference"])).max(30).optional(),
+  allowBeyondStable: z.boolean().optional(),
+});
+export type ResolvePromptRequest = z.infer<typeof ResolvePromptRequestSchema>;
+
+export const ResolvePromptResponseSchema = z.object({
+  bundle: ResolvedBundleSchema,
+});
+export type ResolvePromptResponse = z.infer<typeof ResolvePromptResponseSchema>;
 
 export const JobSchema = z.object({
   id: z.string(),

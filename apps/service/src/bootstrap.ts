@@ -14,6 +14,7 @@ import {
 import {
   AssetRepository,
   GenerationRepository,
+  ItemRepository,
   JobRepository,
   ensureWorkspace,
   openMigratedDatabase,
@@ -51,6 +52,7 @@ export async function bootstrap({
 
   const assets = new AssetRepository(db);
   const generations = new GenerationRepository(db);
+  const items = new ItemRepository(db);
   const jobs = new JobRepository(db);
   const ingestor = new MediaIngestor(workspace, assets, (reason, assetId) => {
     activeLogger.warn("asset.thumbnail_failed", { assetId, reason });
@@ -65,6 +67,7 @@ export async function bootstrap({
     registry: providerRegistry,
     assets,
     generations,
+    items,
     jobs,
     materializer: new InputMaterializer(workspace, publisher),
     ingestor,
@@ -171,6 +174,7 @@ export async function bootstrap({
     workspace,
     assets,
     generations,
+    items,
     jobs,
     registry: providerRegistry,
     generation,
