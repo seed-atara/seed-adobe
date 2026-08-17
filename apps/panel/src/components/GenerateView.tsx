@@ -1,7 +1,14 @@
 import { useEffect, useState } from "react";
-import type { Asset, ComposedPlan, GenerationOperation } from "@seed-ae/domain";
+import type {
+  Asset,
+  ComposedPlan,
+  GenerationOperation,
+  Item,
+  ItemMention,
+} from "@seed-ae/domain";
 import type { AeRegion } from "../api/cep.ts";
-import { assetToken } from "../mentions.ts";
+import { assetToken, findItemMentions } from "../mentions.ts";
+import { PromptPreview } from "./PromptPreview.tsx";
 import {
   aspectOf,
   closestAspect,
@@ -58,6 +65,17 @@ export interface GenerateForm {
   /** Which reference "Fit reference" measures. Blank means the first. */
   aspectSourceId: string;
   inputAssetIds: string[];
+  /**
+   * `@item` mentions found in the prompt, with the influence and mute the
+   * artist set on each chip.
+   *
+   * Carried on the form rather than derived at submit time because the
+   * controls live beside the preview: what the artist adjusted has to be what
+   * gets sent.
+   */
+  itemMentions: ItemMention[];
+  /** Spend past the provider's reliable reference range, knowingly. */
+  allowBeyondStable: boolean;
   parentAssetId?: string;
   parentGenerationId?: string;
 }
@@ -170,6 +188,49 @@ export function GenerateView({
   const [directingFor, setDirectingFor] = useState(0);
   const [now, setNow] = useState(() => Date.now());
   const [refMenu, setRefMenu] = useState<{ x: number; y: number; asset: Asset }>();
+
+  const [items, setItems] = useState<Item[]>([]);
+
+  /*
+   * The library of identities, for autocomplete and for the preview.
+   *
+   * Loaded once rather than per keystroke: handles are stable, and a mention
+   * naming something created after this loaded simply does not resolve until
+   * the tab is revisited, which is a smaller cost than a request per character.
+   */
+  useEffect(() => {
+    void client
+      .listItems()
+      .then((result) => setItems(result.items))
+      .catch(() => setItems([]));
+  }, [client]);
+
+  /*
+   * Mentions are derived from the prompt, but the controls on each chip are
+   * not: influence and mute are the artist's, so a mention that survives a
+   * re-parse keeps whatever they set on it.
+   */
+  useEffect(() => {
+    const found = findItemMentions(form.prompt, items);
+    const next: ItemMention[] = found.map((entry) => {
+      const existing = form.itemMentions.find(
+        (mention) => mention.itemId === entry.item.id,
+      );
+      return (
+        existing ?? {
+          token: entry.token,
+          itemId: entry.item.id,
+          influence: 70,
+          muteText: false,
+        }
+      );
+    });
+    const unchanged =
+      next.length === form.itemMentions.length &&
+      next.every((mention, index) => mention === form.itemMentions[index]);
+    if (!unchanged) patch({ itemMentions: next });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [form.prompt, items]);
 
   const provider = providers.find((item) => item.id === form.providerId);
   const references = form.inputAssetIds
@@ -774,6 +835,21 @@ export function GenerateView({
             onChange={(prompt) => patch({ prompt })}
           />
         </Field>
+
+        <PromptPreview
+          client={client}
+          prompt={form.prompt}
+          providerId={form.providerId}
+          mentions={form.itemMentions}
+          items={items}
+          attachedAssetIds={form.inputAssetIds}
+          {...(form.inputRoles.length === form.inputAssetIds.length
+            ? { attachedRoles: form.inputRoles }
+            : {})}
+          allowBeyondStable={form.allowBeyondStable}
+          onMentionsChange={(itemMentions) => patch({ itemMentions })}
+          onAllowBeyondStable={(allowBeyondStable) => patch({ allowBeyondStable })}
+        />
 
         {onDirect ? (
           <>

@@ -1334,3 +1334,86 @@ pre.raw {
   outline: 2px solid var(--title);
   outline-offset: -2px;
 }
+
+/* ------------------------------------------------------------------ *
+ * Items, and the prompt an item contributes to
+ * ------------------------------------------------------------------ */
+
+/* Everything an item adds to a prompt is shown here, attributed and
+   adjustable. Nothing it contributes may be invisible or unremovable — that
+   is what makes the feature trustworthy rather than merely clever. */
+.promptPreview {
+  background: var(--well);
+  border: 2px solid;
+  border-color: var(--shadow) var(--white) var(--white) var(--shadow);
+  box-shadow: inset 1px 1px 0 var(--black);
+  padding: var(--gap);
+  margin-bottom: var(--gap-lg);
+}
+
+.promptOut {
+  font-family: var(--mono);
+  font-size: 11px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  background: var(--white);
+  border: 1px solid var(--shadow);
+  padding: 4px;
+  margin: 0 0 6px;
+  max-height: 180px;
+  overflow-y: auto;
+}
+
+.itemChip {
+  border: 1px solid var(--shadow);
+  background: var(--face);
+  padding: 4px;
+  margin-bottom: 4px;
+}
+
+.hint {
+  font-size: 11px;
+  color: #404040;
+  margin: 4px 0;
+}
+
+.hint.warn {
+  background: #ffff80;
+  border: 1px solid var(--shadow);
+  padding: 3px 4px;
+}
+
+.check {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+}
+
+.list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.listRow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  text-align: left;
+  padding: 3px 4px;
+  background: var(--face);
+  border: 1px solid;
+  border-color: var(--white) var(--shadow) var(--shadow) var(--white);
+  font: inherit;
+}
+
+button.listRow:hover {
+  background: var(--face-light);
+}
+
+.card.selected {
+  outline: 2px solid var(--title);
+  outline-offset: -2px;
+}

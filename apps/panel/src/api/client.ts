@@ -1,11 +1,17 @@
 import type {
+  AddRevisionRequest,
+  AdoptItemRequest,
   Asset,
   ComposeRequest,
   ComposedPlan,
   Generation,
   HealthResponse,
+  Item,
+  ItemDetail,
+  ItemMention,
   JobDto,
   LineageResponse,
+  ResolvedBundle,
   StartGenerationRequest,
 } from "@seed-ae/domain";
 
@@ -17,6 +23,14 @@ export interface ProviderCapabilitiesDto {
   textToImage: boolean;
   imageToImage: boolean;
   maxImageReferences: number;
+  /** What to build budgets against, which is not always what validation takes. */
+  stableImageReferences: number;
+  /** Whether the provider wants the material mapping written into the prompt. */
+  requiresBindingText: boolean;
+  mentionSyntax: "positional-en" | "ark-cn";
+  supportsNegativePrompt: boolean;
+  /** Whether anchoring to a frame excludes references entirely. */
+  framesExcludeReferences: boolean;
   textToVideo: boolean;
   imageToVideo: boolean;
   seed: boolean;
@@ -259,6 +273,85 @@ export class SeedClient {
    * The record survives so recipes that used it still resolve; only the bytes
    * and the library entry go. Not undoable.
    */
+  /* ---------------------------------------------------------------- *
+   * Items
+   * ---------------------------------------------------------------- */
+
+  listItems(params: {
+    kind?: string;
+    project?: string;
+    query?: string;
+  } = {}): Promise<{ items: Item[]; total: number }> {
+    const search = new URLSearchParams();
+    for (const [key, value] of Object.entries(params)) {
+      if (value) search.set(key, value);
+    }
+    const suffix = search.toString();
+    return this.request(`/v1/items${suffix ? `?${suffix}` : ""}`);
+  }
+
+  getItem(id: string): Promise<{ item: ItemDetail }> {
+    return this.request(`/v1/items/${encodeURIComponent(id)}`);
+  }
+
+  adoptItem(request: AdoptItemRequest): Promise<{ item: ItemDetail }> {
+    return this.request("/v1/items/adopt", { method: "POST", body: JSON.stringify(request) });
+  }
+
+  updateItem(
+    id: string,
+    patch: Record<string, unknown>,
+  ): Promise<{ item: ItemDetail }> {
+    return this.request(`/v1/items/${encodeURIComponent(id)}`, {
+      method: "POST",
+      body: JSON.stringify(patch),
+    });
+  }
+
+  renameItem(id: string, handle: string): Promise<{ item: ItemDetail }> {
+    return this.request(`/v1/items/${encodeURIComponent(id)}/rename`, {
+      method: "POST",
+      body: JSON.stringify({ handle }),
+    });
+  }
+
+  createVariant(
+    id: string,
+    slug: string,
+    name: string,
+  ): Promise<{ variant: { id: string; slug: string; name: string } }> {
+    return this.request(`/v1/items/${encodeURIComponent(id)}/variants`, {
+      method: "POST",
+      body: JSON.stringify({ slug, name }),
+    });
+  }
+
+  addRevision(id: string, request: AddRevisionRequest): Promise<{ item: ItemDetail }> {
+    return this.request(`/v1/items/${encodeURIComponent(id)}/revisions`, {
+      method: "POST",
+      body: JSON.stringify(request),
+    });
+  }
+
+  itemGenerations(id: string): Promise<{ generations: Generation[] }> {
+    return this.request(`/v1/items/${encodeURIComponent(id)}/generations`);
+  }
+
+  /** What a prompt would send, without sending it. Costs nothing. */
+  resolvePrompt(request: {
+    prompt: string;
+    providerId: string;
+    itemMentions: ItemMention[];
+    attachedAssetIds?: string[];
+    attachedRoles?: Array<"first" | "last" | "reference">;
+    allowBeyondStable?: boolean;
+  }): Promise<{ bundle: ResolvedBundle }> {
+    return this.request("/v1/items/resolve", {
+      method: "POST",
+      body: JSON.stringify(request),
+    });
+  }
+
   removeAsset(id: string): Promise<{
     id: string;
     filesRemoved: number;

@@ -2,9 +2,12 @@ import { describe, expect, it } from "vitest";
 import type { Asset } from "@seed-ae/domain";
 import {
   assetToken,
+  completeItemMention,
   completeMention,
+  findItemMentions,
   findMentions,
   matchAssets,
+  matchItems,
   mentionQueryAt,
 } from "../src/mentions.ts";
 import { splitRuns } from "../src/components/PromptField.tsx";
@@ -138,5 +141,40 @@ describe("splitting a prompt for highlighting", () => {
   it("reassembles into exactly the original text", () => {
     const text = "@Comp_1_f00074_001 relit, @nobody, @seedream_76bbfe52_00 end";
     expect(splitRuns(text, ASSETS).map((run) => run.text).join("")).toBe(text);
+  });
+});
+
+describe("item mentions", () => {
+  const items = [
+    { id: "itm_1", handle: "sara", kind: "character", name: "Sara Kim" },
+    { id: "itm_2", handle: "bar", kind: "location", name: "The Bar" },
+    { id: "itm_3", handle: "kodak_night", kind: "style", name: "Kodak Night" },
+  ];
+
+  it("finds handles and keeps a variant token distinct", () => {
+    const found = findItemMentions("wide of @sara/night in @bar", items);
+    expect(found.map((entry) => entry.token)).toEqual(["sara/night", "bar"]);
+    expect(found[0]?.item.id).toBe("itm_1");
+  });
+
+  it("ignores an @ that names nothing", () => {
+    // Prose containing an @ for some other reason is ordinary writing.
+    expect(findItemMentions("shot at 5pm @ the bar", items)).toEqual([]);
+  });
+
+  it("does not repeat an item mentioned twice", () => {
+    expect(findItemMentions("@sara turns, then @sara walks", items)).toHaveLength(1);
+  });
+
+  it("ranks a prefix match above a substring, and matches on name", () => {
+    expect(matchItems(items, "ba")[0]?.handle).toBe("bar");
+    expect(matchItems(items, "kim")[0]?.handle).toBe("sara");
+  });
+
+  it("completes the handle being typed at the caret", () => {
+    const text = "wide of @sa";
+    const result = completeItemMention(text, text.length, items[1]!);
+    expect(result.text).toBe("wide of @bar ");
+    expect(result.caret).toBe(result.text.length);
   });
 });

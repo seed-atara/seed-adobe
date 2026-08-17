@@ -23,10 +23,11 @@ import {
 import { LibraryView } from "./components/LibraryView.tsx";
 import { AssetDetail } from "./components/AssetDetail.tsx";
 import { LineageView } from "./components/LineageView.tsx";
+import { ItemsView } from "./components/ItemsView.tsx";
 import { findMentions } from "./mentions.ts";
 import { resolveRefineTarget } from "./refine.ts";
 
-type Tab = "generate" | "library" | "lineage";
+type Tab = "generate" | "items" | "library" | "lineage";
 
 const TOKEN_KEY = "seed-ae.session-token";
 
@@ -108,6 +109,8 @@ const EMPTY_FORM: GenerateForm = {
   aspectRatio: "",
   aspectSourceId: "",
   inputAssetIds: [],
+  itemMentions: [],
+  allowBeyondStable: false,
 };
 
 export function App() {
@@ -886,6 +889,10 @@ export function App() {
               : {}),
             ...(form.generateAudio ? { generateAudio: true } : {}),
             inputAssetIds: form.inputAssetIds,
+            ...(form.itemMentions.length > 0
+              ? { itemMentions: form.itemMentions }
+              : {}),
+            ...(form.allowBeyondStable ? { allowBeyondStable: true } : {}),
             ...(form.parentAssetId ? { parentAssetId: form.parentAssetId } : {}),
             ...(form.parentGenerationId
               ? { parentGenerationId: form.parentGenerationId }
@@ -1131,7 +1138,7 @@ export function App() {
       </div>
 
       <nav className="tabs" role="tablist">
-        {(["generate", "library", "lineage"] as Tab[]).map((name) => (
+        {(["generate", "items", "library", "lineage"] as Tab[]).map((name) => (
           <button
             key={name}
             role="tab"
@@ -1202,6 +1209,15 @@ export function App() {
               {...(activeProject ? { activeProject } : {})}
               thisProjectOnly={thisProjectOnly}
               onProjectFilterChange={setThisProjectOnly}
+            />
+          ) : null}
+
+          {tab === "items" ? (
+            <ItemsView
+              client={client}
+              assets={assets}
+              {...(activeProject ? { activeProject } : {})}
+              onError={report}
             />
           ) : null}
 
