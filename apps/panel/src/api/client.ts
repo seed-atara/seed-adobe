@@ -295,7 +295,7 @@ export class SeedClient {
   }
 
   adoptItem(request: AdoptItemRequest): Promise<{ item: ItemDetail }> {
-    return this.request("/v1/items/adopt", { method: "POST", body: JSON.stringify(request) });
+    return this.request("/v1/items/adopt", { method: "POST", body: request });
   }
 
   updateItem(
@@ -304,14 +304,14 @@ export class SeedClient {
   ): Promise<{ item: ItemDetail }> {
     return this.request(`/v1/items/${encodeURIComponent(id)}`, {
       method: "POST",
-      body: JSON.stringify(patch),
+      body: patch,
     });
   }
 
   renameItem(id: string, handle: string): Promise<{ item: ItemDetail }> {
     return this.request(`/v1/items/${encodeURIComponent(id)}/rename`, {
       method: "POST",
-      body: JSON.stringify({ handle }),
+      body: { handle },
     });
   }
 
@@ -322,14 +322,14 @@ export class SeedClient {
   ): Promise<{ variant: { id: string; slug: string; name: string } }> {
     return this.request(`/v1/items/${encodeURIComponent(id)}/variants`, {
       method: "POST",
-      body: JSON.stringify({ slug, name }),
+      body: { slug, name },
     });
   }
 
   addRevision(id: string, request: AddRevisionRequest): Promise<{ item: ItemDetail }> {
     return this.request(`/v1/items/${encodeURIComponent(id)}/revisions`, {
       method: "POST",
-      body: JSON.stringify(request),
+      body: request,
     });
   }
 
@@ -348,7 +348,7 @@ export class SeedClient {
   }): Promise<{ bundle: ResolvedBundle }> {
     return this.request("/v1/items/resolve", {
       method: "POST",
-      body: JSON.stringify(request),
+      body: request,
     });
   }
 

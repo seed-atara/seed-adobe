@@ -42,12 +42,27 @@ export async function readJsonBody(req: IncomingMessage): Promise<unknown> {
 export function parseWith<T>(schema: ZodType<T>, value: unknown): T {
   const result = schema.safeParse(value);
   if (!result.success) {
-    throw new SeedError("bad_request", "request failed validation", {
-      details: result.error.issues.map((issue) => ({
-        path: issue.path.join("."),
-        message: issue.message,
-      })),
-    });
+    const issues = result.error.issues.map((issue) => ({
+      path: issue.path.join("."),
+      message: issue.message,
+    }));
+    /*
+     * Name the fields in the message, not only in `details`.
+     *
+     * The panel shows the message and drops the rest, so "request failed
+     * validation" was all an artist ever saw — true, and useless. It cost a
+     * round trip to find a double-encoded body that the field name would have
+     * pointed at immediately.
+     */
+    const summary = issues
+      .slice(0, 4)
+      .map((issue) => (issue.path ? `${issue.path}: ${issue.message}` : issue.message))
+      .join("; ");
+    throw new SeedError(
+      "bad_request",
+      `request failed validation — ${summary}${issues.length > 4 ? `, and ${issues.length - 4} more` : ""}`,
+      { details: issues },
+    );
   }
   return result.data;
 }
