@@ -21,6 +21,7 @@ import type { GenerationService } from "./generation/generationService.js";
 import type { MediaIngestor } from "./generation/mediaIngestor.js";
 import { isJsonResult, sendError, sendJson } from "./http/respond.js";
 import { PromptDirector } from "./agent/director.js";
+import type { ItemDescriber } from "./agent/describer.js";
 import { Router, type RequestContext } from "./http/router.js";
 import { lookLutRoute } from "./routes/look.js";
 import { createLogger, type Logger } from "./logger.js";
@@ -60,6 +61,7 @@ import {
   adoptItemRoute,
   createItemRoute,
   createVariantRoute,
+  describeItemRoute,
   getItemRoute,
   itemGenerationsRoute,
   listItemsRoute,
@@ -84,6 +86,8 @@ export interface AppDeps {
   aeHost: AeHostAdapter;
   /** Absent when ANTHROPIC_API_KEY is unset — direction is optional. */
   director?: PromptDirector;
+  /** Absent for the same reason as the director: no key, no feature. */
+  describer?: ItemDescriber;
   logger: Logger;
   startedAt: number;
 }
@@ -119,6 +123,7 @@ export function buildRouter(deps: AppDeps): Router {
     .post("/v1/items", createItemRoute(deps))
     .post("/v1/items/adopt", adoptItemRoute(deps))
     .post("/v1/items/resolve", resolvePromptRoute(deps))
+    .post("/v1/items/describe", describeItemRoute(deps))
     // Literal paths before `:id`, or "import" is read as an item id.
     .post("/v1/items/import", importPackRoute(deps))
     .get("/v1/items", listItemsRoute(deps))

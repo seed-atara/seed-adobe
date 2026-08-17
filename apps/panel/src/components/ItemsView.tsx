@@ -7,6 +7,7 @@ import type {
   ItemTrait,
   PlateRole,
 } from "@seed-ae/domain";
+import { ServiceError } from "../api/client.ts";
 import type { SeedClient } from "../api/client.ts";
 import { AssetImage, SectionLabel, formatStamp } from "./primitives.tsx";
 
@@ -191,6 +192,40 @@ function NewItem({ client, assets, activeProject, busy, onCancel, onCreate }: Ne
   const [realPerson, setRealPerson] = useState(false);
   const [studioWide, setStudioWide] = useState(true);
   const [plates, setPlates] = useState<Array<{ assetId: string; role: PlateRole }>>([]);
+  const [traits, setTraits] = useState<ItemTrait[]>([]);
+  const [summary, setSummary] = useState<string>();
+  const [reading, setReading] = useState(false);
+  const [readError, setReadError] = useState<string>();
+
+  /*
+   * Reading the plates is a separate, explicit step rather than part of
+   * pressing Create. It costs a model call and a few seconds, and an artist who
+   * already knows what matters should not have to wait for a machine to agree.
+   * Everything it proposes is editable, and nothing is saved until Create.
+   */
+  const describe = async () => {
+    setReading(true);
+    setReadError(undefined);
+    try {
+      const result = await client.describeItem({
+        kind,
+        ...(name ? { name } : {}),
+        plates: plates.map((plate) => ({ assetId: plate.assetId, role: plate.role })),
+      });
+      setTraits(result.traits);
+      setSummary(result.summary);
+    } catch (error) {
+      setReadError(
+        error instanceof ServiceError && error.code === "unsupported_capability"
+          ? error.message
+          : error instanceof Error
+            ? error.message
+            : String(error),
+      );
+    } finally {
+      setReading(false);
+    }
+  };
 
   const roles = SUGGESTED_ROLES[kind];
   const suggestedHandle = useMemo(
@@ -342,6 +377,63 @@ function NewItem({ client, assets, activeProject, busy, onCancel, onCreate }: Ne
         </div>
       ) : null}
 
+      {plates.length > 0 ? (
+        <>
+          <SectionLabel>traits</SectionLabel>
+          <div className="row" style={{ gap: 6, marginBottom: 4 }}>
+            <button className="btn" disabled={reading} onClick={() => void describe()}>
+              {reading ? "Reading the plates…" : "Read the plates"}
+            </button>
+            <span className="hint" style={{ margin: 0 }}>
+              Proposes what these references will <i>lose</i> — a scar, a logo, an
+              exact colour. Not what they already show.
+            </span>
+          </div>
+          {readError ? <p className="hint warn">{readError}</p> : null}
+          {summary ? <p className="hint">{summary}</p> : null}
+          {traits.map((trait, index) => (
+            <div key={index} className="row" style={{ gap: 6, marginBottom: 2 }}>
+              <label className="check" title="Keep saying this even when the plates travel">
+                <input
+                  type="checkbox"
+                  checked={trait.driftProne}
+                  onChange={(event) =>
+                    setTraits((current) =>
+                      current.map((entry, at) =>
+                        at === index
+                          ? { ...entry, driftProne: event.target.checked }
+                          : entry,
+                      ),
+                    )
+                  }
+                />
+                drifts
+              </label>
+              <input
+                className="text"
+                value={trait.text}
+                onChange={(event) =>
+                  setTraits((current) =>
+                    current.map((entry, at) =>
+                      at === index ? { ...entry, text: event.target.value } : entry,
+                    ),
+                  )
+                }
+              />
+              <button
+                className="tagRemove"
+                title="Drop this trait"
+                onClick={() =>
+                  setTraits((current) => current.filter((_, at) => at !== index))
+                }
+              >
+                ×
+              </button>
+            </div>
+          ))}
+        </>
+      ) : null}
+
       <button
         className="btn primary"
         disabled={busy || !name || !effectiveHandle || plates.length === 0}
@@ -353,7 +445,8 @@ function NewItem({ client, assets, activeProject, busy, onCancel, onCreate }: Ne
             ...(activeProject && !studioWide ? { project: activeProject } : {}),
             realPerson,
             plates,
-            traits: [],
+            // Only what survived the artist's editing.
+            traits: traits.filter((trait) => trait.text.trim().length > 0),
           })
         }
         style={{ marginTop: 10 }}

@@ -21,6 +21,7 @@ import {
   resolveWorkspace,
 } from "@seed-ae/storage";
 import { PromptDirector } from "./agent/director.js";
+import { ItemDescriber } from "./agent/describer.js";
 import type { AppDepsInput } from "./app.js";
 import type { ProviderConfig, ServiceConfig } from "./config.js";
 import { GenerationService } from "./generation/generationService.js";
@@ -204,6 +205,13 @@ export async function bootstrap({
     ...(config.director
       ? {
           director: new PromptDirector({
+            apiKey: config.director.apiKey,
+            model: config.director.model,
+            effort: config.director.effort,
+            fast: config.director.fast,
+            workspace,
+          }),
+          describer: new ItemDescriber({
             apiKey: config.director.apiKey,
             model: config.director.model,
             effort: config.director.effort,

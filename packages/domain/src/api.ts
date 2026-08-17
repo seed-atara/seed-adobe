@@ -191,6 +191,35 @@ export const AdoptItemRequestSchema = z.object({
 });
 export type AdoptItemRequest = z.infer<typeof AdoptItemRequestSchema>;
 
+/**
+ * Ask a model to read an item's plates and propose what to write down.
+ *
+ * A proposal, never an application — the artist edits it before anything is
+ * saved. See ADR 0007.
+ */
+export const DescribeItemRequestSchema = z.object({
+  kind: ItemKindSchema,
+  name: z.string().max(120).optional(),
+  plates: z
+    .array(
+      z.object({
+        assetId: z.string().min(1),
+        role: PlateRoleSchema.default("reference"),
+      }),
+    )
+    .min(1)
+    .max(12),
+});
+export type DescribeItemRequest = z.infer<typeof DescribeItemRequestSchema>;
+
+export const DescribeItemResponseSchema = z.object({
+  traits: z.array(ItemTraitSchema),
+  avoid: z.array(z.string()),
+  /** One sentence for the artist, including any disagreement between plates. */
+  summary: z.string(),
+});
+export type DescribeItemResponse = z.infer<typeof DescribeItemResponseSchema>;
+
 export const ItemResponseSchema = z.object({ item: ItemDetailSchema });
 export type ItemResponse = z.infer<typeof ItemResponseSchema>;
 

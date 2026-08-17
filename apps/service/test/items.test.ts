@@ -318,3 +318,27 @@ describe("item packs", () => {
     expect(response.status).toBe(400);
   });
 });
+
+describe("reading the plates", () => {
+  it("says the feature is unavailable rather than failing obscurely without a key", async () => {
+    // The test service has no ANTHROPIC_API_KEY, which is the common case.
+    const plate = await adoptRealAsset(21);
+    const response = await post("/v1/items/describe", {
+      kind: "character",
+      plates: [{ assetId: plate, role: "face" }],
+    });
+    expect(response.status).toBe(422);
+    const body = await readJson(response);
+    expect(body.error.code).toBe("unsupported_capability");
+    // And it says what still works, rather than only what does not.
+    expect(body.error.message).toContain("by hand");
+  });
+
+  it("refuses a plate that is not in the library", async () => {
+    const response = await post("/v1/items/describe", {
+      kind: "prop",
+      plates: [{ assetId: "ast_nope", role: "detail" }],
+    });
+    expect([404, 422]).toContain(response.status);
+  });
+});

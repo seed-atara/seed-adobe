@@ -10,6 +10,7 @@ import {
 } from "@seed-ae/domain";
 import { resolveStorageUri, type WorkspaceLayout } from "@seed-ae/storage";
 import type { ProviderCapabilities } from "@seed-ae/providers";
+import { loadPreview } from "./preview.js";
 
 /**
  * The direction agent: a described scene becomes a reviewable generation plan.
@@ -178,27 +179,6 @@ export interface ComposeInput {
   providers: ProviderCapabilities[];
 }
 
-/** Reads a thumbnail for the model to look at. Missing ones are simply skipped. */
-async function loadPreview(
-  workspace: WorkspaceLayout,
-  asset: Asset,
-): Promise<{ data: string; mediaType: string } | undefined> {
-  const uri = asset.thumbnailUri ?? asset.storageUri;
-  if (!uri) return undefined;
-  // A video's own bytes are not an image; only its poster is worth sending.
-  if (!asset.thumbnailUri && asset.kind !== "image") return undefined;
-
-  try {
-    const bytes = await readFile(resolveStorageUri(workspace, uri));
-    const mediaType = asset.thumbnailUri
-      ? "image/png"
-      : (asset.mimeType ?? "image/png");
-    if (!/^image\/(png|jpeg|gif|webp)$/.test(mediaType)) return undefined;
-    return { data: bytes.toString("base64"), mediaType };
-  } catch {
-    return undefined;
-  }
-}
 
 /** How an asset is described in words, alongside its picture. */
 function describeCandidate(asset: Asset, index: number): string {

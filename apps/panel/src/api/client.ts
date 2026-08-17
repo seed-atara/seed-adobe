@@ -2,6 +2,8 @@ import type {
   AddRevisionRequest,
   AdoptItemRequest,
   Asset,
+  DescribeItemRequest,
+  DescribeItemResponse,
   ComposeRequest,
   ComposedPlan,
   Generation,
@@ -290,6 +292,11 @@ export class SeedClient {
     }
     const suffix = search.toString();
     return this.request(`/v1/items${suffix ? `?${suffix}` : ""}`);
+  }
+
+  /** Reads the plates and proposes traits. Costs a model call. */
+  describeItem(request: DescribeItemRequest): Promise<DescribeItemResponse> {
+    return this.request("/v1/items/describe", { method: "POST", body: request });
   }
 
   getItem(id: string): Promise<{ item: ItemDetail }> {

@@ -412,11 +412,25 @@ live in runtime configuration so a studio tunes its own house turnaround.
 
 **c. Import a pack** (§7).
 
-**And: let the director draft the traits.** The agent already reads real
-thumbnails. Pointed at an Item's plates it proposes a trait list with facets and
-priorities — a structured output, which is what it is good at, rather than prose
-we would then have to cut. Proposal only, editable, never auto-applied, under
-ADR 0007's boundary.
+**And: let a model read the plates.** *Built* — `POST /v1/items/describe`, and
+**Read the plates** in the create dialog.
+
+The instruction that makes it useful rather than a captioner is negative: the
+plates are attached to every generation, so describing what they plainly show
+spends prompt space restating what the model can already see. It is asked for
+what a reference **loses** — scars, tattoos, asymmetries, counts, logos, exact
+colours, specific materials — and marks exactly those `driftProne`. Obvious
+attributes are still recorded, unmarked, as a written record and a fallback for
+when no plate can travel.
+
+It is a separate button rather than part of Create: it costs a model call and a
+few seconds, and an artist who already knows what matters should not wait for a
+machine to agree. Everything it proposes is editable and nothing is saved until
+Create. Without `ANTHROPIC_API_KEY` the route says so and points at writing them
+by hand, which is ADR 0007's boundary and the same shape as the director.
+
+If the plates disagree with each other it is told to say so rather than average
+them into a subject that does not exist.
 
 ---
 

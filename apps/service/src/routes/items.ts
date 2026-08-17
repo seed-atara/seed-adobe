@@ -1,5 +1,6 @@
 import {
   AddRevisionRequestSchema,
+  DescribeItemRequestSchema,
   AdoptItemRequestSchema,
   CreateItemRequestSchema,
   CreateVariantRequestSchema,
@@ -72,6 +73,36 @@ export function adoptItemRoute(deps: AppDeps) {
 
     const item = deps.items.get(created.item.id);
     return json({ item }, 201);
+  };
+}
+
+/**
+ * Reads the plates and proposes traits.
+ *
+ * Deliberately not part of creating an item: it costs a model call and a few
+ * seconds, and an artist who already knows what matters should not wait for a
+ * machine to agree. It also proposes rather than applies, which is ADR 0007's
+ * boundary and the reason the panel shows every trait as editable.
+ */
+export function describeItemRoute(deps: AppDeps) {
+  return async ({ req }: RequestContext) => {
+    if (!deps.describer) {
+      throw new SeedError(
+        "unsupported_capability",
+        "ANTHROPIC_API_KEY is not set, so plates cannot be read for you. Traits can still be written by hand.",
+      );
+    }
+    const request = parseWith(DescribeItemRequestSchema, await readJsonBody(req));
+    const plates = request.plates.map((plate) => ({
+      asset: deps.assets.requireById(plate.assetId),
+      role: plate.role,
+    }));
+    const result = await deps.describer.describe({
+      kind: request.kind,
+      ...(request.name ? { name: request.name } : {}),
+      plates,
+    });
+    return json(result);
   };
 }
 
