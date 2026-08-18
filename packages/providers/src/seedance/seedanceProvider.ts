@@ -1,4 +1,5 @@
 import { SeedError, type JobStatus } from "@seed-ae/domain";
+import type { ArkAssetLibrary } from "../ark/assetLibrary.js";
 import type {
   GenerationProvider,
   MaterializedInput,
@@ -87,6 +88,19 @@ export interface SeedanceConfig {
    * 2.0-fast reject it at submit, so it is sent only where declared.
    */
   outputFormat?: "mov" | "mp4";
+  /**
+   * The Ark asset library, for registering image references as `asset://` ids.
+   *
+   * This is not an optimisation. Ark intercepts inline and hosted images that
+   * *may* contain a real person — "the input image 'content[1]' may contain
+   * real person" — and refuses the generation. The asset library is the
+   * sanctioned route, covered by the authorisation signed in the console, and
+   * for video an `asset://` id is an accepted reference (verified 2026-08-13;
+   * images/generations still refuses one, which is ADR 0010).
+   *
+   * Absent, references travel as links or inline and that refusal comes back.
+   */
+  assetLibrary?: ArkAssetLibrary;
   timeoutMs?: number;
   fetchImpl?: typeof fetch;
 }
@@ -319,6 +333,58 @@ export class SeedanceProvider implements GenerationProvider {
     };
   }
 
+  /**
+   * An image reference as an `asset://` id where that is possible.
+   *
+   * Registration is content-hashed and cached, so the same plate costs one
+   * round trip the first time and nothing afterwards — and it is free, unlike
+   * the generation it protects. A failure here falls back to the URL rather
+   * than failing the render: an inline reference that Ark may refuse still
+   * beats no attempt at all, and the refusal names itself clearly.
+   */
+  /** One image content part, addressed the way Ark prefers. */
+  private async imagePart(
+    input: MaterializedInput,
+    role: SeedanceImageRole,
+  ): Promise<ContentPart> {
+    return {
+      type: "image_url",
+      image_url: { url: await this.toAssetUrl(input) },
+      role,
+    };
+  }
+
+  private async toAssetUrl(input: MaterializedInput): Promise<string> {
+    const library = this.config.assetLibrary;
+    if (!library || !input.mimeType.startsWith("image/")) return toUrl(input);
+
+    try {
+      const bytes = await this.readBytes(input);
+      if (!bytes) return toUrl(input);
+      const resolved = await library.ensureAsset({
+        bytes,
+        filename: `${input.assetId ?? "reference"}.png`,
+        mimeType: input.mimeType,
+      });
+      return `asset://${resolved.assetId}`;
+    } catch {
+      return toUrl(input);
+    }
+  }
+
+  /** The bytes behind a materialized input, however it arrived. */
+  private async readBytes(input: MaterializedInput): Promise<Buffer | undefined> {
+    if (input.kind === "base64") return Buffer.from(input.value, "base64");
+    if (input.kind === "dataUrl") {
+      const comma = input.value.indexOf(",");
+      if (comma < 0) return undefined;
+      return Buffer.from(input.value.slice(comma + 1), "base64");
+    }
+    const response = await this.fetchImpl(input.value);
+    if (!response.ok) return undefined;
+    return Buffer.from(await response.arrayBuffer());
+  }
+
   async generateVideo(request: VideoGenerationRequest): Promise<ProviderJob> {
     const content: ContentPart[] = [];
 
@@ -354,20 +420,24 @@ export class SeedanceProvider implements GenerationProvider {
         );
       }
       if (request.firstFrame) {
-        content.push(seedanceImage(request.firstFrame, "first_frame"));
+        content.push(await this.imagePart(request.firstFrame, "first_frame"));
       }
-      content.push(seedanceImage(request.lastFrame, "last_frame"));
+      content.push(await this.imagePart(request.lastFrame, "last_frame"));
     } else if (loose.length === 1 && isFrame(loose[0] as MaterializedInput)) {
       // One image anchors the opening frame, which is what makes a captured
       // plate animate from itself rather than merely resemble itself. Only an
       // image: a lone *clip* is a motion reference, and sending it as a frame
       // means an image_url part holding a video.
       mode = "frame";
-      content.push(seedanceImage(loose[0] as MaterializedInput, "first_frame"));
+      content.push(await this.imagePart(loose[0] as MaterializedInput, "first_frame"));
     } else if (loose.length > 0) {
       mode = "reference";
       for (const reference of loose) {
-        content.push(seedanceReference(reference));
+        content.push(
+          reference.mimeType.startsWith("image/")
+            ? await this.imagePart(reference, "reference_image")
+            : seedanceReference(reference),
+        );
       }
     }
 

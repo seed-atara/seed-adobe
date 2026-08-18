@@ -337,13 +337,17 @@ describe("SeedreamProvider", () => {
 describe("SeedanceProvider", () => {
   const MODEL = "dreamina-seedance-2-5-260628";
 
-  function provider(handler: (url: string, init: RequestInit) => Response) {
+  function provider(
+    handler: (url: string, init: RequestInit) => Response,
+    extra: Partial<ConstructorParameters<typeof SeedanceProvider>[0]> = {},
+  ) {
     return new SeedanceProvider({
       baseUrl: "https://ark.example/api/v3",
       apiKey: "ark-key",
       model: MODEL,
       fetchImpl: (async (url: string, init: RequestInit) =>
         handler(String(url), init)) as unknown as typeof fetch,
+      ...extra,
     });
   }
 
@@ -426,6 +430,66 @@ describe("SeedanceProvider", () => {
         role: "first_frame",
       },
     ]);
+  });
+
+  it("registers an image reference and sends it as an asset id", async () => {
+    /*
+     * The sanctioned route. Ark refuses an inline or hosted image that "may
+     * contain real person" — which is any convincing face, invented or not —
+     * and an asset:// id registered under the account's signed authorisation
+     * is the accepted form for video.
+     *
+     * Every image part goes through it: first frame, last frame and each
+     * reference. A route that covers only some of them fails on the request
+     * that happens to use the others.
+     */
+    const registered: string[] = [];
+    const library = {
+      ensureAsset: async (input: { bytes: Buffer }) => {
+        registered.push(String(input.bytes.length));
+        return { assetId: "abc123", cached: false };
+      },
+    } as never;
+
+    let body: any;
+    const still = { kind: "base64" as const, value: "AAAA", mimeType: "image/png" };
+    await provider(
+      (_url, init) => {
+        body = JSON.parse(String(init.body));
+        return created("cgt-asset");
+      },
+      { assetLibrary: library },
+    ).generateVideo({
+      model: MODEL,
+      prompt: "a slow push in",
+      correlationId: "cor_asset",
+      firstFrame: still,
+      lastFrame: still,
+    });
+
+    const images = body.content.filter((part: any) => part.type === "image_url");
+    expect(images).toHaveLength(2);
+    for (const image of images) {
+      expect(image.image_url.url).toBe("asset://abc123");
+    }
+    expect(registered.length).toBeGreaterThan(0);
+  });
+
+  it("falls back to the inline form when there is no asset library", async () => {
+    // Better a reference Ark may refuse, with a message that names itself,
+    // than no reference at all.
+    let body: any;
+    await provider((_url, init) => {
+      body = JSON.parse(String(init.body));
+      return created("cgt-noasset");
+    }).generateVideo({
+      model: MODEL,
+      prompt: "a slow push in",
+      correlationId: "cor_noasset",
+      firstFrame: { kind: "base64", value: "AA", mimeType: "image/png" },
+    });
+    const image = body.content.find((part: any) => part.type === "image_url");
+    expect(image.image_url.url).toBe("data:image/png;base64,AA");
   });
 
   it("sends the resolution the artist chose", async () => {

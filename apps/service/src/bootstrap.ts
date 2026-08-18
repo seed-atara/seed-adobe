@@ -288,25 +288,37 @@ export function buildRegistry(
     registry.register(new MockImageProvider({ latencyMs: config.mockLatencyMs }));
   }
 
-  if (config.arkApiKey && config.seedreamModelId) {
-    // The asset library is optional and uses the *other* credential type.
-    let assetLibrary: ArkAssetLibrary | undefined;
-    if (config.arkAccessKeyId && config.arkSecretAccessKey) {
-      assetLibrary = new ArkAssetLibrary({
-        client: new ArkOpenApiClient({
-          accessKeyId: config.arkAccessKeyId,
-          secretAccessKey: config.arkSecretAccessKey,
-          host: config.arkOpenApiHost,
-          region: config.arkRegion,
-        }),
-        groupName: config.arkAssetGroup,
-        skipModeration: config.arkSkipModeration,
-        // CreateAsset fetches the file itself, so registration needs somewhere
-        // Ark can read from — the same bucket video references use.
-        ...(publisher ? { publisher } : {}),
-      });
-    }
+  /*
+   * The asset library, built once for whoever can use it.
+   *
+   * It used to be constructed inside the Seedream branch and handed only to
+   * Seedream — the one provider that cannot use it, since images/generations
+   * refuses an asset id in any form (ADR 0010). Seedance, which accepts
+   * `asset://` for video and is the provider that actually needs the
+   * sanctioned route, never received one. That is why references were still
+   * travelling as links and coming back "may contain real person".
+   *
+   * Optional, and uses the *other* credential type: an AK/SK pair signs the
+   * OpenAPI, and cannot authenticate inference.
+   */
+  let assetLibrary: ArkAssetLibrary | undefined;
+  if (config.arkApiKey && config.arkAccessKeyId && config.arkSecretAccessKey) {
+    assetLibrary = new ArkAssetLibrary({
+      client: new ArkOpenApiClient({
+        accessKeyId: config.arkAccessKeyId,
+        secretAccessKey: config.arkSecretAccessKey,
+        host: config.arkOpenApiHost,
+        region: config.arkRegion,
+      }),
+      groupName: config.arkAssetGroup,
+      skipModeration: config.arkSkipModeration,
+      // CreateAsset fetches the file itself, so registration needs somewhere
+      // Ark can read from — the same bucket video references use.
+      ...(publisher ? { publisher } : {}),
+    });
+  }
 
+  if (config.arkApiKey && config.seedreamModelId) {
     registry.register(
       new SeedreamProvider({
         baseUrl: config.arkBaseUrl,
@@ -369,6 +381,8 @@ export function buildRegistry(
           ...(config.seedanceOutputFormat
             ? { outputFormat: config.seedanceOutputFormat }
             : {}),
+          // The sanctioned route for anything that may contain a person.
+          ...(assetLibrary ? { assetLibrary } : {}),
         }),
       );
     }
