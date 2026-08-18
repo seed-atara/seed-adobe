@@ -459,8 +459,13 @@ export class SeedanceProvider implements GenerationProvider {
      * prompt describes a new shot, and refused when it describes an edit.
      */
     if (request.aspectRatio && mode !== "frame") body.ratio = request.aspectRatio;
-    // `size` carries the resolution keyword for video (480p/720p/1080p).
-    const resolution = request.parameters?.size ?? request.parameters?.resolution;
+    /*
+     * The request's own field first. `parameters` stays as a fallback for
+     * anything that still passes it that way, but it was never populated for
+     * video — which is how every clip ended up at the default resolution.
+     */
+    const resolution =
+      request.size ?? request.parameters?.size ?? request.parameters?.resolution;
     if (typeof resolution === "string") body.resolution = resolution;
 
     const payload = await this.call("POST", TASKS_PATH, body);

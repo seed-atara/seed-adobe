@@ -428,6 +428,28 @@ describe("SeedanceProvider", () => {
     ]);
   });
 
+  it("sends the resolution the artist chose", async () => {
+    /*
+     * This went unnoticed for the life of the feature: VideoGenerationRequest
+     * had no `size`, so the adapter read `parameters.size` and found nothing
+     * every time. Every clip came back at the provider default, and on this
+     * API resolution decides the codec, the bit depth and whether the colour
+     * is tagged — so a silently ignored 1080p was an 8-bit untagged 720p.
+     */
+    let body: any;
+    await provider((_url, init) => {
+      body = JSON.parse(String(init.body));
+      return created("cgt-res");
+    }).generateVideo({
+      model: MODEL,
+      prompt: "a slow push in",
+      correlationId: "cor_res",
+      size: "1080p",
+    });
+
+    expect(body.resolution).toBe("1080p");
+  });
+
   it("sends one still as both the first and the last frame, for a seamless loop", async () => {
     /*
      * The cycle a motion graphic wants: the shot ends exactly where it began.

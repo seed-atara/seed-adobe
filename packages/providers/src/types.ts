@@ -84,6 +84,15 @@ export interface ImageEditRequest extends ProviderRequestBase {
 }
 
 export interface VideoGenerationRequest extends ProviderRequestBase {
+  /**
+   * The resolution tier — `480p`, `720p`, `1080p`.
+   *
+   * A first-class field rather than something fished out of `parameters`,
+   * because that is exactly how it went missing: the image requests carry
+   * `size` and the video one did not, so the adapter read
+   * `parameters.size` and found nothing on every single video generation.
+   */
+  size?: string;
   durationSeconds?: number;
   /** Defaults to off; the provider decides what off means on the wire. */
   generateAudio?: boolean;

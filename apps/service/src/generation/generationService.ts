@@ -702,6 +702,11 @@ export class GenerationService {
 
     const payload: VideoGenerationRequest = {
       ...base,
+      // Carried explicitly, like the image requests already do. Without this
+      // every clip came back at the provider's default resolution whatever the
+      // artist chose — and on Seedance resolution decides codec, bit depth and
+      // whether the colour is tagged at all.
+      ...(request.size ? { size: request.size } : {}),
       ...(durationSeconds ? { durationSeconds } : {}),
       ...(aspectRatio ? { aspectRatio } : {}),
       // Sound is opt-in, and stays off when nothing asked for it.
