@@ -134,6 +134,36 @@ assuming BT.709 limited. It happens to be right. It is right by luck.
 
 ---
 
+## 4b. Is it *really* 10-bit?
+
+`ffprobe` says what a file claims. An 8-bit source encoded into a 10-bit
+container still reports `yuv444p10le` and still contains only 256 distinct
+values, spaced four apart — the claim and the content are different questions.
+
+```
+npx tsx scripts/check-depth.ts <clip>
+```
+
+It extracts a frame at **16 bits** and measures the spacing between distinct
+values. True 10-bit content lands on a fine lattice; 8-bit promoted to 10
+leaves gaps four times as wide whatever the header says.
+
+Measured on real Seedance output, 2026-08-18:
+
+| clip | pix_fmt | effective |
+|---|---|---|
+| 1080p mov | `yuv444p10le` | **~9.8 bits** |
+| 1080p mp4 | `yuv420p10le` | ~9.8 bits |
+| 720p mov | `yuv444p` | ~7.8 bits |
+
+9.8 rather than 10.0 is normal: a real image does not use every code value.
+7.8 is honest 8-bit, not degraded 10-bit — 720p *is* 8-bit H.264, so that is
+the correct answer rather than a failure of the file.
+
+**A screenshot cannot answer this.** PNG screen captures are 8-bit by
+construction, so banding seen in one may belong to the capture. Measure the
+file.
+
 ## 5. Test the import
 
 Import the returned clip. In Premiere, open **Lumetri Scopes → Waveform (YC)**.
