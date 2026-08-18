@@ -68,14 +68,16 @@ export function resultDepthWarning(
   context: AeContext | undefined,
   size: string,
   outputFormats: string[],
+  /** After Effects calls it a project; Premiere calls it the sequence. */
+  scope: "project" | "sequence" = "project",
 ): string | undefined {
   const depth = context?.colorManagement?.bitsPerChannel;
   if (depth === undefined || depth === 32) return undefined;
   // 10-bit only arrives at 1080p, and only from a provider offering containers.
   if (outputFormats.length === 0 || !/1080/.test(size)) return undefined;
   return (
-    `This project is ${depth}-bit. A 1080p result is 10-bit and carries ` +
-    "highlights above nominal white — After Effects clips those at import " +
-    "below 32-bit float, and they cannot be recovered afterwards."
+    `This ${scope} works in ${depth}-bit. A 1080p result is 10-bit and carries ` +
+    "highlights above nominal white — those are clipped on the way in below " +
+    "32-bit float, and cannot be recovered afterwards."
   );
 }

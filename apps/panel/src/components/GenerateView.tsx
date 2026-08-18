@@ -1066,7 +1066,7 @@ export function GenerateView({
               <>
                 {" "}
                 <button className="btn" onClick={onSetProjectDepth}>
-                  Set project to 32-bit
+                  Work in 32-bit float
                 </button>
               </>
             ) : null}

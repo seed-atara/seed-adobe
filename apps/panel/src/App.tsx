@@ -1201,12 +1201,14 @@ export function App({ tabs }: AppProps = {}) {
                 aeContext as never,
                 form.size,
                 providers.find((p) => p.id === form.providerId)?.outputFormats ?? [],
+                hostApp() === "PPRO" ? "sequence" : "project",
               )
                 ? {
                     depthWarning: resultDepthWarning(
                       aeContext as never,
                       form.size,
                       providers.find((p) => p.id === form.providerId)?.outputFormats ?? [],
+                      hostApp() === "PPRO" ? "sequence" : "project",
                     ) as string,
                   }
                 : {})}

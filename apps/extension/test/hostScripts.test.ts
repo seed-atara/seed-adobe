@@ -100,16 +100,6 @@ const HOST_SPECIFIC: Record<string, { host: string; because: string }> = {
     host: "seed-host.jsx",
     because: "adjustment layers and scriptable effects are After Effects only",
   },
-  /*
-   * Project bit depth is an After Effects property. Premiere has no
-   * equivalent — bit depth there is a per-sequence render setting, not a
-   * document-wide working precision — so there is nothing to raise and the
-   * panel offers the button only where it means something.
-   */
-  seedSetProjectDepth: {
-    host: "seed-host.jsx",
-    because: "project-wide working precision is an After Effects concept",
-  },
   seedListRegions: { host: "seed-host.jsx", because: "regions are compositions" },
   seedCreateRegion: { host: "seed-host.jsx", because: "regions are compositions" },
   seedCaptureRegion: { host: "seed-host.jsx", because: "regions are compositions" },

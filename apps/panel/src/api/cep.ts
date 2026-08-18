@@ -416,11 +416,13 @@ export class CepAeBridge {
    * finishes — a few seconds of 1080p is a few seconds of waiting.
    */
   /**
-   * Raises the project to 32-bit float, After Effects only.
+   * Raises the working precision to 32-bit float, in both hosts.
    *
-   * Never automatic: it changes the whole project, and a returned clip's
-   * superwhite is only clipped at import — so the artist can be asked rather
-   * than surprised.
+   * After Effects has a project-wide bit depth; Premiere has the sequence's
+   * Maximum Bit Depth switch, which is the same decision at a different scope.
+   * Both are asked for rather than applied: this changes a document the artist
+   * owns, and a returned clip's superwhite is only clipped at import — so
+   * there is time to ask.
    */
   async setProjectDepth(bits: 8 | 16 | 32 = 32): Promise<{ bitsPerChannel: number }> {
     await this.ensureHost();

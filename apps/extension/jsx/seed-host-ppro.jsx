@@ -123,6 +123,62 @@ function seedNoSequenceMessage() {
     );
 }
 
+/**
+ * The sequence's working precision, as a bit depth.
+ *
+ * Maximum Bit Depth is a boolean in Premiere: on means the render pipeline is
+ * 32-bit float, off means 8-bit. Settings are not readable on every build, so
+ * an unreadable one reports nothing rather than guessing — the panel says
+ * nothing when it does not know, which is the right silence.
+ */
+function seedSequenceDepth(sequence) {
+    try {
+        if (typeof sequence.getSettings !== "function") return 0;
+        var settings = sequence.getSettings();
+        if (!settings) return 0;
+        if (settings.maximumBitDepth === undefined) return 0;
+        return settings.maximumBitDepth ? 32 : 8;
+    } catch (error) {
+        return 0;
+    }
+}
+
+/**
+ * Turns on Maximum Bit Depth, and Maximum Render Quality with it.
+ *
+ * The two travel together for this purpose: depth keeps the values, quality
+ * keeps them through scaling. Per-sequence rather than per-project, which is
+ * simply what Premiere offers.
+ */
+function seedSetProjectDepth(bits) {
+    try {
+        var sequence = seedActiveSequence();
+        if (!sequence) return seedFail(seedNoSequenceMessage());
+        if (typeof sequence.getSettings !== "function" ||
+            typeof sequence.setSettings !== "function") {
+            return seedFail(
+                "this build of Premiere does not expose sequence settings to " +
+                "scripting. Turn on Maximum Bit Depth yourself in Sequence > " +
+                "Sequence Settings."
+            );
+        }
+
+        var settings = sequence.getSettings();
+        if (!settings) return seedFail("Premiere returned no sequence settings");
+
+        var wanted = Number(bits) || 32;
+        settings.maximumBitDepth = wanted >= 32;
+        if (settings.maximumRenderQuality !== undefined) {
+            settings.maximumRenderQuality = wanted >= 32;
+        }
+        sequence.setSettings(settings);
+
+        return seedOk({ bitsPerChannel: seedSequenceDepth(sequence) || wanted });
+    } catch (error) {
+        return seedFail(String(error));
+    }
+}
+
 function seedGetContext() {
     try {
         if (!app.project) return seedFail("no project is open");
@@ -151,6 +207,20 @@ function seedGetContext() {
             var seconds = seedPlayheadSeconds(sequence);
             context.timeSeconds = seconds;
             if (fps > 0) context.frameNumber = Math.round(seconds * fps);
+
+            /*
+             * Premiere's answer to After Effects' project bit depth is the
+             * sequence's Maximum Bit Depth switch: off renders the timeline in
+             * 8-bit, on renders in 32-bit float. It matters for the same
+             * reason — a returned clip carries highlights above nominal white,
+             * and 8-bit clips them where float keeps them.
+             *
+             * Reported as a depth so the panel can reason about one thing
+             * rather than two. It is a switch here and a number there, and
+             * mapping it is more honest than teaching the panel both.
+             */
+            var depth = seedSequenceDepth(sequence);
+            if (depth) context.colorManagement = { bitsPerChannel: depth };
         }
 
         return seedOk({ context: context });
@@ -2122,6 +2192,7 @@ function seedRangeInfo() {
 
 var seedPpro_ping = seedPing;
 var seedPpro_getContext = seedGetContext;
+var seedPpro_setProjectDepth = seedSetProjectDepth;
 var seedPpro_captureFrame = seedCaptureFrame;
 var seedPpro_pickupFrame = seedPickupFrame;
 var seedPpro_reservePlaceholder = seedReservePlaceholder;

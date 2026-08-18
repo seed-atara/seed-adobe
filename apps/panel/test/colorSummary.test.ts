@@ -88,10 +88,19 @@ describe("whether a returned clip survives import", () => {
 
   it("warns when a 10-bit result lands in an 8-bit project", () => {
     // 1080p comes back 10-bit with highlights above nominal white; below
-    // 32-bit float After Effects clips them at import, permanently.
+    // 32-bit float those are clipped on the way in, permanently.
     const warning = resultDepthWarning(ctx(8), "1080p", ["mov", "mp4"]);
     expect(warning).toContain("8-bit");
     expect(warning).toContain("above nominal white");
+    expect(warning).toContain("project");
+  });
+
+  it("calls it a sequence in Premiere, because that is what it is there", () => {
+    // Premiere's equivalent is the sequence's Maximum Bit Depth switch, so
+    // naming the project would be pointing at something that does not exist.
+    const warning = resultDepthWarning(ctx(8), "1080p", ["mov"], "sequence");
+    expect(warning).toContain("sequence");
+    expect(warning).not.toContain("project");
   });
 
   it("says nothing once the project is 32-bit float", () => {
