@@ -192,50 +192,88 @@ Preset PresetFor(A_long choice) {
  * reinterpret the struct, the two colour channels are swapped on the way in
  * and again on the way out — the arithmetic in between never has to know.
  */
+/*
+ * Channel positions, by memory order.
+ *
+ * This is where the last of the Premiere bug lived, and it is subtler than a
+ * swap. PF_Pixel8 and PF_PixelFloat name their members for After Effects'
+ * layout — alpha, red, green, blue, in that order in memory. Premiere hands
+ * over BGRA, so component 0 is blue, not alpha, and reading `.red` returns
+ * *green*.
+ *
+ *   memory index      0      1      2      3
+ *   ARGB (AE)         A      R      G      B
+ *   BGRA (Premiere)   B      G      R      A
+ *
+ * Swapping red and blue — the obvious fix, and the one tried first — turns
+ * `.red` into `.blue`, which reads component 3: the alpha. That is a rotation
+ * away from correct, and it is what made every frame teal.
+ *
+ * So channels are addressed by index rather than by name, and the index table
+ * is chosen from the format. No member of the struct is ever read for its
+ * name again.
+ */
+struct ChannelOrder {
+  int r, g, b, a;
+};
+
+constexpr ChannelOrder kArgb{1, 2, 3, 0};
+constexpr ChannelOrder kBgra{2, 1, 0, 3};
+
+inline ChannelOrder OrderFor(bool bgra) { return bgra ? kBgra : kArgb; }
+
 seed::Image WorldToImage8(const PF_EffectWorld& world, bool bgra) {
+  const ChannelOrder order = OrderFor(bgra);
   seed::Image image(world.width, world.height);
   for (int y = 0; y < world.height; ++y) {
-    const PF_Pixel8* row = reinterpret_cast<const PF_Pixel8*>(
+    // rowbytes is signed and negative for a bottom-up buffer, which Premiere
+    // supplies; the arithmetic walks the right way on its own.
+    const A_u_char* row = reinterpret_cast<const A_u_char*>(
         reinterpret_cast<const char*>(world.data) + y * world.rowbytes);
     for (int x = 0; x < world.width; ++x) {
+      const A_u_char* px = row + x * 4;
       float* out = image.At(x, y);
-      out[0] = (bgra ? row[x].blue : row[x].red) / 255.0f;
-      out[1] = row[x].green / 255.0f;
-      out[2] = (bgra ? row[x].red : row[x].blue) / 255.0f;
-      out[3] = row[x].alpha / 255.0f;
+      out[0] = px[order.r] / 255.0f;
+      out[1] = px[order.g] / 255.0f;
+      out[2] = px[order.b] / 255.0f;
+      out[3] = px[order.a] / 255.0f;
     }
   }
   return image;
 }
 
 seed::Image WorldToImage16(const PF_EffectWorld& world, bool bgra) {
+  const ChannelOrder order = OrderFor(bgra);
   seed::Image image(world.width, world.height);
   for (int y = 0; y < world.height; ++y) {
-    const PF_Pixel16* row = reinterpret_cast<const PF_Pixel16*>(
+    const A_u_short* row = reinterpret_cast<const A_u_short*>(
         reinterpret_cast<const char*>(world.data) + y * world.rowbytes);
     for (int x = 0; x < world.width; ++x) {
+      const A_u_short* px = row + x * 4;
       float* out = image.At(x, y);
       // 16-bit in After Effects is 0..32768, not 0..65535.
-      out[0] = (bgra ? row[x].blue : row[x].red) / float(PF_MAX_CHAN16);
-      out[1] = row[x].green / float(PF_MAX_CHAN16);
-      out[2] = (bgra ? row[x].red : row[x].blue) / float(PF_MAX_CHAN16);
-      out[3] = row[x].alpha / float(PF_MAX_CHAN16);
+      out[0] = px[order.r] / float(PF_MAX_CHAN16);
+      out[1] = px[order.g] / float(PF_MAX_CHAN16);
+      out[2] = px[order.b] / float(PF_MAX_CHAN16);
+      out[3] = px[order.a] / float(PF_MAX_CHAN16);
     }
   }
   return image;
 }
 
 seed::Image WorldToImage32(const PF_EffectWorld& world, bool bgra) {
+  const ChannelOrder order = OrderFor(bgra);
   seed::Image image(world.width, world.height);
   for (int y = 0; y < world.height; ++y) {
-    const PF_PixelFloat* row = reinterpret_cast<const PF_PixelFloat*>(
+    const float* row = reinterpret_cast<const float*>(
         reinterpret_cast<const char*>(world.data) + y * world.rowbytes);
     for (int x = 0; x < world.width; ++x) {
+      const float* px = row + x * 4;
       float* out = image.At(x, y);
-      out[0] = bgra ? row[x].blue : row[x].red;
-      out[1] = row[x].green;
-      out[2] = bgra ? row[x].red : row[x].blue;
-      out[3] = row[x].alpha;
+      out[0] = px[order.r];
+      out[1] = px[order.g];
+      out[2] = px[order.b];
+      out[3] = px[order.a];
     }
   }
   return image;
@@ -253,28 +291,29 @@ inline A_u_short To16(float v) {
 
 void ImageToWorld(const seed::Image& image, PF_EffectWorld& world, int depth,
                   bool bgra) {
+  const ChannelOrder order = OrderFor(bgra);
   for (int y = 0; y < world.height && y < image.height; ++y) {
     char* rowStart = reinterpret_cast<char*>(world.data) + y * world.rowbytes;
     for (int x = 0; x < world.width && x < image.width; ++x) {
       const float* in = image.At(x, y);
       if (depth == 32) {
-        PF_PixelFloat* row = reinterpret_cast<PF_PixelFloat*>(rowStart);
-        row[x].red = bgra ? in[2] : in[0];
-        row[x].green = in[1];
-        row[x].blue = bgra ? in[0] : in[2];
-        row[x].alpha = in[3];
+        float* px = reinterpret_cast<float*>(rowStart) + x * 4;
+        px[order.r] = in[0];
+        px[order.g] = in[1];
+        px[order.b] = in[2];
+        px[order.a] = in[3];
       } else if (depth == 16) {
-        PF_Pixel16* row = reinterpret_cast<PF_Pixel16*>(rowStart);
-        row[x].red = To16(bgra ? in[2] : in[0]);
-        row[x].green = To16(in[1]);
-        row[x].blue = To16(bgra ? in[0] : in[2]);
-        row[x].alpha = To16(in[3]);
+        A_u_short* px = reinterpret_cast<A_u_short*>(rowStart) + x * 4;
+        px[order.r] = To16(in[0]);
+        px[order.g] = To16(in[1]);
+        px[order.b] = To16(in[2]);
+        px[order.a] = To16(in[3]);
       } else {
-        PF_Pixel8* row = reinterpret_cast<PF_Pixel8*>(rowStart);
-        row[x].red = To8(bgra ? in[2] : in[0]);
-        row[x].green = To8(in[1]);
-        row[x].blue = To8(bgra ? in[0] : in[2]);
-        row[x].alpha = To8(in[3]);
+        A_u_char* px = reinterpret_cast<A_u_char*>(rowStart) + x * 4;
+        px[order.r] = To8(in[0]);
+        px[order.g] = To8(in[1]);
+        px[order.b] = To8(in[2]);
+        px[order.a] = To8(in[3]);
       }
     }
   }

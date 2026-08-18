@@ -245,3 +245,62 @@ Sources:
 - Premiere Pro Scripting Guide, ComponentParam — https://ppro-scripting.docsforadobe.dev/sequence/componentparam/
 - "How to add effects to clips in Premiere with CEP/ExtendScript?" — https://community.adobe.com/t5/premiere-pro-discussions/how-to-add-effects-to-clips-in-premiere-with-cep-extendscript/td-p/10431363
 - "ExtendScript: How to retain Effects when copying TrackItems between Sequences?" — https://community.adobe.com/questions-729/extendscript-how-to-retain-effects-when-copying-trackitems-between-sequences-1550341
+
+## Hosting an After Effects effect inside Premiere — MEASURED (2026-08-18)
+
+The film look rendered as flickering teal, grey and black frames in Premiere
+while working in After Effects. Three separate bugs, and the first two
+diagnoses were wrong because the symptom was read as a colour problem when it
+was not.
+
+Established by making the plugin log what the host actually does, after two
+rounds of reasoning from screenshots produced two wrong answers. A plugin
+cannot be stepped through inside a host; it can be asked to write a file.
+
+**1. Premiere calls `PF_Cmd_RENDER`, not SmartFX.** The effect declared
+`PF_OutFlag2_SUPPORTS_SMART_RENDER` and implemented only `PF_Cmd_SMART_RENDER`.
+Premiere calls the legacy command, which fell through `default: break;` — so
+the effect returned success having never written the output world, and what
+reached the screen was uninitialised memory.
+
+That is what the *variation* meant, and it should have been the first clue: a
+pixel format bug is wrong the same way on every frame. Only uninitialised
+memory is wrong differently each time.
+
+**2. Premiere supplies BGRA, and must be told what we accept.** Without a
+declaration it supplies VUYA — YUV — which read as colour is black and
+flicker. `PF_PixelFormatSuite1` in `PF_Cmd_GLOBAL_SETUP`, guarded by
+`in_data->appl_id == kAppID_Premiere`:
+
+```c
+ClearSupportedPixelFormats(effect_ref);
+AddSupportedPixelFormat(effect_ref, PrPixelFormat_BGRA_4444_32f);
+AddSupportedPixelFormat(effect_ref, PrPixelFormat_BGRA_4444_8u);
+```
+
+`PF_WorldSuite::PF_GetPixelFormat` cannot answer this question — it speaks
+After Effects' enum, which has no name for a Premiere format. The pixel format
+suite's own `GetPixelFormat` returns the `PrPixelFormat` and is the only
+reliable source.
+
+**3. BGRA is a rotation from ARGB, not a swap.** This is the one that survived
+two attempted fixes. `PF_Pixel8` and `PF_PixelFloat` name their members for
+After Effects' memory order:
+
+| memory index | 0 | 1 | 2 | 3 |
+|---|---|---|---|---|
+| ARGB (After Effects) | A | R | G | B |
+| BGRA (Premiere) | B | G | R | A |
+
+So under Premiere `.red` reads **green** and `.alpha` reads **blue**. Swapping
+red and blue — the obvious fix — makes `.red` return component 3, the alpha.
+Channels must be addressed **by index**, with the index table chosen from the
+format. Never by member name.
+
+**Also true and easy to get wrong:** `rowbytes` is signed and **negative** in
+Premiere, because the buffer is bottom-up. `data + y * rowbytes` handles that
+correctly on its own; special-casing it would break it.
+
+`MAKE_PIXEL_FORMAT_FOURCC` packs its characters reversed, so a FourCC printed
+most-significant-byte-first reads backwards: `BGRA_4444_32f` prints as `arGB`.
+Worth knowing before concluding the host sent ARGB when it sent the opposite.
