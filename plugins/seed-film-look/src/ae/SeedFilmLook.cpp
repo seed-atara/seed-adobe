@@ -486,6 +486,13 @@ seed::Config ConfigFromParams(PF_ParamDef* params[], Preset& preset) {
 
 PF_Err PreRender(PF_InData* in_data, PF_OutData* out_data,
                  PF_PreRenderExtra* extra) {
+  /*
+   * Logged because a failure here is silent and total: SmartFX will not call
+   * SMART_RENDER if pre-render errors, and an effect that never renders leaves
+   * the output world untouched — which looks exactly like the garbage this
+   * whole investigation started with.
+   */
+  SeedLog("prerender: enter");
   PF_Err err = PF_Err_NONE;
   PF_RenderRequest req = extra->input->output_request;
   PF_CheckoutResult in_result;
@@ -510,6 +517,7 @@ PF_Err PreRender(PF_InData* in_data, PF_OutData* out_data,
     UnionLRect(&in_result.result_rect, &extra->output->result_rect);
     UnionLRect(&in_result.max_result_rect, &extra->output->max_result_rect);
   }
+  SeedLog("prerender: exit err=%d", int(err));
   return err;
 }
 
@@ -697,6 +705,13 @@ PF_Err EffectMain(PF_Cmd cmd, PF_InData* in_data, PF_OutData* out_data,
                   PF_ParamDef* params[], PF_LayerDef* output, void* extra) {
   PF_Err err = PF_Err_NONE;
   try {
+    /*
+     * Every command, named. Two rounds of this bug were spent inferring which
+     * entry points a host uses from what the picture looked like; the host will
+     * simply say, if asked.
+     */
+    SeedLog("cmd=%d", int(cmd));
+
     switch (cmd) {
       case PF_Cmd_ABOUT:
         err = About(in_data, out_data, params, output);
