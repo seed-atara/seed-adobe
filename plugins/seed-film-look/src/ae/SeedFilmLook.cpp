@@ -1,5 +1,6 @@
 #include "SeedFilmLook.h"
 
+#include <atomic>
 #include <cstdarg>
 #include <cstdio>
 #include <cstdlib>
@@ -34,13 +35,20 @@ bool HostIsPremiere(const PF_InData* in_data) {
  * A diagnostic log, because a plugin cannot be stepped through inside a host
  * and guessing at what Premiere hands over has already been wrong twice.
  *
- * Writes to %TEMP%\seed-film-look.log, appended, one line per event. Off
- * unless SEED_FILM_LOOK_LOG is set in the environment, so a shipped plugin
- * costs one getenv per render and nothing else.
+ * Always on, and bounded rather than switched: a diagnostic that needs an
+ * environment variable set before the host launches is a diagnostic nobody
+ * runs, and this one exists precisely because the failure is only reproducible
+ * inside Premiere. The cap keeps an always-on log from being a liability —
+ * enough lines to see a pattern across a scrub, then silence forever.
+ *
+ * Writes to %TEMP%\seed-film-look.log, appended, one line per event. Delete
+ * the file to start a fresh capture; the cap resets when the host restarts.
  */
+constexpr int kLogLineLimit = 400;
+
 void SeedLog(const char* format, ...) {
-  static const bool enabled = std::getenv("SEED_FILM_LOOK_LOG") != nullptr;
-  if (!enabled) return;
+  static std::atomic<int> written{0};
+  if (written.fetch_add(1) >= kLogLineLimit) return;
 
   const char* temp = std::getenv("TEMP");
   if (!temp) return;
