@@ -1,5 +1,9 @@
 #include "SeedFilmLook.h"
 
+#include <cstdarg>
+#include <cstdio>
+#include <cstdlib>
+#include <string>
 #include <vector>
 
 #include "../core/look.h"
@@ -20,10 +24,47 @@
 
 namespace {
 /** Premiere's application id, as it arrives in PF_InData::appl_id. */
-constexpr A_long kPremiereApplId = 'PrMr';
+constexpr A_long kPremiereApplId = kAppID_Premiere;
 
 bool HostIsPremiere(const PF_InData* in_data) {
   return in_data && in_data->appl_id == kPremiereApplId;
+}
+
+/*
+ * A diagnostic log, because a plugin cannot be stepped through inside a host
+ * and guessing at what Premiere hands over has already been wrong twice.
+ *
+ * Writes to %TEMP%\seed-film-look.log, appended, one line per event. Off
+ * unless SEED_FILM_LOOK_LOG is set in the environment, so a shipped plugin
+ * costs one getenv per render and nothing else.
+ */
+void SeedLog(const char* format, ...) {
+  static const bool enabled = std::getenv("SEED_FILM_LOOK_LOG") != nullptr;
+  if (!enabled) return;
+
+  const char* temp = std::getenv("TEMP");
+  if (!temp) return;
+  std::string path(temp);
+  path += "\\seed-film-look.log";
+
+  FILE* file = nullptr;
+  if (fopen_s(&file, path.c_str(), "a") != 0 || !file) return;
+  va_list args;
+  va_start(args, format);
+  vfprintf(file, format, args);
+  va_end(args);
+  fputc('\n', file);
+  fclose(file);
+}
+
+/** A FourCC as four readable characters, for the log. */
+std::string FourCC(unsigned long value) {
+  char text[5] = {char((value >> 24) & 0xff), char((value >> 16) & 0xff),
+                  char((value >> 8) & 0xff), char(value & 0xff), 0};
+  for (int i = 0; i < 4; ++i) {
+    if (text[i] < 32 || text[i] > 126) text[i] = '.';
+  }
+  return std::string(text);
 }
 }  // namespace
 
@@ -279,17 +320,25 @@ PF_Err GlobalSetup(PF_InData* in_data, PF_OutData* out_data, PF_ParamDef* [],
    * After Effects ignores all of this — the suite is absent there, and the
    * scoper simply yields nothing.
    */
+  SeedLog("GlobalSetup: appl_id=%s premiere=%d", FourCC(in_data->appl_id).c_str(),
+          HostIsPremiere(in_data) ? 1 : 0);
+
   if (HostIsPremiere(in_data)) {
     AEFX_SuiteScoper<PF_PixelFormatSuite1> pixelFormatSuite =
         AEFX_SuiteScoper<PF_PixelFormatSuite1>(in_data, kPFPixelFormatSuite,
                                                kPFPixelFormatSuiteVersion1,
                                                out_data);
     if (pixelFormatSuite.operator->() != nullptr) {
-      pixelFormatSuite->ClearSupportedPixelFormats(in_data->effect_ref);
-      pixelFormatSuite->AddSupportedPixelFormat(in_data->effect_ref,
-                                                PrPixelFormat_BGRA_4444_32f);
-      pixelFormatSuite->AddSupportedPixelFormat(in_data->effect_ref,
-                                                PrPixelFormat_BGRA_4444_8u);
+      PF_Err clearErr =
+          pixelFormatSuite->ClearSupportedPixelFormats(in_data->effect_ref);
+      PF_Err add32 = pixelFormatSuite->AddSupportedPixelFormat(
+          in_data->effect_ref, PrPixelFormat_BGRA_4444_32f);
+      PF_Err add8 = pixelFormatSuite->AddSupportedPixelFormat(
+          in_data->effect_ref, PrPixelFormat_BGRA_4444_8u);
+      SeedLog("GlobalSetup: declared formats clear=%d bgra32f=%d bgra8u=%d",
+              int(clearErr), int(add32), int(add8));
+    } else {
+      SeedLog("GlobalSetup: PF_PixelFormatSuite unavailable");
     }
   }
 
@@ -500,6 +549,36 @@ PF_Err SmartRender(PF_InData* in_data, PF_OutData* out_data,
      * genuinely unexpected passes the frame along untouched instead of
      * guessing at it.
      */
+    /*
+     * Ask Premiere directly what this buffer is.
+     *
+     * PF_WorldSuite::PF_GetPixelFormat answers in After Effects' vocabulary,
+     * which cannot name a Premiere format — so relying on it alone is how a
+     * BGRA or VUYA buffer ends up in the ARGB branch. The pixel format suite
+     * answers in Premiere's own, and is the only source that can tell them
+     * apart.
+     */
+    PrPixelFormat prFormat = PrPixelFormat_Invalid;
+    bool prFormatKnown = false;
+    if (HostIsPremiere(in_data)) {
+      AEFX_SuiteScoper<PF_PixelFormatSuite1> pixelFormatSuite =
+          AEFX_SuiteScoper<PF_PixelFormatSuite1>(in_data, kPFPixelFormatSuite,
+                                                 kPFPixelFormatSuiteVersion1,
+                                                 out_data);
+      if (pixelFormatSuite.operator->() != nullptr &&
+          pixelFormatSuite->GetPixelFormat(input_worldP, &prFormat) ==
+              PF_Err_NONE) {
+        prFormatKnown = true;
+      }
+    }
+
+    SeedLog("render: ae_format=%d pr_format=%s(%d) known=%d %dx%d rowbytes=%d",
+            int(format),
+            prFormatKnown ? FourCC(static_cast<unsigned long>(prFormat)).c_str()
+                          : "n/a",
+            int(prFormat), prFormatKnown ? 1 : 0, int(input_worldP->width),
+            int(input_worldP->height), int(input_worldP->rowbytes));
+
     const bool bgra = HostIsPremiere(in_data);
 
     int depth = 0;
@@ -532,6 +611,8 @@ PF_Err SmartRender(PF_InData* in_data, PF_OutData* out_data,
         }
         break;
     }
+
+    SeedLog("render: depth=%d bgra=%d", depth, bgra ? 1 : 0);
 
     if (depth == 0) {
       // Untouched beats wrong. A pass-through frame is obviously "no look
