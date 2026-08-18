@@ -513,6 +513,124 @@ PF_Err PreRender(PF_InData* in_data, PF_OutData* out_data,
   return err;
 }
 
+/**
+ * The look itself, on a pair of worlds.
+ *
+ * Shared because there are two ways in. After Effects calls SmartFX; Premiere
+ * calls the *legacy* PF_Cmd_RENDER, and there was no case for it — so the
+ * effect returned success having never written the output world, and what
+ * reached the screen was whatever happened to be in that buffer. That is the
+ * flicker: teal on one frame, grey on the next, black on another, all of it
+ * uninitialised memory rather than anything this code computed.
+ */
+PF_Err ApplyToWorlds(PF_InData* in_data, PF_OutData* out_data,
+                     PF_ParamDef* paramPtrs[], PF_EffectWorld* input_worldP,
+                     PF_EffectWorld* output_worldP, const char* via) {
+  PF_Err err = PF_Err_NONE;
+  if (!input_worldP || !output_worldP) return err;
+
+  PF_PixelFormat format = PF_PixelFormat_ARGB32;
+  AEFX_SuiteScoper<PF_WorldSuite2> worldSuite =
+      AEFX_SuiteScoper<PF_WorldSuite2>(in_data, kPFWorldSuite,
+                                       kPFWorldSuiteVersion2, out_data);
+  worldSuite->PF_GetPixelFormat(input_worldP, &format);
+
+  /*
+   * Ask Premiere directly what this buffer is. PF_GetPixelFormat answers in
+   * After Effects' vocabulary, which has no name for a Premiere format, so it
+   * cannot tell BGRA from VUYA from ARGB on its own.
+   */
+  PrPixelFormat prFormat = PrPixelFormat_Invalid;
+  bool prFormatKnown = false;
+  if (HostIsPremiere(in_data)) {
+    AEFX_SuiteScoper<PF_PixelFormatSuite1> pixelFormatSuite =
+        AEFX_SuiteScoper<PF_PixelFormatSuite1>(in_data, kPFPixelFormatSuite,
+                                               kPFPixelFormatSuiteVersion1,
+                                               out_data);
+    if (pixelFormatSuite.operator->() != nullptr &&
+        pixelFormatSuite->GetPixelFormat(input_worldP, &prFormat) ==
+            PF_Err_NONE) {
+      prFormatKnown = true;
+    }
+  }
+
+  const bool bgra = HostIsPremiere(in_data);
+
+  int depth = 0;
+  seed::Image image;
+  if (prFormatKnown) {
+    // Premiere's own answer wins where we have it.
+    if (prFormat == PrPixelFormat_BGRA_4444_32f) {
+      depth = 32;
+      image = WorldToImage32(*input_worldP, true);
+    } else if (prFormat == PrPixelFormat_BGRA_4444_8u) {
+      depth = 8;
+      image = WorldToImage8(*input_worldP, true);
+    }
+  } else {
+    switch (format) {
+      case PF_PixelFormat_ARGB128:
+        depth = 32;
+        image = WorldToImage32(*input_worldP, bgra);
+        break;
+      case PF_PixelFormat_ARGB64:
+        depth = 16;
+        image = WorldToImage16(*input_worldP, bgra);
+        break;
+      case PF_PixelFormat_ARGB32:
+        depth = 8;
+        image = WorldToImage8(*input_worldP, bgra);
+        break;
+      default:
+        break;
+    }
+  }
+
+  SeedLog("render(%s): ae=%d pr=%s known=%d depth=%d bgra=%d %dx%d rb=%d", via,
+          int(format),
+          prFormatKnown ? FourCC(static_cast<unsigned long>(prFormat)).c_str()
+                        : "n/a",
+          prFormatKnown ? 1 : 0, depth, bgra ? 1 : 0, int(input_worldP->width),
+          int(input_worldP->height), int(input_worldP->rowbytes));
+
+  if (depth == 0) {
+    /*
+     * A format we never agreed to read. Copy the frame through rather than
+     * misinterpret it — and above all rather than leave the output world
+     * untouched, which is what produced uninitialised garbage before.
+     */
+    ERR(PF_COPY(input_worldP, output_worldP, NULL, NULL));
+    return err;
+  }
+
+  Preset preset;
+  const seed::Config config = ConfigFromParams(paramPtrs, preset);
+
+  /*
+   * The frame number drives grain. Stable within a frame so it does not crawl
+   * while an artist scrubs, and different between frames so it does not read
+   * as dirt on the lens.
+   */
+  const int frame =
+      int(in_data->current_time / (in_data->time_step ? in_data->time_step : 1));
+
+  seed::ApplyFilmLook(image, config, preset.stock, frame);
+  ImageToWorld(image, *output_worldP, depth, bgra);
+  return err;
+}
+
+/**
+ * The legacy render command, which is what Premiere actually calls.
+ *
+ * Parameters arrive already checked out in `params`, and the output world is
+ * handed over directly — no checkout, no checkin, none of SmartFX's ceremony.
+ */
+PF_Err LegacyRender(PF_InData* in_data, PF_OutData* out_data,
+                    PF_ParamDef* params[], PF_LayerDef* output) {
+  return ApplyToWorlds(in_data, out_data, params, &params[SEED_INPUT]->u.ld,
+                       output, "legacy");
+}
+
 PF_Err SmartRender(PF_InData* in_data, PF_OutData* out_data,
                    PF_SmartRenderExtra* extra) {
   PF_Err err = PF_Err_NONE;
@@ -538,111 +656,9 @@ PF_Err SmartRender(PF_InData* in_data, PF_OutData* out_data,
                                        &input_worldP));
   ERR(extra->cb->checkout_output(in_data->effect_ref, &output_worldP));
 
-  if (!err && input_worldP && output_worldP) {
-    PF_PixelFormat format = PF_PixelFormat_ARGB32;
-    AEFX_SuiteScoper<PF_WorldSuite2> worldSuite =
-        AEFX_SuiteScoper<PF_WorldSuite2>(in_data, kPFWorldSuite,
-                                         kPFWorldSuiteVersion2, out_data);
-    worldSuite->PF_GetPixelFormat(input_worldP, &format);
-
-    /*
-     * Premiere hands over BGRA — 32-bit float in a float sequence, 8-bit
-     * otherwise — because GlobalSetup asked for exactly those two and refused
-     * VUYA. After Effects hands over ARGB and knows nothing about any of this.
-     *
-     * The old code had a `default:` that read *any* unrecognised format as
-     * 8-bit ARGB, which is how a 32f BGRA frame became noise and a VUYA frame
-     * became black: it was not a colour bug, it was reading one buffer as
-     * another. Formats are now named rather than fallen through, and anything
-     * genuinely unexpected passes the frame along untouched instead of
-     * guessing at it.
-     */
-    /*
-     * Ask Premiere directly what this buffer is.
-     *
-     * PF_WorldSuite::PF_GetPixelFormat answers in After Effects' vocabulary,
-     * which cannot name a Premiere format — so relying on it alone is how a
-     * BGRA or VUYA buffer ends up in the ARGB branch. The pixel format suite
-     * answers in Premiere's own, and is the only source that can tell them
-     * apart.
-     */
-    PrPixelFormat prFormat = PrPixelFormat_Invalid;
-    bool prFormatKnown = false;
-    if (HostIsPremiere(in_data)) {
-      AEFX_SuiteScoper<PF_PixelFormatSuite1> pixelFormatSuite =
-          AEFX_SuiteScoper<PF_PixelFormatSuite1>(in_data, kPFPixelFormatSuite,
-                                                 kPFPixelFormatSuiteVersion1,
-                                                 out_data);
-      if (pixelFormatSuite.operator->() != nullptr &&
-          pixelFormatSuite->GetPixelFormat(input_worldP, &prFormat) ==
-              PF_Err_NONE) {
-        prFormatKnown = true;
-      }
-    }
-
-    SeedLog("render: ae_format=%d pr_format=%s(%d) known=%d %dx%d rowbytes=%d",
-            int(format),
-            prFormatKnown ? FourCC(static_cast<unsigned long>(prFormat)).c_str()
-                          : "n/a",
-            int(prFormat), prFormatKnown ? 1 : 0, int(input_worldP->width),
-            int(input_worldP->height), int(input_worldP->rowbytes));
-
-    const bool bgra = HostIsPremiere(in_data);
-
-    int depth = 0;
-    seed::Image image;
-    switch (format) {
-      case PF_PixelFormat_ARGB128:
-        depth = 32;
-        image = WorldToImage32(*input_worldP, bgra);
-        break;
-      case PF_PixelFormat_ARGB64:
-        depth = 16;
-        image = WorldToImage16(*input_worldP, bgra);
-        break;
-      case PF_PixelFormat_ARGB32:
-        depth = 8;
-        image = WorldToImage8(*input_worldP, bgra);
-        break;
-      default:
-        /*
-         * Premiere reports its own formats through this same call. Map the two
-         * we asked for; anything else is a format we never agreed to read, and
-         * copying the frame through unchanged is the only honest response.
-         */
-        if (format == static_cast<PF_PixelFormat>(PrPixelFormat_BGRA_4444_32f)) {
-          depth = 32;
-          image = WorldToImage32(*input_worldP, true);
-        } else if (format == static_cast<PF_PixelFormat>(PrPixelFormat_BGRA_4444_8u)) {
-          depth = 8;
-          image = WorldToImage8(*input_worldP, true);
-        }
-        break;
-    }
-
-    SeedLog("render: depth=%d bgra=%d", depth, bgra ? 1 : 0);
-
-    if (depth == 0) {
-      // Untouched beats wrong. A pass-through frame is obviously "no look
-      // applied"; a misread one looks like the effect is broken, which is
-      // exactly the report this fixes.
-      PF_COPY(input_worldP, output_worldP, NULL, NULL);
-      return err;
-    }
-
-    Preset preset;
-    const seed::Config config = ConfigFromParams(paramPtrs, preset);
-
-    /*
-     * The frame number drives grain. Stable within a frame so it does not
-     * crawl while an artist scrubs, and different between frames so it does
-     * not read as dirt on the lens.
-     */
-    const int frame =
-        int(in_data->current_time / (in_data->time_step ? in_data->time_step : 1));
-
-    seed::ApplyFilmLook(image, config, preset.stock, frame);
-    ImageToWorld(image, *output_worldP, depth, bgra);
+  if (!err) {
+    ERR(ApplyToWorlds(in_data, out_data, paramPtrs, input_worldP, output_worldP,
+                      "smart"));
   }
 
   // Always check in, whatever went wrong on the way here.
@@ -690,6 +706,10 @@ PF_Err EffectMain(PF_Cmd cmd, PF_InData* in_data, PF_OutData* out_data,
         break;
       case PF_Cmd_PARAMS_SETUP:
         err = ParamsSetup(in_data, out_data, params, output);
+        break;
+      case PF_Cmd_RENDER:
+        // Premiere's path. Absent until now, which is the whole bug.
+        err = LegacyRender(in_data, out_data, params, output);
         break;
       case PF_Cmd_SMART_PRE_RENDER:
         err = PreRender(in_data, out_data, (PF_PreRenderExtra*)extra);
