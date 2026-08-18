@@ -940,3 +940,48 @@ in `BYTEDANCE_REPLY_FULL_RANGE.md`.
 Chromium, which cannot decode H.264 4:4:4 Predictive or HEVC Rext. A `mov`
 result will fall back to the "video" badge. `return_last_frame` is measured real
 and is the obvious fix.
+
+### Do not stretch the range — measured (2026-08-18)
+
+Asked whether SEED should expand limited range back to full. Measured with
+`ffmpeg signalstats` on the clips generated above, rather than reasoning from
+the tag:
+
+| clip | luma floor | luma ceiling | legal range |
+|---|---|---|---|
+| 720p mov, 8-bit | **16** | **235** | 16–235 |
+| 1080p mov, 10-bit | 65 | **983** | 64–940 |
+
+The 8-bit clip lands exactly on the legal limits, so the `tv` tag is honest and
+the untagged 720p output is nonetheless interpreted correctly by every tool's
+default assumption. The data really is limited range; it is not full range
+mislabelled.
+
+**The 10-bit clip exceeds the legal ceiling.** 983 against a nominal white of
+940 — real superwhite headroom, in the highlights. That single number settles
+the question:
+
+- **Stretching 64–940 to 0–1023 would clip everything above 940**, throwing away
+  highlight detail that is present in the file.
+- Stretching in 8-bit is worse again: 16–235 is 220 levels mapped onto 256, so
+  the result is banded by construction — gaps where no code value can land.
+
+So SEED does no range conversion, which was already true (there is none anywhere
+in the pipeline) and is now true on purpose. The correct handling is to let the
+host expand it **in float**, where limited maps to 0–1 and the superwhite
+survives as values above 1.0 rather than being crushed against a ceiling.
+
+**Best quality, in order of how much each is worth:**
+
+1. **1080p + `mov`.** 4:4:4, 10-bit, and correctly tagged so nothing has to
+   guess. The tagging matters as much as the chroma — below 1080p nothing is
+   signalled and correctness depends on a default that happens to match.
+2. **32-bit float in After Effects.** Anything less clips the superwhite at
+   import and the 10-bit precision is wasted.
+3. **`bitrate_mode: high`**, already the default.
+4. Do not add a range conversion. The loss happened at encode; expanding
+   afterwards cannot recover it and does add banding.
+
+The remaining lossy step is on the *input* side — full-range sRGB going in,
+limited range coming out — and that is a question for ByteDance, not something
+correctable here.
