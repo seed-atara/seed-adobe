@@ -24,7 +24,8 @@
     "watch:seedream": "node scripts/watch-seedream.mjs",
     "plugin:vectors": "tsx scripts/filmlook-vectors.ts",
     "plugin:test": "node scripts/plugin-test.mjs",
-    "plugin:build": "node scripts/plugin-build.mjs"
+    "plugin:build": "node scripts/plugin-build.mjs",
+    "plugin:install": "cmd /c plugins\\seed-film-look\\install.cmd"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",
