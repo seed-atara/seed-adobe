@@ -51,3 +51,31 @@ export function colorWarning(context: AeContext): string | undefined {
     "skies and highlight rolloffs."
   );
 }
+
+/**
+ * Why a *returned* clip may not survive import, if there is a reason.
+ *
+ * The mirror of `colorWarning`, which is about the frame going out. A Seedance
+ * result at 1080p is 10-bit and carries values above nominal white — measured
+ * at 983 against a ceiling of 940. Below 32-bit float After Effects clips those
+ * at import and they are gone; the extra precision was paid for and thrown
+ * away at the door.
+ *
+ * Only said where it can be acted on: an 8-bit project importing an 8-bit
+ * result has nothing to fix.
+ */
+export function resultDepthWarning(
+  context: AeContext | undefined,
+  size: string,
+  outputFormats: string[],
+): string | undefined {
+  const depth = context?.colorManagement?.bitsPerChannel;
+  if (depth === undefined || depth === 32) return undefined;
+  // 10-bit only arrives at 1080p, and only from a provider offering containers.
+  if (outputFormats.length === 0 || !/1080/.test(size)) return undefined;
+  return (
+    `This project is ${depth}-bit. A 1080p result is 10-bit and carries ` +
+    "highlights above nominal white — After Effects clips those at import " +
+    "below 32-bit float, and they cannot be recovered afterwards."
+  );
+}

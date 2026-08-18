@@ -415,6 +415,20 @@ export class CepAeBridge {
    * is synchronous inside After Effects, so the panel stays busy until it
    * finishes — a few seconds of 1080p is a few seconds of waiting.
    */
+  /**
+   * Raises the project to 32-bit float, After Effects only.
+   *
+   * Never automatic: it changes the whole project, and a returned clip's
+   * superwhite is only clipped at import — so the artist can be asked rather
+   * than surprised.
+   */
+  async setProjectDepth(bits: 8 | 16 | 32 = 32): Promise<{ bitsPerChannel: number }> {
+    await this.ensureHost();
+    return evalHost<{ bitsPerChannel: number }>(
+      `${hostPrefix()}setProjectDepth(${bits})`,
+    );
+  }
+
   async captureRange(range?: {
     startSeconds?: number;
     durationSeconds?: number;

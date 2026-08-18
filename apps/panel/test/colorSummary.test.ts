@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { AeContext } from "@seed-ae/domain";
-import { colorWarning, describeColor } from "../src/colorSummary.ts";
+import { colorWarning, describeColor, resultDepthWarning } from "../src/colorSummary.ts";
 
 describe("describeColor", () => {
   it("says nothing was recorded rather than inventing sRGB", () => {
@@ -71,5 +71,43 @@ describe("colorWarning", () => {
       expect(warning).toContain(`${depth}-bit`);
       expect(warning).toContain("band");
     }
+  });
+});
+
+describe("whether a returned clip survives import", () => {
+  const ctx = (bits?: 8 | 16 | 32) =>
+    ({
+      compName: "c",
+      width: 1920,
+      height: 1080,
+      fps: 24,
+      frameNumber: 0,
+      timeSeconds: 0,
+      ...(bits ? { colorManagement: { bitsPerChannel: bits } } : {}),
+    }) as never;
+
+  it("warns when a 10-bit result lands in an 8-bit project", () => {
+    // 1080p comes back 10-bit with highlights above nominal white; below
+    // 32-bit float After Effects clips them at import, permanently.
+    const warning = resultDepthWarning(ctx(8), "1080p", ["mov", "mp4"]);
+    expect(warning).toContain("8-bit");
+    expect(warning).toContain("above nominal white");
+  });
+
+  it("says nothing once the project is 32-bit float", () => {
+    expect(resultDepthWarning(ctx(32), "1080p", ["mov"])).toBeUndefined();
+  });
+
+  it("says nothing below 1080p, where the result is 8-bit anyway", () => {
+    // Nothing to lose, so nothing to warn about.
+    expect(resultDepthWarning(ctx(8), "720p", ["mov"])).toBeUndefined();
+  });
+
+  it("says nothing for a provider that offers no container", () => {
+    expect(resultDepthWarning(ctx(8), "1080p", [])).toBeUndefined();
+  });
+
+  it("says nothing when the host never reported a depth", () => {
+    expect(resultDepthWarning(ctx(), "1080p", ["mov"])).toBeUndefined();
   });
 });

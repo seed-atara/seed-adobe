@@ -8,6 +8,7 @@ import type {
 } from "@seed-ae/domain";
 import type { AeRegion } from "../api/cep.ts";
 import { assetToken } from "../mentions.ts";
+import { bestQualitySize } from "../quality.ts";
 import { ItemPicker } from "./ItemPicker.tsx";
 import { PromptPreview } from "./PromptPreview.tsx";
 import {
@@ -89,6 +90,13 @@ interface Props {
   client: SeedClient;
   /** Surfaces a failure in the panel's own error strip. */
   onError: (message: string) => void;
+  /**
+   * Why a returned clip will not survive import at this project's bit depth,
+   * when that is true. Computed where the host context lives.
+   */
+  depthWarning?: string;
+  /** Offered only in After Effects, and only when there is something to fix. */
+  onSetProjectDepth?: () => void;
   providers: ProviderCapabilitiesDto[];
   assets: Asset[];
   form: GenerateForm;
@@ -160,6 +168,8 @@ function move<T>(ids: T[], index: number, by: number): T[] {
 export function GenerateView({
   client,
   onError,
+  depthWarning,
+  onSetProjectDepth,
   providers,
   assets,
   form,
@@ -269,7 +279,9 @@ export function GenerateView({
     patch({
       providerId: id,
       model: next?.models[0] ?? "",
-      size: next?.sizes[0] ?? "",
+      // The best tier this provider offers, for the same reason the first
+      // load picks one: on Seedance the resolution decides the codec.
+      size: bestQualitySize(next?.sizes ?? []) ?? next?.sizes[0] ?? "",
       ...(next && !next.operations.includes(form.operation)
         ? { operation: (next.operations[0] as GenerationOperation) ?? form.operation }
         : {}),
@@ -1040,6 +1052,24 @@ export function GenerateView({
             {/1080/.test(form.size)
               ? "At 1080p that is 10-bit HEVC, and the colour is properly tagged."
               : "At 1080p it would also be 10-bit and carry colour tags — below that nothing is signalled and every tool assumes BT.709 limited."}
+          </div>
+        ) : null}
+
+        {/*
+          The other half of the same point: the quality has to survive import.
+          Only shown when there is something to lose and a button that fixes it.
+        */}
+        {depthWarning ? (
+          <div className="hint warn">
+            {depthWarning}
+            {onSetProjectDepth ? (
+              <>
+                {" "}
+                <button className="btn" onClick={onSetProjectDepth}>
+                  Set project to 32-bit
+                </button>
+              </>
+            ) : null}
           </div>
         ) : null}
 

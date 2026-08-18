@@ -25,6 +25,8 @@ import { AssetDetail } from "./components/AssetDetail.tsx";
 import { LineageView } from "./components/LineageView.tsx";
 import { ItemsView } from "./components/ItemsView.tsx";
 import { findMentions } from "./mentions.ts";
+import { bestQualitySize } from "./quality.ts";
+import { resultDepthWarning } from "./colorSummary.ts";
 import { resolveRefineTarget } from "./refine.ts";
 
 type Tab = "generate" | "items" | "library" | "lineage";
@@ -289,7 +291,17 @@ export function App({ tabs }: AppProps = {}) {
                 ...current,
                 providerId: caps[0]?.id ?? "",
                 model: caps[0]?.models[0] ?? "",
-                size: caps[0]?.sizes[0] ?? "",
+                /*
+                 * The best tier, not the first one listed. Where a provider's
+                 * sizes are a resolution ladder this is purely a quality
+                 * choice — and on Seedance it is a large one, because
+                 * resolution selects the codec: the first entry is 480p, which
+                 * is 8-bit with no colour signalling, while the top is 10-bit
+                 * and fully tagged. Where sizes encode a shape instead,
+                 * bestQualitySize declines and the first is kept, because
+                 * picking a frame shape for someone is not a quality decision.
+                 */
+                size: bestQualitySize(caps[0]?.sizes ?? []) ?? caps[0]?.sizes[0] ?? "",
               },
         );
         await refreshAssets();
@@ -1185,6 +1197,32 @@ export function App({ tabs }: AppProps = {}) {
             <GenerateView
               client={client}
               onError={report}
+              {...(resultDepthWarning(
+                aeContext as never,
+                form.size,
+                providers.find((p) => p.id === form.providerId)?.outputFormats ?? [],
+              )
+                ? {
+                    depthWarning: resultDepthWarning(
+                      aeContext as never,
+                      form.size,
+                      providers.find((p) => p.id === form.providerId)?.outputFormats ?? [],
+                    ) as string,
+                  }
+                : {})}
+              {...(bridge
+                ? {
+                    onSetProjectDepth: () => {
+                      void bridge
+                        .setProjectDepth(32)
+                        // Re-read, so the warning clears itself once fixed.
+                        .then(() => bridge.getContext().then(setAeContext))
+                        .catch((error: unknown) =>
+                          report(error instanceof Error ? error.message : String(error)),
+                        );
+                    },
+                  }
+                : {})}
               providers={providers}
               assets={assets}
               form={form}

@@ -131,6 +131,34 @@ function seedColorManagement() {
 }
 
 /** Everything the panel needs to describe "what AE is showing right now". */
+/**
+ * Raises the project to 32-bit float.
+ *
+ * A returned clip can carry values above nominal white — measured at 983
+ * against a ceiling of 940 — and below 32-bit float After Effects clips them at
+ * import, permanently. The 10-bit precision is then spent for nothing.
+ *
+ * Project-wide, so never automatic: the panel asks first.
+ */
+function seedSetProjectDepth(bits) {
+    try {
+        if (!app.project) return seedFail("no project is open");
+        var wanted = Number(bits) || 32;
+        if (wanted !== 8 && wanted !== 16 && wanted !== 32) {
+            return seedFail("bit depth must be 8, 16 or 32");
+        }
+        app.beginUndoGroup("SEED: project bit depth");
+        try {
+            app.project.bitsPerChannel = wanted;
+        } finally {
+            app.endUndoGroup();
+        }
+        return seedOk({ bitsPerChannel: Number(app.project.bitsPerChannel) });
+    } catch (error) {
+        return seedFail(String(error));
+    }
+}
+
 function seedGetContext() {
     try {
         if (!app.project) return seedFail("no project is open");
@@ -1970,6 +1998,7 @@ function seedPing() {
 
 var seedAeft_ping = seedPing;
 var seedAeft_getContext = seedGetContext;
+var seedAeft_setProjectDepth = seedSetProjectDepth;
 var seedAeft_captureFrame = seedCaptureFrame;
 var seedAeft_captureRange = seedCaptureRange;
 var seedAeft_rangeInfo = seedRangeInfo;
