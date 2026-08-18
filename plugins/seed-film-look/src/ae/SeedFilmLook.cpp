@@ -5,6 +5,29 @@
 #include "../core/look.h"
 
 /*
+ * Premiere hosts After Effects effects, and hands them a different pixel
+ * buffer than After Effects does. Its native formats are BGRA and VUYA; it
+ * never gives an effect the ARGB this plugin was written against. Read a BGRA
+ * frame as ARGB and red and blue swap; read a VUYA frame as ARGB and you get
+ * luma and chroma interpreted as colour, which is the black and the flicker.
+ *
+ * These headers ship with the After Effects SDK and declare the suite that
+ * lets an effect say which formats it will accept, so Premiere converts once
+ * rather than handing over whatever it happens to be holding.
+ */
+#include "PrSDKAESupport.h"
+#include "PrSDKPixelFormat.h"
+
+namespace {
+/** Premiere's application id, as it arrives in PF_InData::appl_id. */
+constexpr A_long kPremiereApplId = 'PrMr';
+
+bool HostIsPremiere(const PF_InData* in_data) {
+  return in_data && in_data->appl_id == kPremiereApplId;
+}
+}  // namespace
+
+/*
  * The resource and this file must announce the same version or After Effects
  * refuses to load the effect with error 8001. Both derive from
  * SeedFilmLookVersion.h; this proves the hand-packed value the resource has to
@@ -112,23 +135,31 @@ Preset PresetFor(A_long choice) {
 // core's own buffer rather than processing in place is deliberate — the chain
 // gathers from neighbours in several stages, so it needs a stable source that
 // is not being written to underneath it.
-seed::Image WorldToImage8(const PF_EffectWorld& world) {
+/*
+ * Whether the frame is laid out B,G,R,A rather than After Effects' A,R,G,B.
+ *
+ * PF_Pixel8's members are named for After Effects' order, so under Premiere
+ * `.red` reads the blue byte and `.blue` reads the red one. Rather than
+ * reinterpret the struct, the two colour channels are swapped on the way in
+ * and again on the way out — the arithmetic in between never has to know.
+ */
+seed::Image WorldToImage8(const PF_EffectWorld& world, bool bgra) {
   seed::Image image(world.width, world.height);
   for (int y = 0; y < world.height; ++y) {
     const PF_Pixel8* row = reinterpret_cast<const PF_Pixel8*>(
         reinterpret_cast<const char*>(world.data) + y * world.rowbytes);
     for (int x = 0; x < world.width; ++x) {
       float* out = image.At(x, y);
-      out[0] = row[x].red / 255.0f;
+      out[0] = (bgra ? row[x].blue : row[x].red) / 255.0f;
       out[1] = row[x].green / 255.0f;
-      out[2] = row[x].blue / 255.0f;
+      out[2] = (bgra ? row[x].red : row[x].blue) / 255.0f;
       out[3] = row[x].alpha / 255.0f;
     }
   }
   return image;
 }
 
-seed::Image WorldToImage16(const PF_EffectWorld& world) {
+seed::Image WorldToImage16(const PF_EffectWorld& world, bool bgra) {
   seed::Image image(world.width, world.height);
   for (int y = 0; y < world.height; ++y) {
     const PF_Pixel16* row = reinterpret_cast<const PF_Pixel16*>(
@@ -136,25 +167,25 @@ seed::Image WorldToImage16(const PF_EffectWorld& world) {
     for (int x = 0; x < world.width; ++x) {
       float* out = image.At(x, y);
       // 16-bit in After Effects is 0..32768, not 0..65535.
-      out[0] = row[x].red / float(PF_MAX_CHAN16);
+      out[0] = (bgra ? row[x].blue : row[x].red) / float(PF_MAX_CHAN16);
       out[1] = row[x].green / float(PF_MAX_CHAN16);
-      out[2] = row[x].blue / float(PF_MAX_CHAN16);
+      out[2] = (bgra ? row[x].red : row[x].blue) / float(PF_MAX_CHAN16);
       out[3] = row[x].alpha / float(PF_MAX_CHAN16);
     }
   }
   return image;
 }
 
-seed::Image WorldToImage32(const PF_EffectWorld& world) {
+seed::Image WorldToImage32(const PF_EffectWorld& world, bool bgra) {
   seed::Image image(world.width, world.height);
   for (int y = 0; y < world.height; ++y) {
     const PF_PixelFloat* row = reinterpret_cast<const PF_PixelFloat*>(
         reinterpret_cast<const char*>(world.data) + y * world.rowbytes);
     for (int x = 0; x < world.width; ++x) {
       float* out = image.At(x, y);
-      out[0] = row[x].red;
+      out[0] = bgra ? row[x].blue : row[x].red;
       out[1] = row[x].green;
-      out[2] = row[x].blue;
+      out[2] = bgra ? row[x].red : row[x].blue;
       out[3] = row[x].alpha;
     }
   }
@@ -171,28 +202,29 @@ inline A_u_short To16(float v) {
   return A_u_short(c * float(PF_MAX_CHAN16) + 0.5f);
 }
 
-void ImageToWorld(const seed::Image& image, PF_EffectWorld& world, int depth) {
+void ImageToWorld(const seed::Image& image, PF_EffectWorld& world, int depth,
+                  bool bgra) {
   for (int y = 0; y < world.height && y < image.height; ++y) {
     char* rowStart = reinterpret_cast<char*>(world.data) + y * world.rowbytes;
     for (int x = 0; x < world.width && x < image.width; ++x) {
       const float* in = image.At(x, y);
       if (depth == 32) {
         PF_PixelFloat* row = reinterpret_cast<PF_PixelFloat*>(rowStart);
-        row[x].red = in[0];
+        row[x].red = bgra ? in[2] : in[0];
         row[x].green = in[1];
-        row[x].blue = in[2];
+        row[x].blue = bgra ? in[0] : in[2];
         row[x].alpha = in[3];
       } else if (depth == 16) {
         PF_Pixel16* row = reinterpret_cast<PF_Pixel16*>(rowStart);
-        row[x].red = To16(in[0]);
+        row[x].red = To16(bgra ? in[2] : in[0]);
         row[x].green = To16(in[1]);
-        row[x].blue = To16(in[2]);
+        row[x].blue = To16(bgra ? in[0] : in[2]);
         row[x].alpha = To16(in[3]);
       } else {
         PF_Pixel8* row = reinterpret_cast<PF_Pixel8*>(rowStart);
-        row[x].red = To8(in[0]);
+        row[x].red = To8(bgra ? in[2] : in[0]);
         row[x].green = To8(in[1]);
-        row[x].blue = To8(in[2]);
+        row[x].blue = To8(bgra ? in[0] : in[2]);
         row[x].alpha = To8(in[3]);
       }
     }
@@ -231,6 +263,35 @@ PF_Err GlobalSetup(PF_InData* in_data, PF_OutData* out_data, PF_ParamDef* [],
                          PF_OutFlag2_FLOAT_COLOR_AWARE |
                          PF_OutFlag2_SUPPORTS_THREADED_RENDERING |
                          PF_OutFlag2_PARAM_GROUP_START_COLLAPSED_FLAG;
+
+  /*
+   * Tell Premiere what we can actually read.
+   *
+   * Without this it supplies whatever suits its pipeline — usually VUYA, which
+   * is YUV. This effect works in RGB, so a VUYA frame read as colour produces
+   * black frames and flicker, and a BGRA frame read as ARGB swaps red and
+   * blue. Declaring BGRA makes Premiere do the conversion, once, correctly.
+   *
+   * 32f is listed first because it is what Premiere prefers in a float
+   * sequence and what keeps values above nominal white; 8u is the fallback.
+   * VUYA is deliberately never listed.
+   *
+   * After Effects ignores all of this — the suite is absent there, and the
+   * scoper simply yields nothing.
+   */
+  if (HostIsPremiere(in_data)) {
+    AEFX_SuiteScoper<PF_PixelFormatSuite1> pixelFormatSuite =
+        AEFX_SuiteScoper<PF_PixelFormatSuite1>(in_data, kPFPixelFormatSuite,
+                                               kPFPixelFormatSuiteVersion1,
+                                               out_data);
+    if (pixelFormatSuite.operator->() != nullptr) {
+      pixelFormatSuite->ClearSupportedPixelFormats(in_data->effect_ref);
+      pixelFormatSuite->AddSupportedPixelFormat(in_data->effect_ref,
+                                                PrPixelFormat_BGRA_4444_32f);
+      pixelFormatSuite->AddSupportedPixelFormat(in_data->effect_ref,
+                                                PrPixelFormat_BGRA_4444_8u);
+    }
+  }
 
   return PF_Err_NONE;
 }
@@ -427,21 +488,57 @@ PF_Err SmartRender(PF_InData* in_data, PF_OutData* out_data,
                                          kPFWorldSuiteVersion2, out_data);
     worldSuite->PF_GetPixelFormat(input_worldP, &format);
 
-    int depth = 8;
+    /*
+     * Premiere hands over BGRA — 32-bit float in a float sequence, 8-bit
+     * otherwise — because GlobalSetup asked for exactly those two and refused
+     * VUYA. After Effects hands over ARGB and knows nothing about any of this.
+     *
+     * The old code had a `default:` that read *any* unrecognised format as
+     * 8-bit ARGB, which is how a 32f BGRA frame became noise and a VUYA frame
+     * became black: it was not a colour bug, it was reading one buffer as
+     * another. Formats are now named rather than fallen through, and anything
+     * genuinely unexpected passes the frame along untouched instead of
+     * guessing at it.
+     */
+    const bool bgra = HostIsPremiere(in_data);
+
+    int depth = 0;
     seed::Image image;
     switch (format) {
       case PF_PixelFormat_ARGB128:
         depth = 32;
-        image = WorldToImage32(*input_worldP);
+        image = WorldToImage32(*input_worldP, bgra);
         break;
       case PF_PixelFormat_ARGB64:
         depth = 16;
-        image = WorldToImage16(*input_worldP);
+        image = WorldToImage16(*input_worldP, bgra);
+        break;
+      case PF_PixelFormat_ARGB32:
+        depth = 8;
+        image = WorldToImage8(*input_worldP, bgra);
         break;
       default:
-        depth = 8;
-        image = WorldToImage8(*input_worldP);
+        /*
+         * Premiere reports its own formats through this same call. Map the two
+         * we asked for; anything else is a format we never agreed to read, and
+         * copying the frame through unchanged is the only honest response.
+         */
+        if (format == static_cast<PF_PixelFormat>(PrPixelFormat_BGRA_4444_32f)) {
+          depth = 32;
+          image = WorldToImage32(*input_worldP, true);
+        } else if (format == static_cast<PF_PixelFormat>(PrPixelFormat_BGRA_4444_8u)) {
+          depth = 8;
+          image = WorldToImage8(*input_worldP, true);
+        }
         break;
+    }
+
+    if (depth == 0) {
+      // Untouched beats wrong. A pass-through frame is obviously "no look
+      // applied"; a misread one looks like the effect is broken, which is
+      // exactly the report this fixes.
+      PF_COPY(input_worldP, output_worldP, NULL, NULL);
+      return err;
     }
 
     Preset preset;
@@ -456,7 +553,7 @@ PF_Err SmartRender(PF_InData* in_data, PF_OutData* out_data,
         int(in_data->current_time / (in_data->time_step ? in_data->time_step : 1));
 
     seed::ApplyFilmLook(image, config, preset.stock, frame);
-    ImageToWorld(image, *output_worldP, depth);
+    ImageToWorld(image, *output_worldP, depth, bgra);
   }
 
   // Always check in, whatever went wrong on the way here.
