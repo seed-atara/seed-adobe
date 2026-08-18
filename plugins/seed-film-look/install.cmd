@@ -21,13 +21,24 @@ if errorlevel 1 (
 
 echo Installed to "%DEST%".
 
-REM Also into After Effects' own Plug-ins folder when it is there. MediaCore is
-REM the shared location and should be enough, but AE's own folder is where
-REM every effect it ships lives, and having both costs nothing but removes a
-REM variable when something does not appear.
+REM After Effects reads MediaCore too, so a second copy in its own Effects
+REM folder is not redundancy — it is a duplicate, and After Effects says so at
+REM launch: "There is a duplicated effect plugin installed on your drive."
+REM
+REM Earlier versions of this script installed to both on the theory that it
+REM cost nothing. It cost a warning dialog on every launch. MediaCore is the
+REM shared location and the only one needed; anything left in the AE-specific
+REM folder by those earlier runs is removed here.
 set AEDEST=C:\Program Files\Adobe\Adobe After Effects 2026\Support Files\Plug-ins\Effects
-if exist "%AEDEST%" (
-  copy /Y "%SRC%" "%AEDEST%\SEED Film Look.aex" >nul && echo Installed to "%AEDEST%".
+if exist "%AEDEST%\SEED Film Look.aex" (
+  del /Q "%AEDEST%\SEED Film Look.aex" >nul 2>&1
+  if exist "%AEDEST%\SEED Film Look.aex" (
+    echo.
+    echo Could not remove the duplicate at "%AEDEST%".
+    echo Delete it by hand, or After Effects will warn at launch.
+  ) else (
+    echo Removed the duplicate from "%AEDEST%".
+  )
 )
 
 echo.
