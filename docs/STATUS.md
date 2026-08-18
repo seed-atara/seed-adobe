@@ -386,9 +386,20 @@ the original pipeline, which we do not have. `FILM_LOOK_FIDELITY.md` records
 which stages are transcribed exactly from the specification and which are
 interpreted from a description, so that comparison starts from what is known.
 
-Around 3.4 seconds for a 1080p frame, which settles the video question with a
-number: ten seconds of 24fps is roughly fourteen minutes on the CPU. Video
-needs the GPU path, as ADR 0008 assumed.
+**236ms for a 1080p frame** (measured 2026-08-18 by `test/bench.cpp`), down
+from 932ms, with the parity vectors unchanged — worst pixel difference
+0.00000064, far inside half a code value.
+
+Two things were wrong and neither was the arithmetic. The vertical box blur
+walked column-major, so every step moved a 30KB stride through memory and
+essentially every access was a cache miss; rewritten to run in row order with
+running sums held for a band of columns, it reads and writes sequentially. And
+nothing was threaded at all: blurs and every per-pixel pass now split across
+workers, capped at 16 because the host may already be rendering other frames.
+
+Ten seconds of 24fps is now about 57 seconds rather than fourteen minutes. Good
+enough to grade a shot; still not real time, so ADR 0008's GPU path remains the
+answer for playback.
 
 ## Known-good demo path
 

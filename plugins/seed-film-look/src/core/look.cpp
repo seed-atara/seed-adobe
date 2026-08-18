@@ -1,3 +1,4 @@
+#include <thread>
 #include "look.h"
 
 namespace seed {
@@ -5,49 +6,138 @@ namespace {
 
 // Running-sum box blur, clamped at the edges so a bright border does not bleed
 // darkness inward the way a zero-padded blur would.
+/*
+ * How many workers to split a frame across.
+ *
+ * Cached: hardware_concurrency is not free and this is called several times a
+ * frame. Capped at 16 because the host may already be rendering other frames
+ * in parallel — the effect declares threaded rendering — and oversubscribing
+ * a machine costs more in contention than it wins in throughput.
+ */
+int WorkerCount() {
+  static const int workers = [] {
+    const unsigned hinted = std::thread::hardware_concurrency();
+    const int n = hinted == 0 ? 4 : int(hinted);
+    return std::max(1, std::min(n, 16));
+  }();
+  return workers;
+}
+
+/** Runs `body(begin, end)` over disjoint slices of [0, count). */
+template <typename Body>
+void ParallelBands(int count, const Body& body) {
+  const int workers = std::min(WorkerCount(), std::max(1, count));
+  if (workers <= 1 || count <= 1) {
+    body(0, count);
+    return;
+  }
+  std::vector<std::thread> threads;
+  threads.reserve(std::size_t(workers - 1));
+  const int band = (count + workers - 1) / workers;
+  for (int w = 1; w < workers; ++w) {
+    const int begin = std::min(count, w * band);
+    const int end = std::min(count, begin + band);
+    if (begin >= end) break;
+    threads.emplace_back([&body, begin, end] { body(begin, end); });
+  }
+  body(0, std::min(count, band));
+  for (std::thread& thread : threads) thread.join();
+}
+
+
+/*
+ * Splits a whole-image pixel pass across workers.
+ *
+ * Every stage below is independent per pixel, so this is the same loop with
+ * the range handed out in bands. Kept separate from ParallelBands because it
+ * counts pixels rather than rows and the arithmetic reads better that way.
+ */
+template <typename Body>
+void ParallelPixels(std::size_t pixels, const Body& body) {
+  ParallelBands(int(pixels), [&](int begin, int end) {
+    body(std::size_t(begin), std::size_t(end));
+  });
+}
+
+/*
+ * Running-sum box blur, clamped at the edges so a bright border does not bleed
+ * darkness inward the way a zero-padded blur would.
+ *
+ * All four channels travel together rather than in four separate passes: the
+ * old shape walked the image once per channel, so a frame was traversed four
+ * times for the same arithmetic and three of those were cache misses waiting
+ * to happen. Rows are independent, so they are split across workers.
+ */
 Image BoxBlurH(const Image& src, int radius) {
   Image out(src.width, src.height);
   const int r = std::max(1, radius);
   const float span = float(r * 2 + 1);
+  const int w = src.width;
 
-  for (int y = 0; y < src.height; ++y) {
-    for (int c = 0; c < 4; ++c) {
-      float sum = 0.0f;
+  ParallelBands(src.height, [&](int y0, int y1) {
+    for (int y = y0; y < y1; ++y) {
+      const float* in = src.At(0, y);
+      float* dst = out.At(0, y);
+      float sum[4] = {0.0f, 0.0f, 0.0f, 0.0f};
       for (int i = -r; i <= r; ++i) {
-        const int x = std::min(std::max(i, 0), src.width - 1);
-        sum += src.At(x, y)[c];
+        const int x = std::min(std::max(i, 0), w - 1);
+        for (int c = 0; c < 4; ++c) sum[c] += in[x * 4 + c];
       }
-      for (int x = 0; x < src.width; ++x) {
-        out.At(x, y)[c] = sum / span;
-        const int leaving = std::min(std::max(x - r, 0), src.width - 1);
-        const int entering = std::min(std::max(x + r + 1, 0), src.width - 1);
-        sum += src.At(entering, y)[c] - src.At(leaving, y)[c];
+      for (int x = 0; x < w; ++x) {
+        const int leaving = std::min(std::max(x - r, 0), w - 1) * 4;
+        const int entering = std::min(std::max(x + r + 1, 0), w - 1) * 4;
+        for (int c = 0; c < 4; ++c) {
+          dst[x * 4 + c] = sum[c] / span;
+          sum[c] += in[entering + c] - in[leaving + c];
+        }
       }
     }
-  }
+  });
   return out;
 }
 
+/*
+ * The vertical pass, walked in row order.
+ *
+ * This was the whole performance problem. Written the obvious way — for each
+ * column, walk down it — every step moves `width * 4` floats through memory,
+ * which at 1080p is a 30KB stride and therefore a cache miss on essentially
+ * every access. The arithmetic was never the cost.
+ *
+ * Rewritten, the running sums for an entire band of columns live in one small
+ * accumulator and the image is read and written strictly in row order, so both
+ * streams are sequential. Identical arithmetic, same results, a fraction of
+ * the memory traffic. Columns are independent, so bands go to workers.
+ */
 Image BoxBlurV(const Image& src, int radius) {
   Image out(src.width, src.height);
   const int r = std::max(1, radius);
   const float span = float(r * 2 + 1);
+  const int h = src.height;
 
-  for (int x = 0; x < src.width; ++x) {
-    for (int c = 0; c < 4; ++c) {
-      float sum = 0.0f;
-      for (int i = -r; i <= r; ++i) {
-        const int y = std::min(std::max(i, 0), src.height - 1);
-        sum += src.At(x, y)[c];
-      }
-      for (int y = 0; y < src.height; ++y) {
-        out.At(x, y)[c] = sum / span;
-        const int leaving = std::min(std::max(y - r, 0), src.height - 1);
-        const int entering = std::min(std::max(y + r + 1, 0), src.height - 1);
-        sum += src.At(x, entering)[c] - src.At(x, leaving)[c];
+  ParallelBands(src.width, [&](int x0, int x1) {
+    const int columns = x1 - x0;
+    if (columns <= 0) return;
+    std::vector<float> sum(std::size_t(columns) * 4, 0.0f);
+
+    for (int i = -r; i <= r; ++i) {
+      const int y = std::min(std::max(i, 0), h - 1);
+      const float* in = src.At(x0, y);
+      for (int k = 0; k < columns * 4; ++k) sum[std::size_t(k)] += in[k];
+    }
+
+    for (int y = 0; y < h; ++y) {
+      float* dst = out.At(x0, y);
+      const int leaving = std::min(std::max(y - r, 0), h - 1);
+      const int entering = std::min(std::max(y + r + 1, 0), h - 1);
+      const float* inLeaving = src.At(x0, leaving);
+      const float* inEntering = src.At(x0, entering);
+      for (int k = 0; k < columns * 4; ++k) {
+        dst[k] = sum[std::size_t(k)] / span;
+        sum[std::size_t(k)] += inEntering[k] - inLeaving[k];
       }
     }
-  }
+  });
   return out;
 }
 
@@ -269,11 +359,14 @@ void ApplyPhaseA(Image& image, const Config& config, const Stock& stock) {
   // sRGB in, linear internally. Values above 1.0 are allowed through: the
   // optical stages are meaningless without highlights beyond display white,
   // and clamping is the quiet way to lose every bloom and halation.
-  for (std::size_t i = 0; i < image.data.size(); i += 4) {
-    image.data[i] = SrgbToLinear(image.data[i]) * config.exposure;
-    image.data[i + 1] = SrgbToLinear(image.data[i + 1]) * config.exposure;
-    image.data[i + 2] = SrgbToLinear(image.data[i + 2]) * config.exposure;
-  }
+  ParallelPixels(image.data.size() / 4, [&](std::size_t p0, std::size_t p1) {
+    for (std::size_t p = p0; p < p1; ++p) {
+      const std::size_t i = p * 4;
+      image.data[i] = SrgbToLinear(image.data[i]) * config.exposure;
+      image.data[i + 1] = SrgbToLinear(image.data[i + 1]) * config.exposure;
+      image.data[i + 2] = SrgbToLinear(image.data[i + 2]) * config.exposure;
+    }
+  });
 
   image = DistortAndAberrate(image, config.distortion_k1, config.distortion_k2,
                              config.ca_lateral);
@@ -298,14 +391,19 @@ void ApplyPhaseA(Image& image, const Config& config, const Stock& stock) {
         highlights,
         RadiusPixels(image.width, image.height, config.halation_radius));
     const float green = config.halation_tint[1] + config.halation_color;
-    for (std::size_t i = 0; i < image.data.size(); i += 4) {
-      image.data[i] += halo.data[i] * config.halation_tint[0] * halation;
-      image.data[i + 1] += halo.data[i + 1] * green * halation;
-      image.data[i + 2] += halo.data[i + 2] * config.halation_tint[2] * halation;
-    }
+    ParallelPixels(image.data.size() / 4, [&](std::size_t p0, std::size_t p1) {
+      for (std::size_t p = p0; p < p1; ++p) {
+        const std::size_t i = p * 4;
+        image.data[i] += halo.data[i] * config.halation_tint[0] * halation;
+        image.data[i + 1] += halo.data[i + 1] * green * halation;
+        image.data[i + 2] += halo.data[i + 2] * config.halation_tint[2] * halation;
+      }
+    });
   }
 
-  for (std::size_t i = 0; i < image.data.size(); i += 4) {
+  ParallelPixels(image.data.size() / 4, [&](std::size_t p0, std::size_t p1) {
+   for (std::size_t p = p0; p < p1; ++p) {
+    const std::size_t i = p * 4;
     float r = image.data[i], g = image.data[i + 1], b = image.data[i + 2];
 
     if (config.path_to_white > 0.0f) PathToWhite(r, g, b, config.path_to_white);
@@ -327,7 +425,8 @@ void ApplyPhaseA(Image& image, const Config& config, const Stock& stock) {
     image.data[i] = LinearToSrgb(std::max(0.0f, r));
     image.data[i + 1] = LinearToSrgb(std::max(0.0f, g));
     image.data[i + 2] = LinearToSrgb(std::max(0.0f, b));
-  }
+   }
+  });
 }
 
 void ApplyGrain(Image& image, const Config& config, const Stock& stock,
@@ -398,7 +497,9 @@ void ApplyGrain(Image& image, const Config& config, const Stock& stock,
 
 void ApplyPhaseB(Image& image, const Config& config, const Stock& stock,
                  int frame) {
-  for (std::size_t i = 0; i < image.data.size(); i += 4) {
+  ParallelPixels(image.data.size() / 4, [&](std::size_t p0, std::size_t p1) {
+   for (std::size_t p = p0; p < p1; ++p) {
+    const std::size_t i = p * 4;
     float r = image.data[i], g = image.data[i + 1], b = image.data[i + 2];
 
     // Stock colour: matrix, saturation, lift, rolloff, contrast, warmth.
@@ -460,7 +561,8 @@ void ApplyPhaseB(Image& image, const Config& config, const Stock& stock,
     image.data[i] = r;
     image.data[i + 1] = g;
     image.data[i + 2] = b;
-  }
+   }
+  });
 
   // Grain last, always. Grain applied before a grade gets graded, and then
   // reads as digital noise rather than film.
