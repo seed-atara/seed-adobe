@@ -990,6 +990,13 @@ export function App({ tabs }: AppProps = {}) {
               ? { itemMentions: form.itemMentions }
               : {}),
             ...(form.allowBeyondStable ? { allowBeyondStable: true } : {}),
+            /*
+             * The project being worked in. The service prefers what the
+             * references came from, and only falls back to this — but without
+             * it a generation with no references produces a result with no
+             * project at all, which the library then filters out of existence.
+             */
+            ...(activeProject ? { project: activeProject } : {}),
             ...(form.parentAssetId ? { parentAssetId: form.parentAssetId } : {}),
             ...(form.parentGenerationId
               ? { parentGenerationId: form.parentGenerationId }

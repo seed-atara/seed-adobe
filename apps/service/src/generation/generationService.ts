@@ -155,6 +155,7 @@ export class GenerationService {
           : {}),
       },
       inputAssetIds: request.inputAssetIds,
+      ...(request.project ? { project: request.project } : {}),
       ...(request.parentAssetId ? { parentAssetId: request.parentAssetId } : {}),
       ...(request.parentGenerationId
         ? { parentGenerationId: request.parentGenerationId }
@@ -525,10 +526,15 @@ export class GenerationService {
             provider: provider.id,
             model: job.model,
             index,
-            // Inherited from what it was made from: a result belongs to the
-            // project its references came out of.
-            ...(inputAssets.find((asset) => asset.project)?.project
-              ? { project: inputAssets.find((asset) => asset.project)?.project as string }
+            /*
+             * Inherited from what it was made from: a result belongs to the
+             * project its references came out of. With no references there is
+             * nothing to inherit, so the project the artist is working in is
+             * the fallback — without it a text-to-video result is filtered out
+             * of the library it was generated into.
+             */
+            ...(projectFor(inputAssets, generation.project)
+              ? { project: projectFor(inputAssets, generation.project) as string }
               : {}),
           }),
         );
@@ -947,4 +953,20 @@ function matchesShape(
   if (!w || !h || parts.length !== 2) return false;
 
   return Math.abs(Math.log(w / h) - Math.log(clip.width / clip.height)) < 0.01;
+}
+
+/**
+ * Which project a generated result belongs to.
+ *
+ * Inheritance first: a result made from plates belongs with those plates, and
+ * that is true even when the artist has since opened something else. The
+ * request's project is only the fallback for a generation with no references
+ * at all — which had no project, and so was hidden by the library's own
+ * filter.
+ */
+function projectFor(
+  inputAssets: ReadonlyArray<{ project?: string }>,
+  requested?: string,
+): string | undefined {
+  return inputAssets.find((asset) => asset.project)?.project ?? requested;
 }

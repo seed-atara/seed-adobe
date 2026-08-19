@@ -638,6 +638,76 @@ describe("a library shared by two projects", () => {
       const withResult = await listed("limit=50&project=Ceiling.aep");
       expect(withResult).toHaveLength(2);
       expect(withResult.every((asset) => asset.project === "Ceiling.aep")).toBe(true);
+
+      /*
+       * A generation with no references at all had nothing to inherit from, so
+       * its result carried no project — and the library filters with
+       * `project = ?`, which SQL never matches against NULL. Two finished
+       * clips, paid for, invisible in the library they were made in.
+       *
+       * The request now carries the project being worked in, as a fallback
+       * only: the inheritance above still decides where a result belongs when
+       * it was made from something.
+       */
+      const { job: bare } = await readJson(
+        await service.call("/v1/generations", {
+          method: "POST",
+          body: JSON.stringify({
+            providerId: "mock-image",
+            operation: "image.generate",
+            prompt: "a shot from nothing",
+            size: "64x64",
+            inputAssetIds: [],
+            project: "Ceiling.aep",
+          }),
+        }),
+      );
+      await service.deps.generation.whenSettled(bare.id);
+
+      const withBare = await listed("limit=50&project=Ceiling.aep");
+      expect(withBare).toHaveLength(3);
+      expect(withBare.every((asset) => asset.project === "Ceiling.aep")).toBe(true);
+    } finally {
+      await service.close();
+    }
+  });
+
+  it("lets the references decide, even when a project is sent along", async () => {
+    // Otherwise reopening a recipe while a different project is open would
+    // quietly move the result away from the plates it was made from.
+    const service = await startTestService();
+    try {
+      const file = path.join(service.deps.workspace.originalsDir, "plate.png");
+      await writeFile(file, fakePng(8, 8));
+      const { asset } = await readJson(
+        await service.call("/v1/ae/register-capture", {
+          method: "POST",
+          body: JSON.stringify({
+            path: file,
+            context: { projectName: "Where.aep", compName: "plate" },
+          }),
+        }),
+      );
+
+      const { job } = await readJson(
+        await service.call("/v1/generations", {
+          method: "POST",
+          body: JSON.stringify({
+            providerId: "mock-image",
+            operation: "image.edit",
+            prompt: "cooler",
+            size: "64x64",
+            inputAssetIds: [asset.id],
+            project: "SomewhereElse.aep",
+          }),
+        }),
+      );
+      await service.deps.generation.whenSettled(job.id);
+
+      const listed = (await readJson(
+        await service.call("/v1/assets?limit=50&project=Where.aep"),
+      )).assets as { project?: string }[];
+      expect(listed).toHaveLength(2);
     } finally {
       await service.close();
     }

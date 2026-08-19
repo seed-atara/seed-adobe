@@ -44,6 +44,7 @@ interface GenerationRow {
   parent_asset_id: string | null;
   parent_generation_id: string | null;
   job_id: string;
+  project: string | null;
   status: string;
   created_at: string;
   completed_at: string | null;
@@ -57,7 +58,7 @@ const SELECT_COLUMNS = `
   id, provider, model, operation, prompt, seed, parameters_json,
   input_asset_ids_json, output_asset_ids_json, parent_asset_id,
   parent_generation_id, job_id, status, created_at, completed_at,
-  error_class, error_message, raw_request_json, raw_response_json
+  error_class, error_message, raw_request_json, raw_response_json, project
 `;
 
 export class GenerationRepository {
@@ -81,8 +82,9 @@ export class GenerationRepository {
           `INSERT INTO generations (
              id, provider, model, operation, prompt, seed, parameters_json,
              input_asset_ids_json, output_asset_ids_json, parent_asset_id,
-             parent_generation_id, job_id, status, created_at, raw_request_json
-           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+             parent_generation_id, job_id, status, created_at, raw_request_json,
+             project
+           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         )
         .run(
           generation.id,
@@ -102,6 +104,7 @@ export class GenerationRepository {
           generation.rawRequest === undefined
             ? null
             : JSON.stringify(generation.rawRequest),
+          generation.project ?? null,
         );
 
       const link = this.db.prepare(
@@ -258,6 +261,7 @@ function rowToGeneration(row: GenerationRow): Generation {
       ? { parentGenerationId: row.parent_generation_id }
       : {}),
     jobId: row.job_id,
+    ...(row.project ? { project: row.project } : {}),
     status: row.status,
     createdAt: row.created_at,
     ...(row.completed_at !== null ? { completedAt: row.completed_at } : {}),

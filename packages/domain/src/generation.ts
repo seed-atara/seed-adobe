@@ -42,6 +42,13 @@ export const GenerationSchema = z.object({
   outputAssetIds: z.array(z.string()).default([]),
   parentAssetId: z.string().optional(),
   parentGenerationId: z.string().optional(),
+  /**
+   * The host project open when this was started.
+   *
+   * Only a fallback for the output's project: references win where there are
+   * any, because a result belongs with the plates it was made from.
+   */
+  project: z.string().optional(),
   jobId: z.string().min(1),
   status: JobStatusSchema,
   createdAt: IsoTimestampSchema,

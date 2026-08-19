@@ -366,6 +366,24 @@ MIGRATIONS.push({
   `,
 });
 
+MIGRATIONS.push({
+  version: 7,
+  name: "generation-remembers-its-project",
+  sql: `
+    -- A result takes its project from its references, which is right when
+    -- there are any. Text-to-video has none, so the output landed with no
+    -- project and the library — which filters with 'project = ?', and SQL
+    -- never matches NULL — hid it entirely. Two finished clips, paid for and
+    -- invisible.
+    --
+    -- Recorded on the generation rather than passed along the call, because
+    -- the resume path after a service restart has the generation and not the
+    -- request. Nullable: every generation made before now genuinely does not
+    -- know, and inventing one would be worse than admitting it.
+    ALTER TABLE generations ADD COLUMN project TEXT;
+  `,
+});
+
 export const LATEST_SCHEMA_VERSION = MIGRATIONS.reduce(
   (max, migration) => Math.max(max, migration.version),
   0,

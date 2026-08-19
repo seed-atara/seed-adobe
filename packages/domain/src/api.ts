@@ -119,6 +119,18 @@ export const StartGenerationRequestSchema = z.object({
   itemMentions: z.array(ItemMentionSchema).max(12).default([]),
   /** Spend past the provider's stable reference range, knowingly. */
   allowBeyondStable: z.boolean().optional(),
+  /**
+   * The host project open when this was started.
+   *
+   * A result takes its project from its references, which is right when there
+   * are any. Text-to-video has none, so the output landed with no project at
+   * all and the library — which filters with `project = ?`, and SQL never
+   * matches NULL — hid it completely. Two finished clips, paid for, invisible.
+   *
+   * Only a fallback: inheritance still wins where it applies, because a
+   * result belongs with the plates it was made from.
+   */
+  project: z.string().min(1).optional(),
   /** Set when this generation descends from an existing asset/recipe. */
   parentAssetId: z.string().optional(),
   parentGenerationId: z.string().optional(),
