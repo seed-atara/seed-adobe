@@ -101,6 +101,15 @@ export interface SeedanceConfig {
    * Absent, references travel as links or inline and that refusal comes back.
    */
   assetLibrary?: ArkAssetLibrary;
+  /**
+   * Told when a reference could not be registered and fell back to a link.
+   *
+   * The fallback itself is right — a reference Ark may refuse beats no
+   * reference at all — but it lands the caller in exactly the "may contain
+   * real person" refusal the library exists to prevent, with nothing to say
+   * why. That silence is what makes it expensive.
+   */
+  onAssetFallback?: (detail: { mimeType: string; reason: string }) => void;
   timeoutMs?: number;
   fetchImpl?: typeof fetch;
 }
@@ -386,7 +395,11 @@ export class SeedanceProvider implements GenerationProvider {
         mimeType: input.mimeType,
       });
       return `asset://${resolved.assetId}`;
-    } catch {
+    } catch (cause) {
+      this.config.onAssetFallback?.({
+        mimeType: input.mimeType,
+        reason: cause instanceof Error ? cause.message : String(cause),
+      });
       return toUrl(input);
     }
   }

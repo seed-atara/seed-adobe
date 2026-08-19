@@ -368,6 +368,18 @@ export function buildRegistry(
           apiKey: config.arkApiKey,
           model,
           id: seedanceProviderId(model),
+          /*
+           * Say so when a reference could not be registered. The generation
+           * still goes out with a link, and is likely to come back refused as
+           * "may contain real person" — a message that describes the symptom
+           * and not the cause. This line is the cause.
+           */
+          onAssetFallback: ({ mimeType, reason }) =>
+            logger.warn("ark.asset.fallback", {
+              provider: seedanceProviderId(model),
+              mimeType,
+              reason,
+            }),
           ...(config.seedanceMaxReferences
             ? { maxReferences: config.seedanceMaxReferences }
             : {}),
