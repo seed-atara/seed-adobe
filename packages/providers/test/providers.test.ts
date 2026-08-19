@@ -475,6 +475,53 @@ describe("SeedanceProvider", () => {
     expect(registered.length).toBeGreaterThan(0);
   });
 
+  it("registers a reference clip and sends it as an asset id too", async () => {
+    /*
+     * The same filter catches video — "the input video 'content[1]' may
+     * contain real person" — and for a long time only images took the
+     * sanctioned route, because toAssetUrl guarded on image/. Every motion
+     * reference travelled as a bare link and met the refusal the asset
+     * library exists to prevent.
+     */
+    const registered: Array<{ mimeType: string; filename: string }> = [];
+    const library = {
+      ensureAsset: async (input: { mimeType: string; filename: string }) => {
+        registered.push({ mimeType: input.mimeType, filename: input.filename });
+        return { assetId: "vid789", cached: false };
+      },
+    } as never;
+
+    let body: any;
+    await provider(
+      (_url, init) => {
+        body = JSON.parse(String(init.body));
+        return created("cgt-video-asset");
+      },
+      { assetLibrary: library },
+    ).generateVideo({
+      model: MODEL,
+      prompt: "the same move, but at dusk",
+      correlationId: "cor_video_asset",
+      references: [
+        { kind: "base64", value: "AAAA", mimeType: "video/mp4" },
+        { kind: "base64", value: "BBBB", mimeType: "image/png" },
+      ],
+    });
+
+    const clip = body.content.find((part: any) => part.type === "video_url");
+    expect(clip.video_url.url).toBe("asset://vid789");
+    expect(clip.role).toBe("reference_video");
+
+    // The still alongside it keeps taking the route it always did.
+    const image = body.content.find((part: any) => part.type === "image_url");
+    expect(image.image_url.url).toBe("asset://vid789");
+
+    // Named as what it is: the publisher builds the object key from this, and
+    // an mp4 offered as a PNG is a fetch Ark can reasonably refuse.
+    const video = registered.find((entry) => entry.mimeType === "video/mp4");
+    expect(video?.filename.endsWith(".mp4")).toBe(true);
+  });
+
   it("falls back to the inline form when there is no asset library", async () => {
     // Better a reference Ark may refuse, with a message that names itself,
     // than no reference at all.

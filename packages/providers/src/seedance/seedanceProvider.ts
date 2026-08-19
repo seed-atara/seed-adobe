@@ -220,15 +220,20 @@ function isFrame(input: MaterializedInput): boolean {
   return input.mimeType.startsWith("image/");
 }
 
-function seedanceReference(input: MaterializedInput): ContentPart {
-  const url = toUrl(input);
-  if (input.mimeType.startsWith("video/")) {
-    return { type: "video_url", video_url: { url }, role: "reference_video" };
-  }
-  if (input.mimeType.startsWith("audio/")) {
-    return { type: "audio_url", audio_url: { url }, role: "reference_audio" };
-  }
-  return { type: "image_url", image_url: { url }, role: "reference_image" };
+/**
+ * A filename Ark will accept for the file it is about to fetch.
+ *
+ * The extension was hardcoded to `.png` for everything, which was harmless
+ * while only images took this route. It stops being harmless the moment a clip
+ * does: the publisher names the object from this, and an mp4 served as a PNG is
+ * a fetch Ark can reasonably refuse.
+ */
+function referenceExtension(mimeType: string): string {
+  if (mimeType === "video/quicktime") return ".mov";
+  if (mimeType.startsWith("video/")) return ".mp4";
+  if (mimeType === "image/jpeg") return ".jpg";
+  if (mimeType === "image/webp") return ".webp";
+  return ".png";
 }
 
 export class SeedanceProvider implements GenerationProvider {
@@ -356,20 +361,59 @@ export class SeedanceProvider implements GenerationProvider {
 
   private async toAssetUrl(input: MaterializedInput): Promise<string> {
     const library = this.config.assetLibrary;
-    if (!library || !input.mimeType.startsWith("image/")) return toUrl(input);
+    /*
+     * Images and video both. A clip is intercepted by exactly the same filter
+     * as a still — "the input video 'content[1]' may contain real person" —
+     * and the asset library is the same sanctioned way past it, accepted for
+     * video on the generations endpoint (verified 2026-08-13). Guarding this
+     * on image/ meant every motion reference travelled as a bare link and met
+     * the refusal the library exists to prevent.
+     *
+     * Audio is deliberately left out: an `asset://` id for it is not something
+     * we have measured, and asserting a contract we have not seen is how the
+     * last few of these went wrong.
+     */
+    const routed =
+      input.mimeType.startsWith("image/") || input.mimeType.startsWith("video/");
+    if (!library || !routed) return toUrl(input);
 
     try {
       const bytes = await this.readBytes(input);
       if (!bytes) return toUrl(input);
       const resolved = await library.ensureAsset({
         bytes,
-        filename: `${input.assetId ?? "reference"}.png`,
+        filename: `${input.assetId ?? "reference"}${referenceExtension(input.mimeType)}`,
         mimeType: input.mimeType,
       });
       return `asset://${resolved.assetId}`;
     } catch {
       return toUrl(input);
     }
+  }
+
+  /**
+   * One reference content part, addressed the way Ark prefers.
+   *
+   * Every kind goes through toAssetUrl, which decides for itself what it can
+   * register — so adding a kind to the library is one edit, not two that can
+   * disagree.
+   */
+  private async referencePart(input: MaterializedInput): Promise<ContentPart> {
+    if (input.mimeType.startsWith("video/")) {
+      return {
+        type: "video_url",
+        video_url: { url: await this.toAssetUrl(input) },
+        role: "reference_video",
+      };
+    }
+    if (input.mimeType.startsWith("audio/")) {
+      return {
+        type: "audio_url",
+        audio_url: { url: await this.toAssetUrl(input) },
+        role: "reference_audio",
+      };
+    }
+    return this.imagePart(input, "reference_image");
   }
 
   /** The bytes behind a materialized input, however it arrived. */
@@ -433,11 +477,7 @@ export class SeedanceProvider implements GenerationProvider {
     } else if (loose.length > 0) {
       mode = "reference";
       for (const reference of loose) {
-        content.push(
-          reference.mimeType.startsWith("image/")
-            ? await this.imagePart(reference, "reference_image")
-            : seedanceReference(reference),
-        );
+        content.push(await this.referencePart(reference));
       }
     }
 
