@@ -5,6 +5,7 @@ import {
   closestAspect,
   describeAspect,
   parseAspect,
+  regionShapeOptions,
 } from "../src/aspect.ts";
 
 describe("parseAspect", () => {
@@ -73,5 +74,50 @@ describe("describeAspect", () => {
     expect(describeAspect(1)).toBe("square");
     expect(describeAspect(1.778)).toBe("1.78:1 wide");
     expect(describeAspect(0.5625)).toBe("1:1.78 tall");
+  });
+});
+describe("regionShapeOptions", () => {
+  const seedance = {
+    id: "seedance",
+    aspectRatios: ["16:9", "9:16", "1:1", "4:3", "21:9", "adaptive"],
+  };
+  const seedream = { id: "seedream", aspectRatios: ["1:1", "16:9", "9:16", "21:9"] };
+  // The film look treats an image rather than framing one, so it offers no
+  // shapes at all. Correct of it, and the reason this function exists.
+  const look = { id: "look", aspectRatios: [] };
+
+  it("still offers shapes when the selected provider has none", () => {
+    expect(regionShapeOptions([seedance, seedream, look], "look")).toEqual([
+      "16:9",
+      "9:16",
+      "1:1",
+      "4:3",
+      "21:9",
+    ]);
+  });
+
+  it("puts the selected provider's shapes first, and never repeats one", () => {
+    expect(regionShapeOptions([seedream, seedance], "seedance")).toEqual([
+      "16:9",
+      "9:16",
+      "1:1",
+      "4:3",
+      "21:9",
+    ]);
+  });
+
+  it("drops a policy that is not a shape", () => {
+    expect(regionShapeOptions([seedance], "seedance")).not.toContain("adaptive");
+  });
+
+  it("keeps the shape a region is actually held at", () => {
+    // Otherwise the select falls back to its first option and a held region
+    // reads as Free — a wrong answer, where an absent one would be honest.
+    expect(regionShapeOptions([look], "look", "4:3")).toEqual(["4:3"]);
+    expect(regionShapeOptions([seedream], "seedream", "4:3")).toContain("4:3");
+  });
+
+  it("has nothing to offer when nothing is loaded", () => {
+    expect(regionShapeOptions([], undefined)).toEqual([]);
   });
 });

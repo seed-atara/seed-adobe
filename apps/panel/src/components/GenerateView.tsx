@@ -16,6 +16,7 @@ import {
   closestAspect,
   describeAspect,
   parseAspect,
+  regionShapeOptions,
 } from "../aspect.ts";
 import type {
   JobView,
@@ -320,13 +321,9 @@ export function GenerateView({
     if (region && onRegionChange) onRegionChange({ ...region, ...changes });
   };
 
-  /*
-   * "adaptive" is a policy, not a shape — a region cannot be framed to it, and
-   * offering it here would promise a constraint that has nothing to enforce.
-   */
-  const shapeOptions = (provider?.aspectRatios ?? []).filter(
-    (ratio) => parseAspect(ratio) !== undefined,
-  );
+  // Across every provider, not just the selected one — see regionShapeOptions
+  // for why a region's shape does not belong to whatever is selected now.
+  const shapeOptions = regionShapeOptions(providers, form.providerId, region?.aspect);
 
   const selected = regions?.find((item) => item.name === region?.name);
   const running = jobs.some(
