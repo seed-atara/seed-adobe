@@ -100,7 +100,18 @@ export class ArkAssetLibrary {
     const local = this.cache.get(sha16);
     if (local) return { assetId: local, cached: true };
 
-    const remote = await this.findByHash(sha16);
+    /*
+     * A lookup failure is not a registration failure. ListAssets answered
+     * InternalError once on 2026-08-20 and the whole ensureAsset threw, so the
+     * caller fell back to a plain link and the generation was refused as "may
+     * contain real person" — the exact outcome this library exists to prevent,
+     * caused by a cache miss.
+     *
+     * Worst case of pressing on is a duplicate asset, which is free and
+     * permanent. That is a far better trade than losing the protected route to
+     * a transient error on someone else's service.
+     */
+    const remote = await this.findByHash(sha16).catch(() => undefined);
     if (remote) {
       this.cache.set(sha16, remote);
       return { assetId: remote, cached: true };

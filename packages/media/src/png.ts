@@ -89,9 +89,19 @@ export function decodePng(buffer: Buffer): RasterImage | undefined {
   const interlace = buffer.readUInt8(28);
   const channels = CHANNELS[colorType];
 
-  if (bitDepth !== 8 || interlace !== 0 || channels === undefined) {
+  /*
+   * 16 bits per sample as well as 8.
+   *
+   * After Effects writes 16-bit PNGs from saveFrameToPng as soon as the
+   * project is above 8 bpc — which is exactly what the quality work asks for.
+   * Rejecting them here meant every capture from a 16 or 32 bpc project
+   * decoded to nothing: no thumbnail, no preview, a black card in the library
+   * and no way to tell that from a genuinely black frame.
+   */
+  if ((bitDepth !== 8 && bitDepth !== 16) || interlace !== 0 || channels === undefined) {
     return undefined;
   }
+  const sampleBytes = bitDepth === 16 ? 2 : 1;
 
   const idat: Buffer[] = [];
   let offset = 8;
@@ -112,7 +122,7 @@ export function decodePng(buffer: Buffer): RasterImage | undefined {
     return undefined;
   }
 
-  const stride = width * channels;
+  const stride = width * channels * sampleBytes;
   if (raw.length < (stride + 1) * height) return undefined;
 
   const pixels = Buffer.alloc(stride * height);
@@ -122,10 +132,21 @@ export function decodePng(buffer: Buffer): RasterImage | undefined {
     const out = pixels.subarray(y * stride, (y + 1) * stride);
     const prev =
       y === 0 ? undefined : pixels.subarray((y - 1) * stride, y * stride);
-    unfilter(filter, line, out, prev, channels);
+    // Filtering is defined on bytes, and a 16-bit pixel is twice as many of
+    // them — so the "left" neighbour is that much further back.
+    unfilter(filter, line, out, prev, channels * sampleBytes);
   }
 
-  return { width, height, rgba: toRgba(pixels, width, height, colorType) };
+  /*
+   * Narrowed to 8 bits by keeping the high byte of each big-endian sample.
+   * Everything downstream of here — thumbnails, previews, the chart checks —
+   * is 8-bit by construction, and truncation is the correct narrowing: it is
+   * what the top 8 bits of the value already say.
+   */
+  const narrowed =
+    sampleBytes === 1 ? pixels : narrowSamples(pixels, width * height * channels);
+
+  return { width, height, rgba: toRgba(narrowed, width, height, colorType) };
 }
 
 function unfilter(
@@ -172,6 +193,13 @@ function paeth(a: number, b: number, c: number): number {
   const pc = Math.abs(p - c);
   if (pa <= pb && pa <= pc) return a;
   return pb <= pc ? b : c;
+}
+
+/** The high byte of every big-endian 16-bit sample, in order. */
+function narrowSamples(pixels: Buffer, samples: number): Buffer {
+  const out = Buffer.alloc(samples);
+  for (let i = 0; i < samples; i += 1) out[i] = pixels[i * 2] as number;
+  return out;
 }
 
 function toRgba(
