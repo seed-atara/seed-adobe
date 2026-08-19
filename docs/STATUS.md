@@ -530,6 +530,55 @@ codec Ark accepts (H.264/H.265) and is the default; `quality` prefers ProRes
 4444 for a clip that stays local. A ProRes reference is not a better reference,
 it is a rejected one.
 
+## Bit depth, end to end (2026-08-20)
+
+Raising a project above 8 bpc — which the quality work asks for — changed what
+comes out of `saveFrameToPng`, and two things downstream were not ready for it.
+
+**After Effects writes 16-bit PNGs from any project above 8 bpc.** `decodePng`
+accepted 8 only and returned `undefined`, so every capture from a 16 or 32 bpc
+project produced no thumbnail: a black card in the library, indistinguishable
+from a genuinely black frame. It also silently disabled the partial-render/ROI
+warning, which shares that decoder. Both read again; the decoder unfilters on
+the byte stride and narrows by keeping the high byte of each big-endian sample.
+
+**A deep capture is narrowed before it is sent to a provider.** A 5750x2818
+frame is 14.21MB as 16-bit and 3.97MB as 8-bit. Narrowing happens at
+materialisation and is a *format* decision only — nothing resizes or crops,
+because what a provider accepts at the top end has not been measured here and
+guessing a ceiling would silently change what the artist framed.
+
+The rest of the chain was already correct, and is recorded here so it is not
+re-audited:
+
+| stage | depth | correct? |
+|---|---|---|
+| `encodePng` | 8-bit | yes — thumbnails only |
+| plugin input, AE 8-bit | `/255` | yes |
+| plugin input, AE 16-bit | `/PF_MAX_CHAN16` | yes — AE's 16-bit is 0..32768, not 0..65535 |
+| plugin input, AE 32-bit | raw float | yes — no clamp, superwhite survives |
+| plugin output | matches input depth | yes — clamps only where the format demands it |
+| core look engine | float throughout | yes — `Clamp01` is used on a mix amount, never on a pixel |
+
+### Open: captures from a 32 bpc project are dark
+
+Measured on a real capture: the brightest sample in the frame is 6554 of
+65535, which is exactly 10.0%. The colour management recorded alongside it was
+`bitsPerChannel: 32, workingSpace: "None", workingGamma: 2.4,
+linearBlending: false`.
+
+That is either a genuinely dark comp or a linear/display mismatch in what
+`saveFrameToPng` writes at 32 bpc — 0.1 linear is about 0.35 display, so a
+mid-dark frame would land exactly there. **It has not been settled**, and it
+cannot be from the file alone.
+
+The test that settles it: `npx tsx scripts/make-test-chart.ts`, import the
+chart, capture it with **Capture current frame** at 8, then 16, then 32 bpc,
+and run `npx tsx scripts/check-capture.ts` on each. The chart carries known
+patches at 0, 16, 128, 235 and 255, so a shift shows up as a number and names
+its own direction. If the 8 bpc capture passes and the 32 bpc one reports the
+patches low, it is the write path and not the comp.
+
 ## Next engineering actions
 
 1. Exercise iterate-in-place in Premiere. It is built and has never replaced a
