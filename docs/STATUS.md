@@ -198,20 +198,56 @@ region, each with a job:
    adjusted with Position and Scale, so it can be keyframed or parented like
    anything else. SEED only reads its transform back.
 2. **A sub-comp**, sized to the region — the workspace. Holds the captured
-   still, and later the animated clip on top of it. Created on first capture and
+   plate, and later the animated clip on top of it. Created on first capture and
    reused after, so anything the artist builds inside it survives.
 3. **A composite layer** in the plate comp holding that sub-comp, feathered.
-   Because the sub-comp's background is the captured still, the feathered edge
+   Because the sub-comp's background is the captured plate, the feathered edge
    fades into pixels identical to the plate underneath, which is what makes the
    join invisible.
 
-The sub-comp holds the captured *still*, never the plate comp itself — a comp
-cannot contain a comp that contains it, and the animation is built from that
-frozen frame anyway.
+The sub-comp holds the *capture*, never the plate comp itself — a comp cannot
+contain a comp that contains it.
 
 Feather, start time, and a stretch-to duration are all panel parameters. The
 plate is never modified: the composite can be retimed, replaced, or deleted
 without rebuilding anything.
+
+### Capturing a region that moves
+
+**Capture region** takes the playhead as a still. **Capture region as clip**
+takes the *work area* as video, and is the one to use over moving footage: a
+still frozen out of a shot that pans stops matching one frame later, and every
+generation made from it inherits the mismatch.
+
+Both routes frame the region with the same temporary comp — After Effects can
+only write a whole composition, so the plate comp goes inside one sized to the
+region and offset so the region centres. The temp comp's timeline maps one to
+one onto the plate's, which is what lets the clip render `[start, duration]`
+there and get exactly the frames that span covers below.
+
+The clip renders through the render queue, so it shares one implementation with
+the work-area capture (`seedRenderRange`) rather than a second copy that
+drifts: other queued items unqueued and put back, render settings applied
+before the time span, the span set in three steps, and every written file
+re-stated through a fresh `File` because ExtendScript caches `exists` from
+construction. A poster is written beside it — there is no video decoder on the
+SEED side, and a reference clip nobody can recognise in a grid is a reference
+nobody picks.
+
+In the sub-comp the clip is offset to the work area's start, so the region
+plays in step with the plate underneath instead of drifting by exactly that
+start. A still stays at zero and holds across the whole comp, which is what
+keeps the feathered edge fading into identical pixels everywhere.
+
+The result registers as a **video** asset and attaches as a reference, which
+means Ark reads the request as video editing: length and shape come from the
+input clip and the panel replaces those controls with what will happen. The
+clip itself has to be 4–30s for Seedance to accept it — a work area outside
+that range is a capture that generates nothing, so check it before rendering.
+
+**Not yet exercised in After Effects.** This is ExtendScript: it cannot be
+typechecked or run by the suite, so nothing above is proven until it has been
+run in the application.
 
 ### Holding a region to a shape
 

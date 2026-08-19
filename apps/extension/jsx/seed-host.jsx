@@ -409,65 +409,38 @@ function seedUniqueFile(folder, safeName, suffix, extension) {
  * After Effects has no scripting API to build one, and the template names
  * differ between versions and languages.
  */
-function seedCaptureRange(outputDir, basename, startSeconds, durationSeconds, presetPath, quality) {
-    /*
-     * `presetPath` is Premiere's; After Effects renders through its own queue
-     * and ignores it. `quality` is "delivery" (default) or "quality" — see
-     * seedVideoTemplate for why a reference clip must stay in a codec the
-     * provider will accept.
-     */
+/**
+ * Renders a range of any composition to a clip, with a poster beside it.
+ *
+ * Extracted so the work-area capture and the region capture share one
+ * implementation instead of two that drift apart. Everything awkward about
+ * rendering from script lives here once:
+ *
+ *   - renderQueue.render() renders every QUEUED item, not the one just added,
+ *     so anything already waiting is unqueued and put back afterwards. It is
+ *     someone's overnight comp.
+ *   - Render settings are applied before the time span, because a template
+ *     carries a span of its own and would silently replace the chosen range.
+ *   - The span is set in three steps: the item starts covering the whole comp,
+ *     so moving the start alone can push the end past it.
+ *   - An ExtendScript File caches `exists` from construction, so both the clip
+ *     and the poster are re-stated through new File objects.
+ *
+ * Returns { ok: true, ... } on success, or a seedFail result the caller can
+ * return unchanged.
+ */
+function seedRenderRange(comp, folder, safe, start, duration, quality, suffix) {
     var queueItem = null;
     var unqueued = [];
     try {
-        var comp = seedActiveComp();
-        if (!comp) return seedFail("no active composition");
-
-        var folder = seedEnsureFolder(outputDir);
-        if (!folder.exists) {
-            return seedFail("could not create output folder: " + outputDir);
-        }
-
-        var start = Number(startSeconds);
-        if (startSeconds === null || startSeconds === undefined || isNaN(start)) {
-            start = comp.workAreaStart;
-        }
-        var duration = Number(durationSeconds);
-        if (
-            durationSeconds === null ||
-            durationSeconds === undefined ||
-            isNaN(duration) ||
-            duration <= 0
-        ) {
-            duration = comp.workAreaDuration;
-        }
-
-        // A span running past the end renders black frames, which look like a
-        // broken export rather than a range that was never there.
-        if (start < 0) start = 0;
-        if (start > comp.duration) start = comp.duration;
-        if (start + duration > comp.duration) duration = comp.duration - start;
-        if (duration <= 0) {
-            return seedFail(
-                "that range is empty — the composition is " +
-                    comp.duration.toFixed(2) + "s long and the range starts at " +
-                    start.toFixed(2) + "s"
-            );
-        }
-
-        var safe = String(basename || comp.name).replace(/[^A-Za-z0-9._-]+/g, "_");
         var frame = Math.round(start * comp.frameRate);
         var stamp = String(frame);
         while (stamp.length < 5) stamp = "0" + stamp;
-        var target = seedUniqueFile(folder, safe, "_f" + stamp + "_range", ".mp4");
+        var target = seedUniqueFile(folder, safe, "_f" + stamp + suffix, ".mp4");
         var targetPath = target.fsName;
 
         queueItem = app.project.renderQueue.items.add(comp);
 
-        /*
-         * renderQueue.render() renders every QUEUED item, not the one just
-         * added. Anything already waiting is taken out of the queue and put
-         * back when this render is done.
-         */
         for (var i = 1; i <= app.project.renderQueue.numItems; i++) {
             var other = app.project.renderQueue.item(i);
             if (other === queueItem) continue;
@@ -476,7 +449,7 @@ function seedCaptureRange(outputDir, basename, startSeconds, durationSeconds, pr
                 other.render = false;
                 unqueued.push(other);
             } catch (unqueueError) {
-                // Leave it alone rather than guessing; reported below.
+                // Leave it alone rather than guessing.
             }
         }
 
@@ -494,8 +467,6 @@ function seedCaptureRange(outputDir, basename, startSeconds, durationSeconds, pr
             );
         }
 
-        // Render settings first: a template carries a time span of its own, and
-        // applying it after the span would silently replace the chosen range.
         try {
             queueItem.applyTemplate("Best Settings");
         } catch (settingsError) {
@@ -505,11 +476,6 @@ function seedCaptureRange(outputDir, basename, startSeconds, durationSeconds, pr
         outputModule.applyTemplate(template);
         outputModule.file = target;
 
-        /*
-         * Set the span in three steps. The item starts covering the whole comp,
-         * so moving the start alone can push the end past it, and After Effects
-         * clamps or refuses depending on version.
-         */
         try {
             queueItem.timeSpanDuration = comp.frameDuration;
             queueItem.timeSpanStart = start;
@@ -524,16 +490,13 @@ function seedCaptureRange(outputDir, basename, startSeconds, durationSeconds, pr
             return seedFail("render failed: " + renderError);
         }
 
-        var status = queueItem.status;
-        if (status !== RQItemStatus.DONE) {
+        if (queueItem.status !== RQItemStatus.DONE) {
             return seedFail(
                 "After Effects stopped the render before it finished (status " +
-                    status + ")"
+                    queueItem.status + ")"
             );
         }
 
-        // Re-stat through a new File: an ExtendScript File caches what it knew
-        // when it was constructed.
         var written = null;
         for (var check = 0; check < 40; check++) {
             var probe = new File(targetPath);
@@ -559,13 +522,6 @@ function seedCaptureRange(outputDir, basename, startSeconds, durationSeconds, pr
             if (typeof comp.saveFrameToPng === "function") {
                 var poster = seedUniqueFile(folder, safe, "_f" + stamp + "_poster", ".png");
                 comp.saveFrameToPng(start, poster);
-                /*
-                 * Re-stat through a NEW File, and give it a moment: an
-                 * ExtendScript File caches what it knew at construction, so a
-                 * single immediate check answers a stale "no" and silently
-                 * costs the clip its poster. seedCaptureFrame learned this the
-                 * same way.
-                 */
                 var posterFsName = poster.fsName;
                 for (var wait = 0; wait < 20; wait++) {
                     var posterProbe = new File(posterFsName);
@@ -586,20 +542,16 @@ function seedCaptureRange(outputDir, basename, startSeconds, durationSeconds, pr
             posterPath = null;
         }
 
-        return seedOk({
+        return {
+            ok: true,
             path: written.fsName,
             posterPath: posterPath,
             bytes: written.length,
-            width: comp.width,
-            height: comp.height,
-            frameRate: comp.frameRate,
             frameNumber: frame,
             startSeconds: start,
             durationSeconds: duration,
-            template: template,
-            workAreaStart: comp.workAreaStart,
-            workAreaDuration: comp.workAreaDuration
-        });
+            template: template
+        };
     } catch (error) {
         return seedFail(error);
     } finally {
@@ -610,6 +562,90 @@ function seedCaptureRange(outputDir, basename, startSeconds, durationSeconds, pr
         for (var r = 0; r < unqueued.length; r++) {
             try { unqueued[r].render = true; } catch (requeueError) {}
         }
+    }
+}
+
+/**
+ * The span to render, defaulting to the work area.
+ *
+ * A span running past the end renders black frames, which look like a broken
+ * export rather than a range that was never there — so it is clamped, and an
+ * empty one is refused with the numbers that make it obvious why.
+ *
+ * Returns { start, duration }, or { failed: true, failure } to return as-is.
+ */
+function seedResolveRange(comp, startSeconds, durationSeconds) {
+    var start = Number(startSeconds);
+    if (startSeconds === null || startSeconds === undefined || isNaN(start)) {
+        start = comp.workAreaStart;
+    }
+    var duration = Number(durationSeconds);
+    if (
+        durationSeconds === null ||
+        durationSeconds === undefined ||
+        isNaN(duration) ||
+        duration <= 0
+    ) {
+        duration = comp.workAreaDuration;
+    }
+
+    if (start < 0) start = 0;
+    if (start > comp.duration) start = comp.duration;
+    if (start + duration > comp.duration) duration = comp.duration - start;
+    if (duration <= 0) {
+        return {
+            failed: true,
+            failure: seedFail(
+                "that range is empty — the composition is " +
+                    comp.duration.toFixed(2) + "s long and the range starts at " +
+                    start.toFixed(2) + "s"
+            )
+        };
+    }
+    return { start: start, duration: duration };
+}
+
+function seedCaptureRange(outputDir, basename, startSeconds, durationSeconds, presetPath, quality) {
+    /*
+     * `presetPath` is Premiere's; After Effects renders through its own queue
+     * and ignores it. `quality` is "delivery" (default) or "quality" — see
+     * seedVideoTemplate for why a reference clip must stay in a codec the
+     * provider will accept.
+     */
+    try {
+        var comp = seedActiveComp();
+        if (!comp) return seedFail("no active composition");
+
+        var folder = seedEnsureFolder(outputDir);
+        if (!folder.exists) {
+            return seedFail("could not create output folder: " + outputDir);
+        }
+
+        var span = seedResolveRange(comp, startSeconds, durationSeconds);
+        if (span.failed) return span.failure;
+
+        var safe = String(basename || comp.name).replace(/[^A-Za-z0-9._-]+/g, "_");
+        var rendered = seedRenderRange(
+            comp, folder, safe, span.start, span.duration, quality, "_range"
+        );
+        if (!rendered.ok) return rendered;
+
+        return seedOk({
+            path: rendered.path,
+            posterPath: rendered.posterPath,
+            bytes: rendered.bytes,
+            width: comp.width,
+            height: comp.height,
+            frameRate: comp.frameRate,
+            frameNumber: rendered.frameNumber,
+            startSeconds: rendered.startSeconds,
+            durationSeconds: rendered.durationSeconds,
+            template: rendered.template,
+            workAreaStart: comp.workAreaStart,
+            workAreaDuration: comp.workAreaDuration
+        });
+    } catch (error) {
+        return seedFail(error);
     }
 }
 
@@ -1159,12 +1195,18 @@ function seedImportWhenReadable(path) {
 }
 
 /**
- * Builds or refreshes the region's sub-comp around a captured still.
+ * Builds or refreshes the region's sub-comp around the captured plate.
  *
  * Re-capturing an existing region reuses its comp rather than making another,
  * so whatever the artist has already built inside it survives.
+ *
+ * The plate may be a still or a clip. A clip carries `startSeconds`, the time
+ * on the parent timeline where its first frame belongs — without it the region
+ * would play from the top of the comp while the plate underneath is somewhere
+ * else entirely, and the two would drift apart by exactly the work area's
+ * start.
  */
-function seedEnsureRegionComp(comp, region, rect, stillFile) {
+function seedEnsureRegionComp(comp, region, rect, plateFile, startSeconds) {
     var sub = seedFindRegionComp(region.name);
     if (!sub) {
         sub = app.project.items.addComp(
@@ -1182,12 +1224,12 @@ function seedEnsureRegionComp(comp, region, rect, stillFile) {
         sub.height = rect.height;
     }
 
-    // Replace the previous plate still; anything the artist added stays.
+    // Replace the previous plate; anything the artist added stays.
     for (var i = sub.numLayers; i >= 1; i--) {
         if (sub.layer(i).name.indexOf("SEED plate") === 0) sub.layer(i).remove();
     }
 
-    var imported = seedImportWhenReadable(stillFile.fsName);
+    var imported = seedImportWhenReadable(plateFile.fsName);
     imported.parentFolder = seedProjectFolder();
     var plate = sub.layers.add(imported);
     plate.name = "SEED plate";
@@ -1196,6 +1238,21 @@ function seedEnsureRegionComp(comp, region, rect, stillFile) {
         sub.width / 2,
         sub.height / 2
     ]);
+
+    /*
+     * Line the clip up with the timeline it was cut from. A still is left at
+     * zero: it has no time of its own, and holding it across the whole comp is
+     * what makes the feathered edge fade into identical pixels everywhere.
+     */
+    var offset = Number(startSeconds);
+    if (!isNaN(offset) && offset > 0) {
+        try {
+            plate.startTime = offset;
+        } catch (startError) {
+            // Older hosts refuse a start time past the comp; the plate simply
+            // begins at zero, which is visibly wrong rather than silently so.
+        }
+    }
 
     return sub;
 }
@@ -1252,14 +1309,19 @@ function seedPlaceComposite(comp, region, rect, featherPixels) {
 }
 
 /**
- * Renders just the region, at the playhead, and preps its sub-comp.
+ * Renders just the region and preps its sub-comp.
  *
  * After Effects can only write a whole composition, so the region is framed by
  * a temporary comp holding the plate offset behind it. That temp comp is
  * removed afterwards whether or not the render succeeded — leaving debris in
  * someone's project is worse than failing.
+ *
+ * `mode` is "still" (the playhead, default) or "clip" (the work area). A region
+ * over moving footage needs a moving plate: a still frozen out of a shot that
+ * pans is a plate that stops matching one frame later, and every generation
+ * made from it inherits the mismatch.
  */
-function seedCaptureRegion(regionName, outputDir, basename, featherPixels) {
+function seedCaptureRegion(regionName, outputDir, basename, featherPixels, mode, quality) {
     var temp = null;
     var hidden = [];
     try {
@@ -1329,46 +1391,83 @@ function seedCaptureRegion(regionName, outputDir, basename, featherPixels) {
         var stamp = String(frame);
         while (stamp.length < 5) stamp = "0" + stamp;
 
-        var attempt = 1;
-        var target;
-        do {
-            var suffix = String(attempt);
-            while (suffix.length < 3) suffix = "0" + suffix;
-            target = new File(
-                seedNormalizePath(folder.fsName) +
-                    "/" + safe + "_r" + stamp + "_" + suffix + ".png"
-            );
-            attempt++;
-        } while (target.exists && attempt < 1000);
-
-        var targetPath = target.fsName;
-        try {
-            temp.saveFrameToPng(temp.time, target);
-        } catch (writeError) {
-            return seedFail("saveFrameToPng failed on the region comp: " + writeError);
-        }
-
+        var wantsClip = String(mode || "still") === "clip";
         var written = null;
-        for (var check = 0; check < 20; check++) {
-            var probe = new File(targetPath);
-            if (probe.exists && probe.length > 0) {
-                written = probe;
-                break;
-            }
-            $.sleep(50);
-        }
-        if (!written) return seedFail("no region frame appeared at " + targetPath);
+        var bytes = 0;
+        var posterPath = null;
+        var startSeconds = comp.time;
+        var durationSeconds = 0;
 
-        var sub = seedEnsureRegionComp(comp, region, rect, written);
+        if (wantsClip) {
+            /*
+             * The work area, not the playhead. The temp comp holds the source
+             * comp as a layer starting at zero, so its timeline maps one to one
+             * onto the parent's — rendering [start, duration] here yields
+             * exactly the frames that span covers down there.
+             */
+            var span = seedResolveRange(comp, null, null);
+            if (span.failed) return span.failure;
+
+            var rendered = seedRenderRange(
+                temp, folder, safe, span.start, span.duration, quality, "_r" + stamp
+            );
+            if (!rendered.ok) return rendered;
+
+            written = new File(rendered.path);
+            bytes = rendered.bytes;
+            posterPath = rendered.posterPath;
+            startSeconds = rendered.startSeconds;
+            durationSeconds = rendered.durationSeconds;
+            frame = rendered.frameNumber;
+        } else {
+            var attempt = 1;
+            var target;
+            do {
+                var suffix = String(attempt);
+                while (suffix.length < 3) suffix = "0" + suffix;
+                target = new File(
+                    seedNormalizePath(folder.fsName) +
+                        "/" + safe + "_r" + stamp + "_" + suffix + ".png"
+                );
+                attempt++;
+            } while (target.exists && attempt < 1000);
+
+            var targetPath = target.fsName;
+            try {
+                temp.saveFrameToPng(temp.time, target);
+            } catch (writeError) {
+                return seedFail("saveFrameToPng failed on the region comp: " + writeError);
+            }
+
+            for (var check = 0; check < 20; check++) {
+                var probe = new File(targetPath);
+                if (probe.exists && probe.length > 0) {
+                    written = probe;
+                    bytes = probe.length;
+                    break;
+                }
+                $.sleep(50);
+            }
+            if (!written) return seedFail("no region frame appeared at " + targetPath);
+        }
+
+        var sub = seedEnsureRegionComp(
+            comp, region, rect, written, wantsClip ? startSeconds : 0
+        );
         seedPlaceComposite(comp, region, rect, featherPixels);
 
         return seedOk({
             path: written.fsName,
-            bytes: written.length,
+            posterPath: posterPath,
+            kind: wantsClip ? "video" : "image",
+            bytes: bytes,
             width: rect.width,
             height: rect.height,
+            frameRate: comp.frameRate,
             frameNumber: frame,
             timeSeconds: comp.time,
+            startSeconds: startSeconds,
+            durationSeconds: durationSeconds,
             compName: sub.name,
             region: seedDescribeRegion(comp, region)
         });

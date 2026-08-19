@@ -136,7 +136,7 @@ interface Props {
   region?: RegionSettings;
   onRegionChange?: (region: RegionSettings) => void;
   onAddRegion?: () => void;
-  onCaptureRegion?: () => void;
+  onCaptureRegion?: (mode: "still" | "clip") => void;
   onRefreshRegions?: () => void;
   onRegionAspect?: (aspect: string) => void;
   onRegionContain?: (contained: boolean) => void;
@@ -644,10 +644,25 @@ export function GenerateView({
 
               <button
                 className="btn primary wide"
-                onClick={onCaptureRegion}
+                onClick={() => onCaptureRegion?.("still")}
                 disabled={busy || !selected}
               >
                 Capture region
+              </button>
+
+              {/*
+                * A region over moving footage needs a moving plate. The still
+                * stays the default because it is instant and most regions sit
+                * on a locked-off shot; the clip renders the work area through
+                * the render queue, which takes as long as the span does.
+                */}
+              <button
+                className="btn wide"
+                onClick={() => onCaptureRegion?.("clip")}
+                disabled={busy || !selected}
+                title="Renders the work area, so the plate moves with the shot"
+              >
+                Capture region as clip
               </button>
 
               <div className="row" style={{ marginTop: 8 }}>

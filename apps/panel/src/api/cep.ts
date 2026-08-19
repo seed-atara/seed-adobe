@@ -165,6 +165,19 @@ export interface CaptureResult {
   timeSeconds: number;
 }
 
+/**
+ * A captured region, which is a still or a clip depending on what was asked
+ * for. `kind` is what the host actually produced, and it decides which
+ * registration route the result belongs on.
+ */
+export interface RegionCaptureResult extends CaptureResult {
+  kind?: "image" | "video";
+  posterPath?: string | null;
+  frameRate?: number;
+  startSeconds?: number;
+  durationSeconds?: number;
+}
+
 /** What the timeline offers as a range, before anything is rendered. */
 export interface RangeInfo {
   compName: string;
@@ -568,10 +581,22 @@ export class CepAeBridge {
     return evalHost(`${hostPrefix()}listRegions()`);
   }
 
-  /** Renders just the region and registers it, region geometry and all. */
+  /**
+   * Renders just the region and registers it, region geometry and all.
+   *
+   * `mode: "clip"` captures the work area as video instead of the playhead as a
+   * still. A region over moving footage needs a moving plate — a still frozen
+   * out of a shot that pans stops matching one frame later, and every
+   * generation made from it inherits the mismatch.
+   */
   async captureRegion(
     regionName: string,
     featherPixels: number,
+    options?: {
+      mode?: "still" | "clip";
+      /** See captureRange: `delivery` stays in a codec Ark will accept. */
+      quality?: "delivery" | "quality";
+    },
   ): Promise<{
     asset: Asset;
     warning?: string;
@@ -582,25 +607,55 @@ export class CepAeBridge {
     const { workspace } = await this.client.workspace();
     const context = await this.getContext();
     const compName = typeof context.compName === "string" ? context.compName : "comp";
+    const mode = options?.mode ?? "still";
 
     const captured = await evalHost<
-      CaptureResult & { region: AeRegion; compName: string }
+      RegionCaptureResult & { region: AeRegion; compName: string }
     >(
       `${hostPrefix()}captureRegion(${quote(regionName)}, ${quote(
         workspace.originalsDir,
-      )}, ${quote(compName)}, ${Math.round(featherPixels)})`,
+      )}, ${quote(compName)}, ${Math.round(featherPixels)}, ${quote(mode)}, ${quote(
+        options?.quality ?? "delivery",
+      )})`,
     );
+
+    const provenance = {
+      ...context,
+      frameNumber: captured.frameNumber,
+      timeSeconds: captured.timeSeconds,
+      // Provenance has to record which part of the plate this came from, or
+      // the crop can never be put back where it belongs.
+      region: captured.region,
+    };
+
+    if (captured.kind === "video") {
+      /*
+       * Registered as a clip, not a capture: the service refuses a video on
+       * the still route, and a region plate has to be a first-class video
+       * asset or nothing downstream — reference, poster, duration — works.
+       */
+      const { asset } = await this.client.registerClip({
+        path: captured.path,
+        ...(captured.posterPath ? { posterPath: captured.posterPath } : {}),
+        context: {
+          ...provenance,
+          timeSeconds: captured.startSeconds ?? captured.timeSeconds,
+          workAreaStartSeconds: captured.startSeconds,
+          workAreaDurationSeconds: captured.durationSeconds,
+        },
+        width: captured.width,
+        height: captured.height,
+        ...(captured.durationSeconds
+          ? { durationSeconds: captured.durationSeconds }
+          : {}),
+        ...(captured.frameRate ? { fps: captured.frameRate } : {}),
+      });
+      return { asset, region: captured.region, compName: captured.compName };
+    }
 
     const registered = await this.client.registerCapture({
       path: captured.path,
-      context: {
-        ...context,
-        frameNumber: captured.frameNumber,
-        timeSeconds: captured.timeSeconds,
-        // Provenance has to record which part of the plate this came from, or
-        // the crop can never be put back where it belongs.
-        region: captured.region,
-      },
+      context: provenance,
       width: captured.width,
       height: captured.height,
     });

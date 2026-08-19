@@ -727,28 +727,53 @@ export function App({ tabs }: AppProps = {}) {
     [bridge, region.name, refreshRegions, report],
   );
 
-  const captureRegion = useCallback(async () => {
-    if (!bridge || !region.name) return;
-    setBusy(true);
-    setError(undefined);
-    try {
-      const { asset, warning, region: captured, compName } =
-        await bridge.captureRegion(region.name, Number(region.feather) || 0);
-      setNotice(
-        warning ??
-          `Captured ${captured.width}x${captured.height} into “${compName}”, ` +
-            "placed back over the plate. Generate, then composite the result.",
-      );
-      await refreshRegions();
-      await refreshAssets();
-      setSelectedId(asset.id);
-      attachReference(asset.id);
-    } catch (cause) {
-      report(cause);
-    } finally {
-      setBusy(false);
-    }
-  }, [bridge, region.name, refreshRegions, refreshAssets, attachReference, report]);
+  const captureRegion = useCallback(
+    async (mode: "still" | "clip" = "still") => {
+      if (!bridge || !region.name) return;
+      setBusy(true);
+      setError(undefined);
+      try {
+        const { asset, warning, region: captured, compName } =
+          await bridge.captureRegion(region.name, Number(region.feather) || 0, {
+            mode,
+          });
+        setNotice(
+          warning ??
+            `Captured ${captured.width}x${captured.height} ${
+              mode === "clip" ? "over the work area " : ""
+            }into “${compName}”, ` +
+              "placed back over the plate. Generate, then composite the result.",
+        );
+        await refreshRegions();
+        await refreshAssets();
+        setSelectedId(asset.id);
+        /*
+         * The kind is passed rather than looked up. refreshAssets has queued a
+         * state update this closure cannot see yet, so attachReference would
+         * search a list the new asset is not in and treat a clip as a still —
+         * anchoring it as a first frame and leaving behind a length the task
+         * only fails on twenty seconds in.
+         */
+        attachReference(asset.id, asset.kind);
+        if (asset.kind === "video") {
+          setForm((current) => ({ ...current, operation: "video.generate" }));
+        }
+      } catch (cause) {
+        report(cause);
+      } finally {
+        setBusy(false);
+      }
+    },
+    [
+      bridge,
+      region.name,
+      region.feather,
+      refreshRegions,
+      refreshAssets,
+      attachReference,
+      report,
+    ],
+  );
 
   /** Composites the finished clip back onto the region it came from. */
   const insertRegion = useCallback(async () => {
