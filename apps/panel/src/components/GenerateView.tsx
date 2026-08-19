@@ -8,6 +8,7 @@ import type {
 } from "@seed-ae/domain";
 import type { AeRegion } from "../api/cep.ts";
 import { assetToken } from "../mentions.ts";
+import { alignRoles, isAnchored, mixesFrameModes } from "../references.ts";
 import { bestQualitySize } from "../quality.ts";
 import { ItemPicker } from "./ItemPicker.tsx";
 import { PromptPreview } from "./PromptPreview.tsx";
@@ -361,9 +362,12 @@ export function GenerateView({
    * that mixes them cannot be generated, and saying so here is better than
    * letting the request be refused after the artist presses Generate.
    */
-  const anchored = form.inputRoles.some((role) => role !== "reference");
-  const mixesModes =
-    anchored && form.inputRoles.some((role) => role === "reference");
+  // Read through alignRoles, never off form.inputRoles directly: the two
+  // arrays have drifted apart before, and a role with no reference under it
+  // disabled Generate over a frame that was not on screen to be changed.
+  const roles = alignRoles(form.inputAssetIds, form.inputRoles);
+  const anchored = isAnchored(roles);
+  const mixesModes = mixesFrameModes(roles);
   const rolesOffered =
     form.operation === "video.generate" && provider?.startEndFrames === true;
 

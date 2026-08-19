@@ -40,7 +40,14 @@ export function StatusBadge({ status }: { status: JobStatus }) {
 /** Source badge: was this rendered out of AE, generated, or brought in? */
 export function OriginBadge({ asset }: { asset: Asset }) {
   if (asset.source.type === "after-effects") {
-    return <span className="badge">AE frame</span>;
+    // A clip is not a frame. Both come out of the timeline, but only one can
+    // carry motion, and a card that calls a captured range a frame is a card
+    // the artist has to open to find out what they actually have.
+    return (
+      <span className="badge">
+        {asset.kind === "video" ? "AE clip" : "AE frame"}
+      </span>
+    );
   }
   if (asset.source.type === "generated") {
     return <span className="badge accent">derived</span>;

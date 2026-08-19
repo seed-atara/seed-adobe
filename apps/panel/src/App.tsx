@@ -26,6 +26,7 @@ import { LineageView } from "./components/LineageView.tsx";
 import { ItemsView } from "./components/ItemsView.tsx";
 import { findMentions } from "./mentions.ts";
 import { bestQualitySize } from "./quality.ts";
+import { alignRoles, providerForClip } from "./references.ts";
 import { resultDepthWarning } from "./colorSummary.ts";
 import { resolveRefineTarget } from "./refine.ts";
 
@@ -428,10 +429,23 @@ export function App({ tabs }: AppProps = {}) {
       try {
         const { usedBy } = await client.removeAsset(asset.id);
         setSelectedId((current) => (current === asset.id ? undefined : current));
-        setForm((current) => ({
-          ...current,
-          inputAssetIds: current.inputAssetIds.filter((id) => id !== asset.id),
-        }));
+        setForm((current) => {
+          /*
+           * The role goes with the reference. Filtering ids alone left the
+           * roles array longer than the references it describes, and a
+           * leftover "first" disabled Generate over a frame that was no longer
+           * on screen to be changed.
+           */
+          const aligned = alignRoles(current.inputAssetIds, current.inputRoles);
+          const keep = current.inputAssetIds
+            .map((id, index) => ({ id, role: aligned[index] ?? "reference" }))
+            .filter((entry) => entry.id !== asset.id);
+          return {
+            ...current,
+            inputAssetIds: keep.map((entry) => entry.id),
+            inputRoles: keep.map((entry) => entry.role),
+          };
+        });
         await refreshAssets();
         setNotice(
           `Removed ${asset.filename}.` +
@@ -537,6 +551,33 @@ export function App({ tabs }: AppProps = {}) {
   );
 
   /**
+   * Moves the form onto a provider that can actually take a clip.
+   *
+   * Called *before* attachReference so the new provider's reference limit is
+   * the one applied: both are functional updates, so they compose in order
+   * within the same batch. See providerForClip for why attaching a clip to a
+   * provider that cannot take one is worse than merely useless.
+   */
+  const adoptVideoProvider = useCallback(() => {
+    setForm((current) => {
+      const next = providerForClip(providers, current.providerId);
+      // Already on one that takes clips: only the operation needs to follow.
+      if (!next) return { ...current, operation: "video.generate" };
+
+      // Model, size and operation belong to the provider — see selectProvider
+      // for why carrying any of them across is how a form ends up asking for
+      // something the service can only refuse.
+      return {
+        ...current,
+        providerId: next.id,
+        model: next.models[0] ?? "",
+        size: bestQualitySize(next.sizes) ?? next.sizes[0] ?? "",
+        operation: "video.generate",
+      };
+    });
+  }, [providers]);
+
+  /**
    * Registers a frame Premiere exported through its own Export Frame button.
    *
    * Only files written since the panel loaded are considered, so an older
@@ -599,17 +640,15 @@ export function App({ tabs }: AppProps = {}) {
       if (!asset) return; // cancelled
       await refreshAssets();
       setSelectedId(asset.id);
+      if (asset.kind === "video") adoptVideoProvider();
       attachReference(asset.id, asset.kind);
       setNotice(`Added ${asset.filename} to the library.`);
-      if (asset.kind === "video") {
-        setForm((current) => ({ ...current, operation: "video.generate" }));
-      }
     } catch (cause) {
       report(cause);
     } finally {
       setBusy(false);
     }
-  }, [bridge, refreshAssets, attachReference, report]);
+  }, [bridge, refreshAssets, attachReference, adoptVideoProvider, report]);
 
   const captureFrame = useCallback(async () => {
     setBusy(true);
@@ -754,10 +793,8 @@ export function App({ tabs }: AppProps = {}) {
          * anchoring it as a first frame and leaving behind a length the task
          * only fails on twenty seconds in.
          */
+        if (asset.kind === "video") adoptVideoProvider();
         attachReference(asset.id, asset.kind);
-        if (asset.kind === "video") {
-          setForm((current) => ({ ...current, operation: "video.generate" }));
-        }
       } catch (cause) {
         report(cause);
       } finally {
@@ -771,6 +808,7 @@ export function App({ tabs }: AppProps = {}) {
       refreshRegions,
       refreshAssets,
       attachReference,
+      adoptVideoProvider,
       report,
     ],
   );
@@ -1154,7 +1192,16 @@ export function App({ tabs }: AppProps = {}) {
     setForm((current) =>
       current.inputAssetIds.includes(asset.id)
         ? current
-        : { ...current, inputAssetIds: [...current.inputAssetIds, asset.id] },
+        : {
+            ...current,
+            inputAssetIds: [...current.inputAssetIds, asset.id],
+            // Kept in step with the ids, so the roles array never describes
+            // more references than exist.
+            inputRoles: [
+              ...alignRoles(current.inputAssetIds, current.inputRoles),
+              "reference" as const,
+            ],
+          },
     );
     setTab("generate");
   }, []);

@@ -1324,9 +1324,14 @@ function seedPlaceComposite(comp, region, rect, featherPixels) {
 function seedCaptureRegion(regionName, outputDir, basename, featherPixels, mode, quality) {
     var temp = null;
     var hidden = [];
+    var undoOpen = false;
+    var plateComp = null;
     try {
         var comp = seedActiveComp();
         if (!comp) return seedFail("no active composition");
+        // Held for the finally: rendering can leave a different comp frontmost,
+        // and the panel reads the active comp to know where it is.
+        plateComp = comp;
 
         var region = seedRegionByName(comp, regionName);
         if (!region) {
@@ -1344,6 +1349,7 @@ function seedCaptureRegion(regionName, outputDir, basename, featherPixels, mode,
         }
 
         app.beginUndoGroup("SEED: capture region");
+        undoOpen = true;
 
         // Hide every guide, and any composite already over this region, so the
         // capture is of the plate itself and not of an earlier result.
@@ -1390,6 +1396,20 @@ function seedCaptureRegion(regionName, outputDir, basename, featherPixels, mode,
         var safe = String(basename || comp.name).replace(/[^A-Za-z0-9._-]+/g, "_");
         var stamp = String(frame);
         while (stamp.length < 5) stamp = "0" + stamp;
+
+        /*
+         * Close the undo group before capturing.
+         *
+         * renderQueue.render() does its own undo bookkeeping, and a script
+         * group left open across it makes After Effects raise "Undo group
+         * mismatch, will attempt to fix" — a modal, mid-capture, while it
+         * repairs an undo stack that is the artist's work. The setup above is
+         * one undo step; the project edits below open another.
+         */
+        if (undoOpen) {
+            try { app.endUndoGroup(); } catch (closeError) {}
+            undoOpen = false;
+        }
 
         var wantsClip = String(mode || "still") === "clip";
         var written = null;
@@ -1451,6 +1471,9 @@ function seedCaptureRegion(regionName, outputDir, basename, featherPixels, mode,
             if (!written) return seedFail("no region frame appeared at " + targetPath);
         }
 
+        app.beginUndoGroup("SEED: region plate");
+        undoOpen = true;
+
         var sub = seedEnsureRegionComp(
             comp, region, rect, written, wantsClip ? startSeconds : 0
         );
@@ -1474,13 +1497,36 @@ function seedCaptureRegion(regionName, outputDir, basename, featherPixels, mode,
     } catch (error) {
         return seedFail(error);
     } finally {
+        /*
+         * Cleanup needs a group of its own when the capture closed the first
+         * one — otherwise unhiding four guides is four separate entries on the
+         * artist's undo stack, none of which they asked for.
+         */
+        if (!undoOpen) {
+            try {
+                app.beginUndoGroup("SEED: capture region cleanup");
+                undoOpen = true;
+            } catch (openError) {}
+        }
         if (temp) {
             try { temp.remove(); } catch (ignored) {}
         }
         for (var h = 0; h < hidden.length; h++) {
             try { hidden[h].enabled = true; } catch (ignored) {}
         }
-        try { app.endUndoGroup(); } catch (ignored) {}
+        if (undoOpen) {
+            try { app.endUndoGroup(); } catch (ignored) {}
+            undoOpen = false;
+        }
+        /*
+         * Hand the plate comp back. Removing the temporary comp leaves After
+         * Effects to pick whatever is next, and it picks the region's sub-comp
+         * — so the panel reports the region as the active composition and the
+         * next capture has no plate to read.
+         */
+        if (plateComp) {
+            try { plateComp.openInViewer(); } catch (ignored) {}
+        }
     }
 }
 
