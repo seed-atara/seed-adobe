@@ -1,5 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { SeedError, type Asset } from "@seed-ae/domain";
+import { decodePng, encodePng, readPngDepth } from "@seed-ae/media";
 import { resolveStorageUri, type WorkspaceLayout } from "@seed-ae/storage";
 import type { MaterializedInput, PublicUrlPublisher } from "@seed-ae/providers";
 
@@ -53,13 +54,15 @@ export class InputMaterializer {
     kind: MaterializeKind = "base64",
   ): Promise<MaterializedInput> {
     const absolutePath = resolveStorageUri(this.workspace, asset.storageUri);
-    const bytes = await readFile(absolutePath).catch((cause: unknown) => {
+    const raw = await readFile(absolutePath).catch((cause: unknown) => {
       throw new SeedError(
         "not_found",
         `media for asset ${asset.id} is missing on disk`,
         { cause },
       );
     });
+
+    const bytes = narrowDeepPng(raw);
 
     const limit = kind === "url" ? MAX_HOSTED_INPUT_BYTES : MAX_INPUT_BYTES;
     if (bytes.length > limit) {
@@ -123,4 +126,31 @@ export class InputMaterializer {
     if (options.hostVideo && asset.kind === "video") return "url";
     return kind;
   }
+}
+
+/**
+ * An 8-bit PNG, where a deep one arrived.
+ *
+ * After Effects writes 16-bit PNGs from any project above 8 bpc, which the
+ * quality work asks for — so a plate captured for a reference is twice the
+ * bytes and in a form no image model works in. A 5750x2818 capture is 14MB of
+ * it, all of which would be base64'd into a request body or pushed through a
+ * bucket for nothing.
+ *
+ * Narrowing is a format decision, not a resolution one: nothing here resizes
+ * or crops, because what a provider will accept at the top end is not
+ * something we have measured, and guessing a ceiling would silently change
+ * what the artist framed.
+ *
+ * Anything that is not a deep PNG is returned untouched, including video.
+ */
+function narrowDeepPng(bytes: Buffer): Buffer {
+  if (readPngDepth(bytes) !== 16) return bytes;
+
+  const decoded = decodePng(bytes);
+  // Undecodable is not a reason to fail a generation: send what arrived and
+  // let the provider be the one to refuse it, with its own message.
+  if (!decoded) return bytes;
+
+  return encodePng(decoded.width, decoded.height, decoded.rgba);
 }

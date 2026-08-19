@@ -69,6 +69,20 @@ export function readPngSize(
   return { width: buffer.readUInt32BE(16), height: buffer.readUInt32BE(20) };
 }
 
+/**
+ * Bits per sample, straight from the header.
+ *
+ * Cheap enough to ask before deciding whether a file needs converting at all —
+ * a 14MB capture should not be inflated into pixels just to learn it was
+ * already 8-bit.
+ */
+export function readPngDepth(buffer: Buffer): number | undefined {
+  if (buffer.length < 26 || !buffer.subarray(0, 8).equals(PNG_SIGNATURE)) {
+    return undefined;
+  }
+  return buffer.readUInt8(24);
+}
+
 const CHANNELS: Record<number, number> = { 0: 1, 2: 3, 4: 2, 6: 4 };
 
 /**
