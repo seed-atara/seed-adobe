@@ -209,7 +209,7 @@ stops apart to within 15%.
 ## Still unproven
 
 The core is tested; the After Effects glue is not, and cannot be — nothing in
-the suite can run an . Specifically unverified until someone opens AE:
-that the layer parameter checks out at all, that  with
- behaves as an unset source rather than an error, and
+the suite can run an `.aex`. Specifically unverified until someone opens AE:
+that the layer parameter checks out at all, that `PF_ADD_LAYER` with
+`PF_LayerDefault_NONE` behaves as an unset source rather than an error, and
 that the unpremultiply/premultiply round trip is right for AE's worlds.
