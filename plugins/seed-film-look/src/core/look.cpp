@@ -1,63 +1,7 @@
-#include <thread>
 #include "look.h"
 
 namespace seed {
 namespace {
-
-// Running-sum box blur, clamped at the edges so a bright border does not bleed
-// darkness inward the way a zero-padded blur would.
-/*
- * How many workers to split a frame across.
- *
- * Cached: hardware_concurrency is not free and this is called several times a
- * frame. Capped at 16 because the host may already be rendering other frames
- * in parallel — the effect declares threaded rendering — and oversubscribing
- * a machine costs more in contention than it wins in throughput.
- */
-int WorkerCount() {
-  static const int workers = [] {
-    const unsigned hinted = std::thread::hardware_concurrency();
-    const int n = hinted == 0 ? 4 : int(hinted);
-    return std::max(1, std::min(n, 16));
-  }();
-  return workers;
-}
-
-/** Runs `body(begin, end)` over disjoint slices of [0, count). */
-template <typename Body>
-void ParallelBands(int count, const Body& body) {
-  const int workers = std::min(WorkerCount(), std::max(1, count));
-  if (workers <= 1 || count <= 1) {
-    body(0, count);
-    return;
-  }
-  std::vector<std::thread> threads;
-  threads.reserve(std::size_t(workers - 1));
-  const int band = (count + workers - 1) / workers;
-  for (int w = 1; w < workers; ++w) {
-    const int begin = std::min(count, w * band);
-    const int end = std::min(count, begin + band);
-    if (begin >= end) break;
-    threads.emplace_back([&body, begin, end] { body(begin, end); });
-  }
-  body(0, std::min(count, band));
-  for (std::thread& thread : threads) thread.join();
-}
-
-
-/*
- * Splits a whole-image pixel pass across workers.
- *
- * Every stage below is independent per pixel, so this is the same loop with
- * the range handed out in bands. Kept separate from ParallelBands because it
- * counts pixels rather than rows and the arithmetic reads better that way.
- */
-template <typename Body>
-void ParallelPixels(std::size_t pixels, const Body& body) {
-  ParallelBands(int(pixels), [&](int begin, int end) {
-    body(std::size_t(begin), std::size_t(end));
-  });
-}
 
 /*
  * Running-sum box blur, clamped at the edges so a bright border does not bleed

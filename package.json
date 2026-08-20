@@ -24,8 +24,11 @@
     "watch:seedream": "node scripts/watch-seedream.mjs",
     "plugin:vectors": "tsx scripts/filmlook-vectors.ts",
     "plugin:test": "node scripts/plugin-test.mjs",
-    "plugin:build": "node scripts/plugin-build.mjs",
-    "plugin:install": "cmd /c plugins\\seed-film-look\\install.cmd"
+    "plugin:build": "node scripts/plugin-cmd.mjs seed-film-look build-aex.cmd",
+    "plugin:install": "node scripts/plugin-cmd.mjs seed-film-look install.cmd",
+    "detailer:test": "node scripts/plugin-cmd.mjs seed-frequency-detailer build-core-test.cmd",
+    "detailer:build": "node scripts/plugin-cmd.mjs seed-frequency-detailer build-aex.cmd",
+    "detailer:install": "node scripts/plugin-cmd.mjs seed-frequency-detailer install.cmd"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",

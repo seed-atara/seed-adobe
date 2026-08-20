@@ -1,6 +1,6 @@
 # 0011 — SEED Frequency Detailer
 
-**Status:** proposed, awaiting sign-off
+**Status:** accepted 2026-08-20, built for After Effects
 **Date:** 2026-08-20
 
 ## The problem
@@ -184,12 +184,32 @@ core under parity test. Premiere declared only once measured.
 like the film look (it takes two inputs, and the provider interface assumes
 one); guided/edge-aware blur instead of Gaussian.
 
-## Sign-off needed on
+## Decided
 
-1. **Replace default of 0.7** — this changes the character versus the manual
-   workflow, which is effectively 0. I believe replace-mostly is right for soft
-   AI renders, but it is a taste call.
-2. **The drift guard** — whether the structure-agreement approach is worth
-   building, or whether it should be left to a hand-drawn mask.
-3. **Luma-only default.**
-4. **AE first, Premiere on measurement** rather than promising both.
+All four as proposed, with Premiere dropped entirely for now rather than
+attempted and degraded: replace defaults to 0.7, the drift guard is built,
+detail is luma-only by default, and the effect is After Effects alone.
+
+## What the tests found while building it
+
+Two things, both of which would have shipped invisibly.
+
+**The guard treated one-sided structure as agreement.** An edge present in the
+plate and absent from the render is *drift* — the single case the guard exists
+for — and the first implementation scored it 1.0, passing detail straight onto
+a feature that had moved. Where neither image has structure there is genuinely
+nothing to dispute; where only one does, there is. Now separated.
+
+**The exposure-invariance test was measuring the encoding.** It built both
+plates with a multiplicative amplitude in sRGB, which is not the same relative
+contrast in linear — so it reported a 2.3x difference that was the test's, not
+the technique's. Rebuilt in linear, the same detail lands from plates four
+stops apart to within 15%.
+
+## Still unproven
+
+The core is tested; the After Effects glue is not, and cannot be — nothing in
+the suite can run an . Specifically unverified until someone opens AE:
+that the layer parameter checks out at all, that  with
+ behaves as an unset source rather than an error, and
+that the unpremultiply/premultiply round trip is right for AE's worlds.
