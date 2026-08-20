@@ -116,8 +116,14 @@ The guard cannot be graded by this pair, because the pair does not drift — the
 soft image is exactly the plate, blurred. To exercise it:
 
 1. Set **Structure guard** to 1.0 and turn on **Show guard**.
-   The frame becomes the agreement map. With no drift it should be **almost
-   entirely white**: the two images agree about where everything is.
+   The frame becomes the **detail strength** map — how much of the plate's
+   detail each pixel is accepting, whatever is deciding it: structure
+   agreement, shadow protection, highlight rolloff. With no drift and a
+   well-exposed plate it should be **almost entirely white**.
+
+   It shows the whole field rather than agreement alone because agreement
+   alone could not explain a frame the shadow protection was driving: it read
+   white everywhere while detail was being held to a quarter.
 2. Now move the `detail-plate.png` layer 20 px sideways.
    The map should go **dark along every vertical edge** — those are the places
    the plate and the render now disagree, and where detail will be held back.

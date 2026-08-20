@@ -225,6 +225,99 @@ void StructureGuardFadesOnDisagreement() {
         "agreement " + std::to_string(same.At(20, 32)[0]));
 }
 
+void NeverSofterThanTheInput() {
+  std::printf("\nthe invariant: never remove more than is added\n");
+
+  /*
+   * The bug this exists for. Replace took its full share unconditionally while
+   * the plate's contribution was scaled by strength, so anywhere detail was
+   * held back — deep shadow, a drifted feature, a clipped highlight — the
+   * render's own high frequency had already been discarded and nothing came
+   * to stand in for it. A night interior came back visibly softer than it
+   * went in, which is the one thing a detail transfer must not do.
+   */
+
+  // A plate so dark that shadow protection refuses nearly all of its detail.
+  const seed::Image darkPlate = Textured(64, 64, 0.004f, 0.6f);
+  seed::Image render = Textured(64, 64, 0.5f, 0.25f);
+  const float before = Contrast(render);
+
+  seed::DetailConfig config = Plain();
+  config.replace = 1.0f;  // the most damaging setting
+  seed::ApplyFrequencyDetail(render, darkPlate, config);
+
+  Check(Contrast(render) > before * 0.8f,
+        "a refused plate leaves the render's own detail alone",
+        "before " + std::to_string(before) + " after " +
+            std::to_string(Contrast(render)));
+
+  // And where the two images disagree entirely, the same must hold.
+  seed::Image drifted(64, 64);
+  seed::Image plateEdge(64, 64);
+  for (int y = 0; y < 64; ++y) {
+    for (int x = 0; x < 64; ++x) {
+      float* d = drifted.At(x, y);
+      float* q = plateEdge.At(x, y);
+      const bool on = ((x / 2) + (y / 2)) % 2 == 0;
+      d[0] = d[1] = d[2] = (x < 44 ? 0.3f : 0.7f) * (on ? 1.2f : 0.8f);
+      q[0] = q[1] = q[2] = x < 20 ? 0.3f : 0.7f;
+      d[3] = q[3] = 1.0f;
+    }
+  }
+  const float driftedBefore = Contrast(drifted, 32);
+
+  seed::DetailConfig guarded = Plain();
+  guarded.structureGuard = 1.0f;
+  guarded.replace = 1.0f;
+  seed::ApplyFrequencyDetail(drifted, plateEdge, guarded);
+
+  Check(Contrast(drifted, 32) > driftedBefore * 0.6f,
+        "a fully guarded pixel keeps the render's detail",
+        "before " + std::to_string(driftedBefore) + " after " +
+            std::to_string(Contrast(drifted, 32)));
+}
+
+void ShadowFadeReachesFullStrengthAtTheFloor() {
+  std::printf("\nthe shadow floor means what it says\n");
+
+  /*
+   * The old curve was L/(L+floor): half strength *at* the floor, and never
+   * quite full anywhere above it. With the floor at 0.02 in scene-linear —
+   * about 0.155 in display terms, not "near black" at all — most of a night
+   * interior transferred detail at a quarter to a half, and with Replace
+   * taking its full share regardless the frame came back softer.
+   *
+   * Measured against the plate's own contrast at the same level rather than
+   * against a brighter run: a constant *linear* ratio is a smaller absolute
+   * spread in display the darker it gets, so comparing two brightnesses would
+   * be measuring the encoding again.
+   */
+  const seed::Image plate = LinearTextured(64, 64, 0.05f, 0.30f);
+  const float available = Contrast(plate);
+
+  seed::DetailConfig above = Plain();
+  above.shadowFloor = 0.02f;  // the plate sits well above this
+  seed::Image transferred = Flat(64, 64, seed::LinearToSrgb(0.05f));
+  seed::ApplyFrequencyDetail(transferred, plate, above);
+
+  Check(Contrast(transferred) > available * 0.8f,
+        "a plate above the floor transfers nearly all of its detail",
+        "got " + std::to_string(Contrast(transferred)) + " of " +
+            std::to_string(available));
+
+  // And a floor set above the plate still does hold it back, or the control
+  // would do nothing at all.
+  seed::DetailConfig under = Plain();
+  under.shadowFloor = 0.5f;
+  seed::Image refused = Flat(64, 64, seed::LinearToSrgb(0.05f));
+  seed::ApplyFrequencyDetail(refused, plate, under);
+
+  Check(Contrast(refused) < Contrast(transferred) * 0.5f,
+        "a floor above the plate still refuses it",
+        "refused " + std::to_string(Contrast(refused)) + " vs transferred " +
+            std::to_string(Contrast(transferred)));
+}
+
 void MixAndAlpha() {
   std::printf("\nmix and alpha\n");
 
@@ -279,6 +372,8 @@ int main() {
   ShadowsAreProtected();
   DetailLimitBoundsTheRatio();
   StructureGuardFadesOnDisagreement();
+  NeverSofterThanTheInput();
+  ShadowFadeReachesFullStrengthAtTheFloor();
   MixAndAlpha();
   SizeMismatch();
 

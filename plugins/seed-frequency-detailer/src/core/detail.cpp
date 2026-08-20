@@ -168,11 +168,7 @@ void ApplyFrequencyDetail(Image& target, const Image& source,
       guarding ? StructureAgreement(blurredPlate, blurredWork, config.guardTolerance)
                : Image();
 
-  if (config.showGuard) {
-    target = agreement;
-    return;
-  }
-
+  Image strengthMap(target.width, target.height);
   const float floorValue = std::max(1e-4f, config.shadowFloor);
   const float limit = std::max(1.0f, config.detailLimit);
   const float lowLimit = 1.0f / limit;
@@ -203,17 +199,56 @@ void ApplyFrequencyDetail(Image& target, const Image& source,
           }
         }
 
-        // Fade out where there is nothing but noise to carry, and approaching
-        // white where detail would only clip.
+        /*
+         * How much of the plate's detail this pixel is going to accept.
+         *
+         * Fades out where there is nothing but noise to carry, approaching
+         * white where detail would only clip, and where the two images
+         * disagree about what is here.
+         */
         const float plateLuma = Luminance(bp[0], bp[1], bp[2]);
         const float targetLuma = Luminance(bw[0], bw[1], bw[2]);
-        float strength = plateLuma / (plateLuma + floorValue);
+
+        /*
+         * A smoothstep up to the floor, not `L / (L + floor)`.
+         *
+         * The rational curve is only half strength *at* the floor and never
+         * quite reaches full, so with the floor at 0.02 in scene-linear —
+         * which is around 0.155 in display terms, not "near black" at all —
+         * a night interior had most of its frame transferring detail at 25 to
+         * 50 percent. Combined with an unconditional Replace that came out
+         * softer than the input. This reaches full strength at the floor and
+         * only fades below it, which is what the control claims to do.
+         */
+        float strength = SmoothStep(0.0f, floorValue, plateLuma);
         strength *= 1.0f - config.highlightRolloff *
                                SmoothStep(0.7f, 1.05f, targetLuma);
 
         if (config.structureGuard > 0.0f) {
           strength *= Lerp(1.0f, agreement.At(x, y)[0], config.structureGuard);
         }
+
+        /*
+         * Replace only as much as is being replaced *with*.
+         *
+         * This is the invariant that matters: the effect must never remove
+         * more detail than it adds. Replace used to take its full share
+         * whatever happened afterwards, so anywhere the plate's contribution
+         * was attenuated — deep shadow, a drifted feature, a clipped highlight
+         * — the render's own high frequency had already been thrown away and
+         * nothing arrived to stand in for it. The result was softer than the
+         * input, which is the one outcome a detail transfer has no business
+         * producing.
+         *
+         * Coupling them means the render keeps its own detail exactly where
+         * the plate's is not trusted, and gives it up exactly where the
+         * plate's is.
+         */
+        const float effectiveReplace = Clamp01(config.replace) * strength;
+
+        float* mapped = strengthMap.At(x, y);
+        mapped[0] = mapped[1] = mapped[2] = strength;
+        mapped[3] = 1.0f;
 
         for (int c = 0; c < 3; ++c) {
           float d = std::pow(std::max(1e-6f, ratio[c]), config.gain);
@@ -222,15 +257,25 @@ void ApplyFrequencyDetail(Image& target, const Image& source,
           // above is asking for.
           d = 1.0f + (d - 1.0f) * strength;
 
-          // The render's own high frequency, dropped by `replace` before the
-          // plate's is multiplied in — otherwise both are present and edges
-          // double.
-          const float base = Lerp(out[c], bw[c], Clamp01(config.replace));
+          const float base = Lerp(out[c], bw[c], effectiveReplace);
           out[c] = base * d;
         }
       }
     }
   });
+
+  if (config.showGuard) {
+    /*
+     * The whole strength field, not just the structure agreement.
+     *
+     * Agreement alone could not explain a frame the shadow protection was
+     * driving — it showed white everywhere while detail was being held back
+     * to a quarter. What the artist needs to see is how much detail is
+     * actually arriving, whatever is deciding it.
+     */
+    target = strengthMap;
+    return;
+  }
 
   if (config.linearSpace) ToDisplay(work);
 
