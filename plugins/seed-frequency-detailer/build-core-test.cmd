@@ -17,4 +17,11 @@ cl /nologo /std:c++17 /O2 /EHsc /W4 /Fe:"%OUT%\detailtest.exe" /Fo:"%OUT%\\" ^
    "%~dp0..\seed-film-look\src\core\look.cpp"
 if errorlevel 1 exit /b 1
 
+REM The reference renderer, so the After Effects glue can be graded
+REM against the core rather than looked at.
+cl /nologo /std:c++17 /O2 /EHsc /W4 /Fe:"%OUT%\detailref.exe" /Fo:"%OUT%\\" ^
+   "%~dp0test\detailref.cpp" "%~dp0src\core\detail.cpp" ^
+   "%~dp0..\seed-film-look\src\core\look.cpp"
+if errorlevel 1 exit /b 1
+
 "%OUT%\detailtest.exe"
