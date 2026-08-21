@@ -8,7 +8,12 @@ import type {
 } from "@seed-ae/domain";
 import type { AeRegion } from "../api/cep.ts";
 import { assetToken } from "../mentions.ts";
-import { alignRoles, isAnchored, mixesFrameModes } from "../references.ts";
+import {
+  alignRoles,
+  isAnchored,
+  lastFrameWithoutFirst,
+  mixesFrameModes,
+} from "../references.ts";
 import { bestQualitySize } from "../quality.ts";
 import { ItemPicker } from "./ItemPicker.tsx";
 import { PromptPreview } from "./PromptPreview.tsx";
@@ -368,6 +373,7 @@ export function GenerateView({
   const roles = alignRoles(form.inputAssetIds, form.inputRoles);
   const anchored = isAnchored(roles);
   const mixesModes = mixesFrameModes(roles);
+  const danglingLast = lastFrameWithoutFirst(roles);
   const rolesOffered =
     form.operation === "video.generate" && provider?.startEndFrames === true;
 
@@ -445,6 +451,7 @@ export function GenerateView({
     provider !== undefined &&
     operationSupported &&
     !mixesModes &&
+    !danglingLast &&
     !clipOutOfRange &&
     form.prompt.trim().length > 0 &&
     (form.operation !== "image.edit" || references.length > 0);
@@ -777,6 +784,14 @@ export function GenerateView({
             own mode and will not take other references alongside it.
           </div>
         ) : null}
+        {danglingLast ? (
+          <div className="notice">
+            A last frame needs a first frame to animate towards — the provider
+            refuses a closing frame on its own. Add a first frame, or set this
+            one to <b>first</b> or <b>loop</b>.
+          </div>
+        ) : null}
+
         {mixesModes ? (
           <div className="notice">
             A first or last frame cannot be combined with references — the

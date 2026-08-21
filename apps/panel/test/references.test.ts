@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   alignRoles,
   isAnchored,
+  lastFrameWithoutFirst,
   mixesFrameModes,
   providerForClip,
 } from "../src/references.ts";
@@ -39,6 +40,30 @@ describe("mixesFrameModes", () => {
 
   it("allows frames on their own", () => {
     expect(mixesFrameModes(alignRoles(["a", "b"], ["first", "last"]))).toBe(false);
+  });
+});
+
+describe("lastFrameWithoutFirst", () => {
+  it("catches a closing frame with nothing to open on", () => {
+    // The real 400: "last frame image content cannot be mixed with first frame
+    // or reference image content", for a request carrying one last frame and
+    // nothing else.
+    expect(lastFrameWithoutFirst(["last"])).toBe(true);
+    expect(lastFrameWithoutFirst(["last", "reference"])).toBe(true);
+  });
+
+  it("allows a first and last pair", () => {
+    expect(lastFrameWithoutFirst(["first", "last"])).toBe(false);
+  });
+
+  it("allows a loop, which is both roles on one still", () => {
+    expect(lastFrameWithoutFirst(["loop"])).toBe(false);
+  });
+
+  it("says nothing about sets with no last frame", () => {
+    expect(lastFrameWithoutFirst(["reference", "reference"])).toBe(false);
+    expect(lastFrameWithoutFirst(["first"])).toBe(false);
+    expect(lastFrameWithoutFirst([])).toBe(false);
   });
 });
 

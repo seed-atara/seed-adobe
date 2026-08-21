@@ -469,6 +469,22 @@ export class SeedanceProvider implements GenerationProvider {
     let mode: "frame" | "reference" | "text" = "text";
     if (request.lastFrame) {
       mode = "frame";
+      /*
+       * A last frame needs a first frame. Measured from a real 400 on
+       * 2026-08-21: a lone `last_frame` is refused with "last frame image
+       * content cannot be mixed with first frame or reference image content"
+       * — a message about mixing, for a request that mixed nothing, which is
+       * Ark's way of saying a closing frame alone is not a shot it can make.
+       *
+       * Refused here so it costs nothing. The panel stops it earlier still.
+       */
+      if (!request.firstFrame) {
+        throw new SeedError(
+          "unsupported_capability",
+          "Seedance needs a first frame to animate towards a last one. Add a " +
+            "first frame, or make this one the first frame instead.",
+        );
+      }
       if (request.references?.length) {
         throw new SeedError(
           "unsupported_capability",

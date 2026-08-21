@@ -46,6 +46,23 @@ export function mixesFrameModes(roles: readonly ReferenceRole[]): boolean {
 }
 
 /**
+ * Whether a closing frame has been asked for with nothing to open on.
+ *
+ * Measured from a real 400 on 2026-08-21: Seedance refuses a lone `last_frame`
+ * with "last frame image content cannot be mixed with first frame or reference
+ * image content" — a complaint about mixing, for a request that mixed nothing.
+ * Whatever the wording, a shot has to start somewhere.
+ *
+ * `loop` is not caught by this: one still carrying both roles is a first frame
+ * as well as a last, and Ark names that mode `flf2v`.
+ */
+export function lastFrameWithoutFirst(roles: readonly ReferenceRole[]): boolean {
+  const hasLast = roles.some((role) => role === "last");
+  const hasOpening = roles.some((role) => role === "first" || role === "loop");
+  return hasLast && !hasOpening;
+}
+
+/**
  * The provider to move to when a clip is attached, if the current one cannot
  * take one.
  *

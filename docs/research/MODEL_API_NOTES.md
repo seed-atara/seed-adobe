@@ -886,6 +886,24 @@ rather than letting the artist add one reference to the list twice: duplicating
 a reference is a request the API rejects, while one still carrying both roles is
 one it names.
 
+### A last frame alone is refused — OBSERVED FROM A REAL 400 (2026-08-21)
+
+One `last_frame` content part, no first frame and no references, on
+`dreamina-seedance-2-0-260128`:
+
+> The parameter `content` specified in the request is not valid: last frame
+> image content cannot be mixed with first frame or reference image content.
+
+A complaint about mixing, for a request that mixed nothing. Read plainly it
+means a closing frame on its own is not a shot the model will make — it has
+nothing to animate *from*. SEED refuses it in the panel and again in the
+adapter, so it costs nothing.
+
+Note what is **not** established here: whether `first_frame` + `last_frame`
+with two *different* images is accepted. The `flf2v` result above used the
+same image in both slots, which is the only pairing measured. Different
+images in the two slots remains untested.
+
 ### `output_format` is real, acted on at execution — VERIFIED BY GENERATING (2026-08-18)
 
 ByteDance answered, and we then generated a clip per cell and ffprobed each one
