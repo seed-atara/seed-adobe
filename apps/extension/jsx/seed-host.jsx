@@ -281,20 +281,7 @@ function seedCaptureFrame(outputDir, basename) {
             return seedFail("saveFrameToPng failed: " + writeError);
         }
 
-        /*
-         * Re-stat through a NEW File object. An ExtendScript File caches what
-         * it knew at construction time, so asking the same instance whether it
-         * exists can answer with a stale "no" immediately after a write.
-         */
-        var written = null;
-        for (var check = 0; check < 20; check++) {
-            var probe = new File(targetPath);
-            if (probe.exists && probe.length > 0) {
-                written = probe;
-                break;
-            }
-            $.sleep(50);
-        }
+        var written = seedSettledFile(targetPath, comp.width * comp.height);
 
         if (!written) {
             return seedFail(
@@ -410,6 +397,58 @@ function seedUniqueFile(folder, safeName, suffix, extension) {
  * differ between versions and languages.
  */
 /**
+ * Waits for a file After Effects has just written to actually be there.
+ *
+ * Two separate traps, and the second one cost a night of "black" captures.
+ *
+ * An ExtendScript File caches what it knew at construction, so the same
+ * instance answers a stale "no" immediately after a write — every check needs
+ * a *new* File.
+ *
+ * And the wait has to scale with the frame. The old loop was a flat twenty
+ * tries at 50ms: one second, which is fine for a 452x452 region and nowhere
+ * near enough for 5750x2818, where saveFrameToPng is compressing something
+ * like 130MB down to 15MB. Past that second the host reported "no file
+ * appeared" while After Effects was still writing it — the capture had
+ * succeeded, and the file turned up on disk moments later with nothing
+ * listening. A budget that does not know how big the frame is will always be
+ * wrong on somebody's comp.
+ *
+ * The size also has to stop changing before the file is handed on. A
+ * half-written PNG has a non-zero length, and answering with one produces a
+ * truncated image downstream rather than an honest failure here.
+ *
+ * Returns the File, or null if it never settled.
+ */
+function seedSettledFile(path, pixels) {
+    // Roughly a second of grace plus time proportional to the frame, capped so
+    // a wrong path fails in a minute rather than hanging the panel.
+    var budgetMs = 2000 + Math.round((Number(pixels) || 0) / 400);
+    if (budgetMs > 60000) budgetMs = 60000;
+
+    var stableLength = -1;
+    var waited = 0;
+    var step = 100;
+
+    while (waited < budgetMs) {
+        var probe = new File(path);
+        if (probe.exists && probe.length > 0) {
+            // Unchanged since the last look means the write has finished.
+            if (probe.length === stableLength) return probe;
+            stableLength = probe.length;
+        }
+        $.sleep(step);
+        waited += step;
+    }
+
+    // One last look: the loop may have run out on the very poll that would
+    // have matched.
+    var last = new File(path);
+    if (last.exists && last.length > 0 && last.length === stableLength) return last;
+    return null;
+}
+
+/**
  * Renders a range of any composition to a clip, with a poster beside it.
  *
  * Extracted so the work-area capture and the region capture share one
@@ -497,15 +536,7 @@ function seedRenderRange(comp, folder, safe, start, duration, quality, suffix) {
             );
         }
 
-        var written = null;
-        for (var check = 0; check < 40; check++) {
-            var probe = new File(targetPath);
-            if (probe.exists && probe.length > 0) {
-                written = probe;
-                break;
-            }
-            $.sleep(100);
-        }
+        var written = seedSettledFile(targetPath, comp.width * comp.height);
         if (!written) {
             return seedFail(
                 "the render reported success but no file appeared at " + targetPath
@@ -523,14 +554,10 @@ function seedRenderRange(comp, folder, safe, start, duration, quality, suffix) {
                 var poster = seedUniqueFile(folder, safe, "_f" + stamp + "_poster", ".png");
                 comp.saveFrameToPng(start, poster);
                 var posterFsName = poster.fsName;
-                for (var wait = 0; wait < 20; wait++) {
-                    var posterProbe = new File(posterFsName);
-                    if (posterProbe.exists && posterProbe.length > 0) {
-                        posterPath = posterProbe.fsName;
-                        break;
-                    }
-                    $.sleep(50);
-                }
+                var settledPoster = seedSettledFile(
+                    posterFsName, comp.width * comp.height
+                );
+                if (settledPoster) posterPath = settledPoster.fsName;
                 /*
                  * Hand the path over even if it never appeared here. The
                  * service reads it with its own settle-and-retry, and it is in
@@ -1459,15 +1486,8 @@ function seedCaptureRegion(regionName, outputDir, basename, featherPixels, mode,
                 return seedFail("saveFrameToPng failed on the region comp: " + writeError);
             }
 
-            for (var check = 0; check < 20; check++) {
-                var probe = new File(targetPath);
-                if (probe.exists && probe.length > 0) {
-                    written = probe;
-                    bytes = probe.length;
-                    break;
-                }
-                $.sleep(50);
-            }
+            written = seedSettledFile(targetPath, rect.width * rect.height);
+            if (written) bytes = written.length;
             if (!written) return seedFail("no region frame appeared at " + targetPath);
         }
 
