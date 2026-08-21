@@ -4,6 +4,7 @@ import {
   isAnchored,
   lastFrameWithoutFirst,
   mixesFrameModes,
+  opensFromFlatColour,
   providerForClip,
 } from "../src/references.ts";
 
@@ -64,6 +65,28 @@ describe("lastFrameWithoutFirst", () => {
     expect(lastFrameWithoutFirst(["reference", "reference"])).toBe(false);
     expect(lastFrameWithoutFirst(["first"])).toBe(false);
     expect(lastFrameWithoutFirst([])).toBe(false);
+  });
+});
+
+describe("opensFromFlatColour", () => {
+  const colourOf = (prompt: string) => opensFromFlatColour(prompt)?.colour;
+
+  it("catches the ways an opening is actually written", () => {
+    expect(colourOf("from fully black, the train pulls in")).toBe("black");
+    expect(colourOf("From black to a wide shot")).toBe("black");
+    expect(colourOf("fades up from black as she turns")).toBe("black");
+    expect(colourOf("opens on white, then the logo")).toBe("white");
+    expect(colourOf("out of black, sparks rise")).toBe("black");
+    expect(colourOf("starts on black and holds")).toBe("black");
+  });
+
+  it("does not fire on black that is just in the shot", () => {
+    // A loose match here would put an opening frame in front of a shot that
+    // never asked for one, which is worse than not offering.
+    expect(colourOf("a black car drives in from the left")).toBeUndefined();
+    expect(colourOf("she wears a black coat")).toBeUndefined();
+    expect(colourOf("the black of the tunnel behind her")).toBeUndefined();
+    expect(colourOf("")).toBeUndefined();
   });
 });
 

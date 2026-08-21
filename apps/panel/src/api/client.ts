@@ -200,6 +200,23 @@ export class SeedClient {
   }
 
   /**
+   * Makes a flat colour frame and puts it in the library.
+   *
+   * The opening frame for a shot that fades up from black. The provider needs
+   * an image, not an adjective in the prompt.
+   */
+  createSolidAsset(input: {
+    width: number;
+    height: number;
+    red?: number;
+    green?: number;
+    blue?: number;
+    project?: string;
+  }): Promise<{ asset: Asset }> {
+    return this.request("/v1/assets/solid", { method: "POST", body: input });
+  }
+
+  /**
    * Copies a file from anywhere on disk into the library.
    *
    * The manual route to a motion reference: whatever the artist exported, from

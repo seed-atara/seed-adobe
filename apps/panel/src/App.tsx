@@ -679,6 +679,52 @@ export function App({ tabs }: AppProps = {}) {
   }, [client, bridge, refreshAssets, attachReference, providers, report]);
 
   /**
+   * Makes a flat colour opening frame and anchors the shot to it.
+   *
+   * "from fully black" is a direction the model cannot act on — it needs an
+   * image. This makes that image at the shape of the shot, adds it as the
+   * first frame, and leaves the artist's own reference as the last one.
+   */
+  const addOpeningColour = useCallback(
+    async (colour: "black" | "white") => {
+      setBusy(true);
+      setError(undefined);
+      try {
+        const width = Number(aeContext.compWidth) || 1920;
+        const height = Number(aeContext.compHeight) || 1080;
+        const level = colour === "white" ? 255 : 0;
+        const { asset } = await client.createSolidAsset({
+          width,
+          height,
+          red: level,
+          green: level,
+          blue: level,
+          ...(activeProject ? { project: activeProject } : {}),
+        });
+        await refreshAssets();
+        setForm((current) => ({
+          ...current,
+          // First in the list and first in role: the shot opens here.
+          inputAssetIds: [asset.id, ...current.inputAssetIds],
+          inputRoles: [
+            "first",
+            ...alignRoles(current.inputAssetIds, current.inputRoles),
+          ],
+        }));
+        setNotice(
+          `Added a ${colour} ${width}x${height} opening frame. The shot starts ` +
+            "there and animates towards your last frame.",
+        );
+      } catch (cause) {
+        report(cause);
+      } finally {
+        setBusy(false);
+      }
+    },
+    [client, aeContext, activeProject, refreshAssets, report],
+  );
+
+  /**
    * Reads the comp's region guides back.
    *
    * After Effects owns them — they are ordinary layers the artist can move,
@@ -1326,6 +1372,7 @@ export function App({ tabs }: AppProps = {}) {
               onRegionChange={setRegion}
               onAddRegion={addRegion}
               onCaptureRegion={captureRegion}
+              onAddOpeningColour={addOpeningColour}
               onRefreshRegions={refreshRegions}
               onRegionAspect={setRegionAspect}
               onRegionContain={setRegionContain}

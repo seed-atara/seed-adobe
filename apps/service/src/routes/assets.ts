@@ -9,7 +9,7 @@ import {
   assetKindFromMimeType,
   nowIso,
 } from "@seed-ae/domain";
-import { readMp4Size, readPngSize, sniffMimeType } from "@seed-ae/media";
+import { encodePng, readMp4Size, readPngSize, sniffMimeType } from "@seed-ae/media";
 import { resolveStorageUri, toStorageUri } from "@seed-ae/storage";
 import { z } from "zod";
 import { MAX_OUTPUT_BYTES } from "../generation/mediaIngestor.js";
@@ -146,6 +146,63 @@ export function setPosterRoute(deps: AppDeps) {
       byteSize: bytes.length,
     });
     return json({ asset: deps.assets.setThumbnail(asset.id, thumbnailUri) });
+  };
+}
+
+const SolidAssetSchema = z.object({
+  width: z.number().int().positive().max(16384),
+  height: z.number().int().positive().max(16384),
+  /** 0..255 per channel. Black unless asked otherwise. */
+  red: z.number().int().min(0).max(255).default(0),
+  green: z.number().int().min(0).max(255).default(0),
+  blue: z.number().int().min(0).max(255).default(0),
+  project: z.string().min(1).optional(),
+});
+
+/**
+ * A flat colour frame, as a real asset.
+ *
+ * A shot that fades up from black needs an opening frame that *is* black, and
+ * Seedance refuses a closing frame with nothing to animate from. Asking the
+ * artist to make a black PNG in another application, save it somewhere and
+ * import it is three steps of nothing.
+ *
+ * It goes through the same adopt path as any other file rather than being
+ * special-cased into the library: it gets a thumbnail, a project, provenance
+ * and an id like everything else, and only one ingest path has to stay
+ * correct.
+ */
+export function solidAssetRoute(deps: AppDeps) {
+  return async ({ req }: RequestContext) => {
+    const body = await readJsonBody(req);
+    const request = parseWith(SolidAssetSchema, body);
+
+    const pixels = new Uint8Array(request.width * request.height * 4);
+    for (let at = 0; at < pixels.length; at += 4) {
+      pixels[at] = request.red;
+      pixels[at + 1] = request.green;
+      pixels[at + 2] = request.blue;
+      pixels[at + 3] = 255;
+    }
+
+    const hex =
+      request.red === 0 && request.green === 0 && request.blue === 0
+        ? "black"
+        : `${request.red.toString(16).padStart(2, "0")}${request.green
+            .toString(16)
+            .padStart(2, "0")}${request.blue.toString(16).padStart(2, "0")}`;
+    const name = `solid-${hex}_${request.width}x${request.height}.png`;
+
+    /*
+     * Written into the workspace first so adopt copies it the same way it
+     * copies anything else. The name is deterministic, so asking twice reuses
+     * the same bytes rather than filling the library with identical squares.
+     */
+    const staging = path.join(deps.workspace.originalsDir, name);
+    await writeFile(staging, encodePng(request.width, request.height, pixels));
+
+    const asset = await adoptFileIntoLibrary(deps, staging, request.project);
+    return json({ asset }, 201);
   };
 }
 

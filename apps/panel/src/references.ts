@@ -63,6 +63,33 @@ export function lastFrameWithoutFirst(roles: readonly ReferenceRole[]): boolean 
 }
 
 /**
+ * Whether the prompt asks the shot to begin from a flat colour.
+ *
+ * "from fully black" is a real direction and a common one — a fade up out of
+ * nothing — but the model needs an opening *image*, not an adjective. Spotting
+ * the intent lets the panel offer to make that frame instead of refusing the
+ * shot and leaving the artist to work out why.
+ *
+ * Matched narrowly and on purpose. This only ever *offers*; a loose match that
+ * fires on "a black car drives from the left" would be noise, and one that
+ * silently attached a reference would be worse.
+ */
+export function opensFromFlatColour(
+  prompt: string,
+): { colour: "black" | "white" } | undefined {
+  const text = prompt.toLowerCase();
+  const from = /\b(?:from|out of|starts? (?:on|at|in))\s+(?:(?:fully|pure|completely|complete|total|solid|full)\s+)?(black|white)\b/;
+  const fade = /\b(?:fade|fades|fading)\s+(?:up|in)\s+from\s+(?:(?:fully|pure|solid)\s+)?(black|white)\b/;
+  const begins = /\b(?:begin|begins|open|opens)\s+(?:on|in|with)\s+(?:(?:fully|pure|solid|total)\s+)?(black|white)\b/;
+
+  for (const pattern of [fade, begins, from]) {
+    const found = pattern.exec(text);
+    if (found) return { colour: found[1] === "white" ? "white" : "black" };
+  }
+  return undefined;
+}
+
+/**
  * The provider to move to when a clip is attached, if the current one cannot
  * take one.
  *

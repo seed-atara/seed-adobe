@@ -13,6 +13,7 @@ import {
   isAnchored,
   lastFrameWithoutFirst,
   mixesFrameModes,
+  opensFromFlatColour,
 } from "../references.ts";
 import { bestQualitySize } from "../quality.ts";
 import { ItemPicker } from "./ItemPicker.tsx";
@@ -144,6 +145,7 @@ interface Props {
   onRegionChange?: (region: RegionSettings) => void;
   onAddRegion?: () => void;
   onCaptureRegion?: (mode: "still" | "clip") => void;
+  onAddOpeningColour?: (colour: "black" | "white") => void;
   onRefreshRegions?: () => void;
   onRegionAspect?: (aspect: string) => void;
   onRegionContain?: (contained: boolean) => void;
@@ -205,6 +207,7 @@ export function GenerateView({
   onRegionChange,
   onAddRegion,
   onCaptureRegion,
+  onAddOpeningColour,
   onRefreshRegions,
   onRegionAspect,
   onRegionContain,
@@ -374,6 +377,8 @@ export function GenerateView({
   const anchored = isAnchored(roles);
   const mixesModes = mixesFrameModes(roles);
   const danglingLast = lastFrameWithoutFirst(roles);
+  // "from fully black" is an opening the model needs as an image, not a word.
+  const wantedOpening = opensFromFlatColour(form.prompt);
   const rolesOffered =
     form.operation === "video.generate" && provider?.startEndFrames === true;
 
@@ -789,6 +794,34 @@ export function GenerateView({
             A last frame needs a first frame to animate towards — the provider
             refuses a closing frame on its own. Add a first frame, or set this
             one to <b>first</b> or <b>loop</b>.
+            {onAddOpeningColour ? (
+              <div style={{ marginTop: 8 }}>
+                <button
+                  className="btn"
+                  onClick={() => onAddOpeningColour(wantedOpening?.colour ?? "black")}
+                  disabled={busy}
+                >
+                  Open from {wantedOpening?.colour ?? "black"}
+                </button>
+              </div>
+            ) : null}
+          </div>
+        ) : null}
+
+        {!danglingLast && wantedOpening && !anchored && onAddOpeningColour ? (
+          <div className="notice">
+            Your prompt opens from <b>{wantedOpening.colour}</b>. The model needs
+            that as a frame rather than a word — this makes one at the shape of
+            the shot and anchors the opening to it.
+            <div style={{ marginTop: 8 }}>
+              <button
+                className="btn"
+                onClick={() => onAddOpeningColour(wantedOpening.colour)}
+                disabled={busy}
+              >
+                Open from {wantedOpening.colour}
+              </button>
+            </div>
           </div>
         ) : null}
 
