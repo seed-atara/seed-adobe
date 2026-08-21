@@ -560,24 +560,37 @@ re-audited:
 | plugin output | matches input depth | yes — clamps only where the format demands it |
 | core look engine | float throughout | yes — `Clamp01` is used on a mix amount, never on a pixel |
 
-### Open: captures from a 32 bpc project are dark
+### Settled: a 32 bpc project captures at a tenth of scale
 
-Measured on a real capture: the brightest sample in the frame is 6554 of
-65535, which is exactly 10.0%. The colour management recorded alongside it was
-`bitsPerChannel: 32, workingSpace: "None", workingGamma: 2.4,
-linearBlending: false`.
+Measured 2026-08-22 across two unrelated comps, one of them a firework against
+black with near-white sparks in it. `saveFrameToPng` from a **32 bpc** project
+writes the frame at almost exactly a tenth of full scale — the brightest
+sample lands at 25 of 255, twice, on completely different material. The same
+frame at **16 and at 8 bpc is correct**.
 
-That is either a genuinely dark comp or a linear/display mismatch in what
-`saveFrameToPng` writes at 32 bpc — 0.1 linear is about 0.35 display, so a
-mid-dark frame would land exactly there. **It has not been settled**, and it
-cannot be from the file alone.
+So it is float specifically, not depth in general, and not the comp. The
+bright-content case is what ruled out the "it is just a dark shot" reading
+that this section carried for three days.
 
-The test that settles it: `npx tsx scripts/make-test-chart.ts`, import the
-chart, capture it with **Capture current frame** at 8, then 16, then 32 bpc,
-and run `npx tsx scripts/check-capture.ts` on each. The chart carries known
-patches at 0, 16, 128, 235 and 255, so a shift shows up as a number and names
-its own direction. If the 8 bpc capture passes and the 32 bpc one reports the
-patches low, it is the write path and not the comp.
+**The fix is not to guess at the factor and multiply it back.** Two data
+points is not a contract, and a capture silently scaled by a number we
+reverse-engineered would be worse than one that is honestly wrong. Instead
+`seedCaptureDepthGuard` drops the project to 16 for the duration of a still
+capture and restores it in a `finally` — every still route does this: the
+frame capture, the region still, and the clip's poster.
+
+16 rather than 8 costs nothing: PNG carries it, the library reads it since the
+16-bit decode landed, and a reference is narrowed to 8 on its way to a
+provider anyway.
+
+The capture result reports `capturedBitsPerChannel` alongside
+`projectBitsPerChannel`, because those are now allowed to differ and a
+provenance record that hid the difference would be a lie.
+
+**Still unknown:** *why* After Effects does this. A tenth is suspiciously
+round, and nothing in the colour management recorded alongside the captures
+(`workingSpace: "None"`, `workingGamma: 2.4`, `linearBlending: false`)
+explains it. Worth asking Adobe rather than reverse-engineering.
 
 ## Next engineering actions
 

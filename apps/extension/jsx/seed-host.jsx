@@ -243,6 +243,7 @@ function seedEnsureFolder(pathString) {
 function seedCaptureFrame(outputDir, basename) {
     // A third argument (the Premiere still preset) is accepted and ignored,
     // so the panel can call both hosts identically.
+    var restoreDepth = 0;
     try {
         var comp = seedActiveComp();
         if (!comp) return seedFail("no active composition");
@@ -275,6 +276,9 @@ function seedCaptureFrame(outputDir, basename) {
         } while (target.exists && attempt < 1000);
 
         var targetPath = target.fsName;
+        // A 32-bit project writes a frame at a tenth of full scale; see
+        // seedCaptureDepthGuard. Restored in the finally below.
+        restoreDepth = seedCaptureDepthGuard();
         try {
             comp.saveFrameToPng(comp.time, target);
         } catch (writeError) {
@@ -298,10 +302,16 @@ function seedCaptureFrame(outputDir, basename) {
             width: comp.width,
             height: comp.height,
             frameNumber: frame,
-            timeSeconds: comp.time
+            timeSeconds: comp.time,
+            // What the frame was actually written at, which is not always what
+            // the project is set to.
+            capturedBitsPerChannel: restoreDepth ? 16 : Number(app.project.bitsPerChannel),
+            projectBitsPerChannel: restoreDepth || Number(app.project.bitsPerChannel)
         });
     } catch (error) {
         return seedFail(error);
+    } finally {
+        seedRestoreCaptureDepth(restoreDepth);
     }
 }
 
@@ -396,6 +406,52 @@ function seedUniqueFile(folder, safeName, suffix, extension) {
  * After Effects has no scripting API to build one, and the template names
  * differ between versions and languages.
  */
+/**
+ * Drops a 32-bit project to 16 for the duration of a still capture.
+ *
+ * Measured 2026-08-22 on two unrelated comps, one of them a firework against
+ * black with near-white sparks in it: `saveFrameToPng` from a 32 bpc project
+ * writes everything at almost exactly a tenth of full scale — the brightest
+ * sample in the frame lands at 25 of 255. The same frame at 16 and at 8 bpc
+ * comes out correct. So it is float specifically, not depth in general, and
+ * not the comp.
+ *
+ * Rather than guess at the factor and multiply it back — which would be
+ * inventing a contract from two data points — the capture is taken at a depth
+ * that works. 16 rather than 8 because it costs nothing: PNG carries it, the
+ * library reads it, and a reference is narrowed to 8 on its way to a provider
+ * anyway.
+ *
+ * The project is put back in a `finally`, always. Leaving someone's project
+ * silently at a depth they did not set would be a worse bug than the one
+ * being worked around.
+ *
+ * Returns the depth to restore, or 0 if nothing was changed.
+ */
+function seedCaptureDepthGuard() {
+    try {
+        if (!app.project) return 0;
+        var current = Number(app.project.bitsPerChannel);
+        if (current !== 32) return 0;
+        app.project.bitsPerChannel = 16;
+        return current;
+    } catch (error) {
+        // If it will not change, capture at whatever the project is: a dark
+        // frame beats no frame, and it is still reported honestly below.
+        return 0;
+    }
+}
+
+function seedRestoreCaptureDepth(previous) {
+    if (!previous) return;
+    try {
+        app.project.bitsPerChannel = previous;
+    } catch (error) {
+        // Nothing useful to do, and throwing here would lose a capture that
+        // has already succeeded.
+    }
+}
+
 /**
  * Waits for a file After Effects has just written to actually be there.
  *
@@ -552,7 +608,12 @@ function seedRenderRange(comp, folder, safe, start, duration, quality, suffix) {
         try {
             if (typeof comp.saveFrameToPng === "function") {
                 var poster = seedUniqueFile(folder, safe, "_f" + stamp + "_poster", ".png");
-                comp.saveFrameToPng(start, poster);
+                var posterDepth = seedCaptureDepthGuard();
+                try {
+                    comp.saveFrameToPng(start, poster);
+                } finally {
+                    seedRestoreCaptureDepth(posterDepth);
+                }
                 var posterFsName = poster.fsName;
                 var settledPoster = seedSettledFile(
                     posterFsName, comp.width * comp.height
@@ -1480,10 +1541,14 @@ function seedCaptureRegion(regionName, outputDir, basename, featherPixels, mode,
             } while (target.exists && attempt < 1000);
 
             var targetPath = target.fsName;
+            // The same tenth-scale problem as a full-frame capture.
+            var regionDepth = seedCaptureDepthGuard();
             try {
                 temp.saveFrameToPng(temp.time, target);
             } catch (writeError) {
                 return seedFail("saveFrameToPng failed on the region comp: " + writeError);
+            } finally {
+                seedRestoreCaptureDepth(regionDepth);
             }
 
             written = seedSettledFile(targetPath, rect.width * rect.height);
