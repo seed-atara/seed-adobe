@@ -212,6 +212,39 @@ Feather, start time, and a stretch-to duration are all panel parameters. The
 plate is never modified: the composite can be retimed, replaced, or deleted
 without rebuilding anything.
 
+### A region that follows a moving guide
+
+A guide is an ordinary layer, so it can be keyframed, parented to a tracker or
+driven by an expression. Until now the region was a rectangle read once at the
+playhead, which is why the plate underneath had to hold still.
+
+Now, when the guide moves, two things follow it — both by expression rather
+than baked keyframes, so a re-track or a nudged keyframe is picked up without
+capturing again:
+
+- **The capture window.** The plate sits inside the temporary comp offset so
+  the region lands in the middle; that offset now travels the opposite way to
+  the guide, because sliding the window right is the same as sliding the
+  picture left. It references the plate comp by name, since from inside the
+  temporary comp the plate is a *layer* and not `thisComp`.
+- **The finished insert.** The composite goes back where the region is, frame
+  by frame, instead of sitting where the guide happened to be at capture time.
+
+Position is read with `toComp` rather than off the Position property, because
+a guide parented to a tracker has a static position and a moving parent —
+which is the most useful way to animate one, and exactly the case reading
+Position gets wrong.
+
+Every expression is wrapped in a try/catch that falls back to `value`. An
+expression error in After Effects disables the property and drops the layer to
+the origin, which is a spectacular failure for a renamed guide.
+
+**Only the position follows.** A sub-comp cannot change size over time, so a
+guide that *scales* during a shot still captures at the size it holds at
+capture. That is a real limit, stated rather than half-implemented.
+
+A locked-off guide gets no expression at all and behaves exactly as before.
+
 ### Capturing a region that moves
 
 **Capture region** takes the playhead as a still. **Capture region as clip**

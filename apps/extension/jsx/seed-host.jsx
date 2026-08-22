@@ -1031,6 +1031,53 @@ function seedRegionRect(layer) {
 }
 
 /**
+ * Whether the guide moves during the shot.
+ *
+ * A region has always been a rectangle read once, at the playhead, which is
+ * why the plate under it had to hold still. But a guide is an ordinary layer:
+ * it can be keyframed, parented to a tracker, or driven by an expression, and
+ * an artist who has tracked a face expects the region to follow it.
+ *
+ * Checked rather than assumed, because the answer decides whether anything
+ * gets an expression at all. A locked-off region keeps the plain numeric
+ * transform it has always had and behaves exactly as before.
+ */
+function seedGuideMoves(layer) {
+    try {
+        var position = layer.property("Transform").property("Position");
+        if (position.numKeys > 1) return true;
+        if (position.expressionEnabled && position.expression) return true;
+        // Parented to a tracker or a null: the guide's own transform can be
+        // perfectly static while the layer travels across the frame.
+        if (layer.parent) return true;
+    } catch (error) {
+        // An unreadable transform counts as static, so the worst case is the
+        // behaviour that shipped for months.
+    }
+    return false;
+}
+
+/**
+ * Where the guide is, in composition space, as an expression fragment.
+ *
+ * `toComp` rather than reading Position, because a guide parented to a tracker
+ * has a static position and a moving parent — which is the most useful way to
+ * animate one, and the case reading Position gets wrong.
+ *
+ * Everything that follows a guide is guarded. If the guide is renamed or
+ * deleted, an expression error in After Effects disables the property and
+ * drops the layer to the origin, which is a spectacular failure for a small
+ * mistake; falling back to `value` leaves it where it was.
+ */
+function seedGuidePointExpression(compRef, layerName) {
+    var safe = String(layerName).replace(/"/g, '\\"');
+    return (
+        "var __seedGuide = " + compRef + '.layer("' + safe + '");' +
+        "var __seedAt = __seedGuide.toComp(__seedGuide.anchorPoint);"
+    );
+}
+
+/**
  * The guide layers, and only those.
  *
  * The composite layer carries the region's name too, so matching on the name
@@ -1370,6 +1417,26 @@ function seedPlaceComposite(comp, region, rect, featherPixels) {
     ]);
     layer.property("Transform").property("Scale").setValue([100, 100]);
 
+    /*
+     * And the finished insert goes back where the region is, frame by frame.
+     *
+     * Without this the result sits at the position the guide held at capture
+     * time while the guide — and whatever it was tracking — carries on without
+     * it. The composite *is* the region, so it takes the guide's position
+     * directly rather than an offset from it.
+     */
+    if (seedGuideMoves(region)) {
+        try {
+            layer.property("Transform").property("Position").expression =
+                "try {" +
+                seedGuidePointExpression("thisComp", region.name) +
+                "__seedAt;" +
+                "} catch (err) { value; }";
+        } catch (expressionError) {
+            // The static position set above stands.
+        }
+    }
+
     var feather = Number(featherPixels);
     if (isNaN(feather) || feather < 0) feather = 24;
 
@@ -1478,6 +1545,42 @@ function seedCaptureRegion(regionName, outputDir, basename, featherPixels, mode,
             rect.width / 2 - (rect.centerX - comp.width / 2),
             rect.height / 2 - (rect.centerY - comp.height / 2)
         ]);
+
+        /*
+         * A moving guide moves the window, not the picture.
+         *
+         * The plate sits inside the temp comp offset so the region lands in
+         * the middle. When the guide travels that offset has to travel with
+         * it, the opposite way — sliding the window right is the same as
+         * sliding the picture left. Driven by the guide itself, so a re-track
+         * or a nudged keyframe is picked up without capturing again.
+         *
+         * Only the position follows. A sub-comp cannot change size over time,
+         * so a guide that *scales* during the shot still captures at the size
+         * it holds now; that is a real limit and it is better to state it than
+         * to animate half of it.
+         */
+        if (seedGuideMoves(region)) {
+            try {
+                /*
+                 * `comp(name)`, not `thisComp`: the guide lives in the plate
+                 * comp, and from inside the temporary comp the plate is a
+                 * layer rather than the composition being evaluated.
+                 */
+                plate.property("Transform").property("Position").expression =
+                    "try {" +
+                    seedGuidePointExpression(
+                        'comp("' + String(comp.name).replace(/"/g, '\\"') + '")',
+                        region.name
+                    ) +
+                    "[thisComp.width / 2 - (__seedAt[0] - " + comp.width / 2 + ")," +
+                    " thisComp.height / 2 - (__seedAt[1] - " + comp.height / 2 + ")];" +
+                    "} catch (err) { value; }";
+            } catch (expressionError) {
+                // Keep the static offset: a still region beats no capture.
+            }
+        }
+
         temp.time = comp.time;
 
         var frame = Math.round(comp.time * comp.frameRate);
