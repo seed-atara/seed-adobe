@@ -30,6 +30,74 @@ function normalise(x: number, y: number, z: number): [number, number, number] {
 }
 
 /**
+ * A separable box blur over a single channel, run three times.
+ *
+ * Three boxes approximate a Gaussian closely enough for a high-pass, and a
+ * running sum makes each pass independent of the radius. Only luminance is
+ * blurred here — the caller wants a scalar field, not a picture.
+ */
+function blurScalar(
+  field: Float32Array,
+  width: number,
+  height: number,
+  radius: number,
+): Float32Array {
+  if (radius < 1) return field;
+  let current = field;
+
+  for (let pass = 0; pass < 3; pass += 1) {
+    for (const horizontal of [true, false]) {
+      const out = new Float32Array(current.length);
+      const outer = horizontal ? height : width;
+      const inner = horizontal ? width : height;
+      const at = (a: number, b: number) => (horizontal ? b * width + a : a * width + b);
+
+      for (let o = 0; o < outer; o += 1) {
+        let sum = 0;
+        for (let i = -radius; i <= radius; i += 1) {
+          sum += current[at(Math.max(0, Math.min(inner - 1, i)), o)] as number;
+        }
+        const span = radius * 2 + 1;
+        for (let i = 0; i < inner; i += 1) {
+          out[at(i, o)] = sum / span;
+          sum += (current[at(Math.min(inner - 1, i + radius + 1), o)] as number) -
+                 (current[at(Math.max(0, i - radius), o)] as number);
+        }
+      }
+      current = out;
+    }
+  }
+  return current;
+}
+
+/**
+ * The fine relief in a picture, as a scalar field.
+ *
+ * Luminance minus its own blur. Large tonal variation is *shape* and belongs
+ * to the depth map; what is left after the blur is fur, weave, pores and
+ * creases — the surface. Mixing the two would have the picture's lighting
+ * fight the geometry.
+ */
+function detailField(image: RasterImage, radius: number): Float32Array {
+  const { width, height } = image;
+  const luma = new Float32Array(width * height);
+  for (let index = 0; index < luma.length; index += 1) {
+    const at = index * 4;
+    luma[index] =
+      (0.2126 * (image.rgba[at] ?? 0) +
+        0.7152 * (image.rgba[at + 1] ?? 0) +
+        0.0722 * (image.rgba[at + 2] ?? 0)) /
+      255;
+  }
+  const low = blurScalar(luma, width, height, radius);
+  const high = new Float32Array(luma.length);
+  for (let index = 0; index < luma.length; index += 1) {
+    high[index] = (luma[index] as number) - (low[index] as number);
+  }
+  return high;
+}
+
+/**
  * A tangent-space normal map, from a depth map.
  *
  * The surface normal is the cross product of the depth surface's two
@@ -45,8 +113,19 @@ function normalise(x: number, y: number, z: number): [number, number, number] {
  * Encoded the way every normal map is: X in red, Y in green, Z in blue, with
  * 128 as zero, so a surface facing the camera is the familiar lavender-blue.
  */
-export function normalsFromDepth(depth: RasterImage, strength = 4): RasterImage {
+export function normalsFromDepth(
+  depth: RasterImage,
+  strength = 4,
+  detail?: { image: RasterImage; amount?: number; radius?: number },
+  /**
+   * Focal length as a fraction of the frame's long edge. 1.0 is roughly a
+   * normal lens; smaller is wider. Only the shape term is divided by it —
+   * surface detail comes from the picture and is already in screen space.
+   */
+  focalRatio = 1,
+): RasterImage {
   const { width, height } = depth;
+  const focal = Math.max(0.05, focalRatio);
   const out = new Uint8Array(width * height * 4);
 
   const at = (x: number, y: number): number => {
@@ -55,6 +134,35 @@ export function normalsFromDepth(depth: RasterImage, strength = 4): RasterImage 
     const index = (cy * width + cx) * 4;
     // Depth maps are greyscale; red carries it and the rest agree.
     return (depth.rgba[index] ?? 0) / 255;
+  };
+
+  /*
+   * Depth alone gives a silhouette, not a surface.
+   *
+   * Monocular depth is smooth by construction: across a horse's flank it
+   * barely changes, so the gradient is nothing and the normals come back flat
+   * lavender with coloured edges only where the subject meets the background.
+   * That is a cut-out map, not a normal map, and raising `strength` amplifies
+   * zero.
+   *
+   * The relief is in the *picture*. Fur, weave, pores and creases are all
+   * visible in luminance, so the high-frequency part of the image is added to
+   * the depth gradients before the normal is formed — shape from the geometry,
+   * detail from the photograph, which is how normal maps are authored from
+   * stills. Only the high-frequency part: large tonal variation is shape, and
+   * letting it through would have the picture's lighting argue with the depth.
+   */
+  const detailAmount = detail?.amount ?? 0;
+  const field =
+    detail && detailAmount > 0
+      ? detailField(detail.image, Math.max(1, Math.round(detail.radius ?? 3)))
+      : undefined;
+  const detailAt = (x: number, y: number): number => {
+    if (!field || !detail) return 0;
+    const source = detail.image;
+    const sx = Math.min(source.width - 1, Math.max(0, Math.round((x / width) * source.width)));
+    const sy = Math.min(source.height - 1, Math.max(0, Math.round((y / height) * source.height)));
+    return field[sy * source.width + sx] as number;
   };
 
   for (let y = 0; y < height; y += 1) {
@@ -68,12 +176,42 @@ export function normalsFromDepth(depth: RasterImage, strength = 4): RasterImage 
         (at(x - 1, y - 1) + 2 * at(x, y - 1) + at(x + 1, y - 1));
 
       /*
-       * The gradients are negated because a *brighter* depth pixel is nearer,
-       * so the surface tilts towards the camera where depth increases — the
-       * opposite sign to a height field, and the mistake that produces a
-       * normal map that lights from the wrong side.
+       * Perspective, not a height field.
+       *
+       * Treating depth as a height map in screen space is wrong the moment
+       * anything is at a different distance: the same physical tilt produces a
+       * larger screen gradient up close and a smaller one far away, so a wall
+       * twenty metres off reads as almost flat-on and the same wall two metres
+       * off reads as steeply raked. Both are the same wall.
+       *
+       * The fix is to unproject before differencing. A pixel at (x, y) with
+       * depth z sits at ((x - cx)·z/f, (y - cy)·z/f, z), so the normal is the
+       * cross product of the two surface tangents in *view space*. What that
+       * amounts to per pixel is dividing the depth gradient by z and by the
+       * focal length — near surfaces stop being exaggerated, and the normals
+       * can be composited against real geometry.
+       *
+       * The gradients are still negated: a brighter depth pixel is nearer, the
+       * opposite sign to a height field, and the mistake that produces a normal
+       * map lit from the wrong side.
        */
-      const [nx, ny, nz] = normalise(-dx * strength, -dy * strength, 1);
+      const z = Math.max(0.02, at(x, y));
+      // f in pixels, from a plausible field of view. Depth Anything is
+      // relative rather than metric, so this is a scale and not a claim.
+      const perspective = 1 / (z * focal);
+      // The same Sobel over the picture's fine relief, added before normalising.
+      const ex =
+        detailAt(x + 1, y - 1) + 2 * detailAt(x + 1, y) + detailAt(x + 1, y + 1) -
+        (detailAt(x - 1, y - 1) + 2 * detailAt(x - 1, y) + detailAt(x - 1, y + 1));
+      const ey =
+        detailAt(x - 1, y + 1) + 2 * detailAt(x, y + 1) + detailAt(x + 1, y + 1) -
+        (detailAt(x - 1, y - 1) + 2 * detailAt(x, y - 1) + detailAt(x + 1, y - 1));
+
+      const [nx, ny, nz] = normalise(
+        -(dx * strength * perspective + ex * detailAmount),
+        -(dy * strength * perspective + ey * detailAmount),
+        1,
+      );
 
       const index = (y * width + x) * 4;
       out[index] = Math.round((nx * 0.5 + 0.5) * 255);

@@ -63,6 +63,75 @@ describe("normalsFromDepth", () => {
     expect(r).toBeLessThan(128);
   });
 
+  it("gives a silhouette and no surface from smooth depth alone", () => {
+    /*
+     * The real limitation, worth pinning. Monocular depth is smooth: across a
+     * subject's body it barely changes, so the gradient is nothing and the
+     * normals come back flat with coloured edges only at the silhouette. That
+     * is a cut-out map, and raising strength amplifies zero.
+     */
+    const flatBody = normalsFromDepth(grey(32, 32, (x) => (x > 8 && x < 24 ? 200 : 20)), 8);
+    const middle = pixel(flatBody, 16, 16); // inside the shape
+    expect(Math.abs(middle[0] - 128)).toBeLessThanOrEqual(2);
+    expect(Math.abs(middle[1] - 128)).toBeLessThanOrEqual(2);
+  });
+
+  it("takes the surface from the picture when given one", () => {
+    // Same flat-bodied depth, but the picture has fine relief across it.
+    const depth = grey(32, 32, (x) => (x > 8 && x < 24 ? 200 : 20));
+    /*
+     * Two-pixel stripes, not a one-pixel checker. A Sobel compares x+1 against
+     * x-1, which on a one-pixel pattern land on the same phase and cancel to
+     * exactly zero — the texture would be invisible to the operator rather
+     * than absent from the result.
+     */
+    const textured = grey(32, 32, (x) => 120 + ((x >> 1) % 2) * 50);
+
+    const withoutDetail = normalsFromDepth(depth, 4);
+    const withDetail = normalsFromDepth(depth, 4, { image: textured, amount: 6, radius: 2 });
+
+    const flatness = (image: RasterImage) => {
+      let spread = 0;
+      for (let x = 12; x < 20; x += 1) {
+        spread = Math.max(spread, Math.abs(pixel(image, x, 16)[0] - 128));
+      }
+      return spread;
+    };
+
+    expect(flatness(withoutDetail)).toBeLessThanOrEqual(2);
+    expect(flatness(withDetail)).toBeGreaterThan(6);
+  });
+
+  it("ignores the picture's large tonal variation, which is shape", () => {
+    /*
+     * A slow gradient across a face is its lighting, not its surface. Letting
+     * it through would have the photograph's key argue with the geometry.
+     */
+    const depth = grey(32, 32, () => 128);
+    const gradient = grey(32, 32, (x) => x * 7);
+    const normals = normalsFromDepth(depth, 4, { image: gradient, amount: 6, radius: 4 });
+    expect(Math.abs(pixel(normals, 16, 16)[0] - 128)).toBeLessThanOrEqual(4);
+  });
+
+  it("does not exaggerate a distant surface", () => {
+    /*
+     * The reason this is view-space rather than a height field. The same
+     * physical tilt makes a larger screen gradient up close and a smaller one
+     * far away, so treating depth as a height map reads a wall twenty metres
+     * off as nearly flat-on and the same wall at two metres as steeply raked.
+     * Unprojecting first divides that out.
+     *
+     * Same *screen* gradient, two distances: the near surface must come back
+     * more steeply tilted, because for it to make that gradient at close range
+     * it has to be turned further.
+     */
+    const near = normalsFromDepth(grey(32, 32, (x) => 200 + x), 4);
+    const far = normalsFromDepth(grey(32, 32, (x) => 40 + x), 4);
+
+    const tilt = (image: RasterImage) => Math.abs(pixel(image, 16, 16)[0] - 128);
+    expect(tilt(far)).toBeGreaterThan(tilt(near));
+  });
+
   it("responds to strength", () => {
     const gentle = normalsFromDepth(grey(32, 32, (x) => x * 3), 1);
     const steep = normalsFromDepth(grey(32, 32, (x) => x * 3), 8);

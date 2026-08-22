@@ -208,8 +208,18 @@ const DeriveSchema = z.object({
   sourceAssetId: z.string().min(1),
   /** `depth` runs a model; `normal` is arithmetic on the depth. */
   kinds: z.array(z.enum(["depth", "normal"])).min(1),
-  /** Relief scale for the normal map. Higher is more pronounced. */
+  /** Relief scale for the normal map, from the depth. Higher is more shape. */
   strength: z.number().min(0.25).max(16).default(4),
+  /**
+   * How much surface detail to take from the picture itself.
+   *
+   * Depth is smooth, so it gives a silhouette and no surface. The fur, weave
+   * and pores are in the photograph, and this is how much of them reaches the
+   * normal map.
+   */
+  detail: z.number().min(0).max(40).default(8),
+  /** Below this, the picture is shape rather than surface. In pixels. */
+  detailRadius: z.number().min(1).max(64).default(3),
   model: z.string().min(1).optional(),
   project: z.string().min(1).optional(),
 });
@@ -249,7 +259,12 @@ export function derivePassesRoute(deps: AppDeps) {
         kind: "normal",
         asset: await keep(
           deps,
-          normalsFromDepth(depth, request.strength),
+          normalsFromDepth(depth, request.strength, {
+            // The source frame, so the surface comes from the picture.
+            image: still,
+            amount: request.detail,
+            radius: request.detailRadius,
+          }),
           `${stem}_normal.png`,
           request.project,
         ),

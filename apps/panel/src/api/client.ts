@@ -234,6 +234,8 @@ export class SeedClient {
     sourceAssetId: string;
     kinds: Array<"depth" | "normal">;
     strength?: number;
+    detail?: number;
+    detailRadius?: number;
     project?: string;
   }): Promise<{ sourceAssetId: string; made: Array<{ kind: string; asset: Asset }> }> {
     return this.request("/v1/passes/derive", { method: "POST", body: input });

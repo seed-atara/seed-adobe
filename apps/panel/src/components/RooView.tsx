@@ -79,6 +79,42 @@ function Reading({ label, measured }: { label: string; measured?: MeasuredDto })
   );
 }
 
+/**
+ * A still picker.
+ *
+ * Declared here rather than inside RooView: a component defined during render
+ * is a *new type* every time, so React unmounts and remounts it on every
+ * keystroke — which loses focus and resets the select mid-interaction.
+ */
+function AssetPicker({
+  label,
+  hint,
+  value,
+  stills,
+  onChange,
+  optional,
+}: {
+  label: string;
+  hint?: string;
+  value: string;
+  stills: Asset[];
+  onChange: (id: string) => void;
+  optional?: boolean;
+}) {
+  return (
+    <Field label={label} {...(hint ? { hint } : {})}>
+      <select value={value} onChange={(event) => onChange(event.target.value)}>
+        <option value="">{optional ? "none" : "choose…"}</option>
+        {stills.map((asset) => (
+          <option key={asset.id} value={asset.id}>
+            {asset.filename}
+          </option>
+        ))}
+      </select>
+    </Field>
+  );
+}
+
 export function RooView({
   client,
   assets,
@@ -93,6 +129,8 @@ export function RooView({
   const [chosen, setChosen] = useState<Set<string>>(new Set(["depth", "normal"]));
   const [lighting, setLighting] = useState("");
   const [strength, setStrength] = useState("4");
+  const [detail, setDetail] = useState("8");
+  const [detailRadius, setDetailRadius] = useState("3");
   const [providerId, setProviderId] = useState("");
 
   const [albedoId, setAlbedoId] = useState("");
@@ -194,31 +232,6 @@ export function RooView({
     }
   };
 
-  const AssetPicker = ({
-    label,
-    hint,
-    value,
-    onChange,
-    optional,
-  }: {
-    label: string;
-    hint?: string;
-    value: string;
-    onChange: (id: string) => void;
-    optional?: boolean;
-  }) => (
-    <Field label={label} {...(hint ? { hint } : {})}>
-      <select value={value} onChange={(event) => onChange(event.target.value)}>
-        <option value="">{optional ? "none" : "choose…"}</option>
-        {stills.map((asset) => (
-          <option key={asset.id} value={asset.id}>
-            {asset.filename}
-          </option>
-        ))}
-      </select>
-    </Field>
-  );
-
   return (
     <>
       {/* ---------------------------------------------------------- source */}
@@ -229,7 +242,12 @@ export function RooView({
         </div>
         {source ? (
           <div className="row" style={{ gap: 8, alignItems: "center" }}>
-            <div style={{ width: 96 }}>
+            {/*
+              * ref-thumb, not a bare div. AssetImage renders an unstyled <img>,
+              * which takes its natural size — a 1920px frame in a 96px box
+              * overflowed it and ran underneath the caption beside it.
+              */}
+            <div className="ref-thumb" style={{ width: 96, height: 54, flex: "0 0 auto" }}>
               <AssetImage client={client} asset={source} variant="thumbnail" />
             </div>
             <div className="mono" style={{ fontSize: 11 }}>
@@ -267,7 +285,7 @@ export function RooView({
         ))}
 
         <div className="row" style={{ marginTop: 8 }}>
-          <Field label="Relief" hint="normal map strength">
+          <Field label="Shape" hint="relief from the depth">
             <input
               type="number"
               min={0.25}
@@ -277,6 +295,31 @@ export function RooView({
               onChange={(event) => setStrength(event.target.value)}
             />
           </Field>
+          <Field label="Surface" hint="detail from the picture">
+            <input
+              type="number"
+              min={0}
+              max={40}
+              step={1}
+              value={detail}
+              onChange={(event) => setDetail(event.target.value)}
+            />
+          </Field>
+          <Field label="Fineness" hint="px; smaller is finer">
+            <input
+              type="number"
+              min={1}
+              max={64}
+              step={1}
+              value={detailRadius}
+              onChange={(event) => setDetailRadius(event.target.value)}
+            />
+          </Field>
+        </div>
+        <div className="hint faint">
+          Depth is smooth, so on its own it gives a silhouette and a flat body.
+          <b> Surface</b> takes the fur, weave and pores from the picture itself,
+          which is where they actually are. Turn it to 0 for shape only.
         </div>
 
         <button
@@ -291,6 +334,8 @@ export function RooView({
                 sourceAssetId: source!.id,
                 kinds: kinds as Array<"depth" | "normal">,
                 strength: Number(strength) || 4,
+                detail: Number(detail) || 0,
+                detailRadius: Number(detailRadius) || 3,
                 ...(activeProject ? { project: activeProject } : {}),
               });
               setDerived(result.made);
@@ -396,14 +441,15 @@ export function RooView({
         </div>
 
         <AssetPicker
+          stills={stills}
           label="Albedo"
           hint="surface colour, lighting removed"
           value={albedoId}
           onChange={setAlbedoId}
         />
-        <AssetPicker label="Normals" value={normalId} onChange={setNormalId} />
-        <AssetPicker label="Roughness" value={roughnessId} onChange={setRoughnessId} optional />
-        <AssetPicker label="Occlusion" value={occlusionId} onChange={setOcclusionId} optional />
+        <AssetPicker stills={stills} label="Normals" value={normalId} onChange={setNormalId} />
+        <AssetPicker stills={stills} label="Roughness" value={roughnessId} onChange={setRoughnessId} optional />
+        <AssetPicker stills={stills} label="Occlusion" value={occlusionId} onChange={setOcclusionId} optional />
 
         <div className="row">
           <Field label="Azimuth" hint="degrees around the subject">
@@ -481,6 +527,7 @@ export function RooView({
         </div>
 
         <AssetPicker
+          stills={stills}
           label="Reference shot"
           hint="the look to match"
           value={matchId}
@@ -549,11 +596,13 @@ export function RooView({
           light it the same way.
         </div>
         <AssetPicker
+          stills={stills}
           label="Reference albedo"
           value={matchAlbedoId}
           onChange={setMatchAlbedoId}
         />
         <AssetPicker
+          stills={stills}
           label="Reference normals"
           value={matchNormalId}
           onChange={setMatchNormalId}
