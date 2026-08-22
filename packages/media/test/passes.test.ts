@@ -70,30 +70,35 @@ describe("normalsFromDepth", () => {
      * normals come back flat with coloured edges only at the silhouette. That
      * is a cut-out map, and raising strength amplifies zero.
      */
-    const flatBody = normalsFromDepth(grey(32, 32, (x) => (x > 8 && x < 24 ? 200 : 20)), 8);
-    const middle = pixel(flatBody, 16, 16); // inside the shape
+    const flatBody = normalsFromDepth(grey(64, 64, (x) => (x > 16 && x < 48 ? 200 : 20)), 8);
+    const middle = pixel(flatBody, 32, 32); // well inside the shape
     expect(Math.abs(middle[0] - 128)).toBeLessThanOrEqual(2);
     expect(Math.abs(middle[1] - 128)).toBeLessThanOrEqual(2);
   });
 
   it("takes the surface from the picture when given one", () => {
-    // Same flat-bodied depth, but the picture has fine relief across it.
-    const depth = grey(32, 32, (x) => (x > 8 && x < 24 ? 200 : 20));
+    const depth = grey(64, 64, (x) => (x > 16 && x < 48 ? 200 : 20));
     /*
      * Two-pixel stripes, not a one-pixel checker. A Sobel compares x+1 against
      * x-1, which on a one-pixel pattern land on the same phase and cancel to
      * exactly zero — the texture would be invisible to the operator rather
      * than absent from the result.
      */
-    const textured = grey(32, 32, (x) => 120 + ((x >> 1) % 2) * 50);
+    const textured = grey(64, 64, (x) => 120 + ((x >> 1) % 2) * 50);
 
     const withoutDetail = normalsFromDepth(depth, 4);
     const withDetail = normalsFromDepth(depth, 4, { image: textured, amount: 6, radius: 2 });
 
+    /*
+     * Sampled well inside the shape. The depth is smoothed by a pixel before
+     * differencing, to kill eight-bit staircase banding, so the silhouette
+     * legitimately bleeds a few pixels in — measuring near it would measure
+     * the edge rather than the body.
+     */
     const flatness = (image: RasterImage) => {
       let spread = 0;
-      for (let x = 12; x < 20; x += 1) {
-        spread = Math.max(spread, Math.abs(pixel(image, x, 16)[0] - 128));
+      for (let x = 28; x < 36; x += 1) {
+        spread = Math.max(spread, Math.abs(pixel(image, x, 32)[0] - 128));
       }
       return spread;
     };
@@ -113,23 +118,30 @@ describe("normalsFromDepth", () => {
     expect(Math.abs(pixel(normals, 16, 16)[0] - 128)).toBeLessThanOrEqual(4);
   });
 
-  it("does not exaggerate a distant surface", () => {
+  it("leans on distance, but only so far", () => {
     /*
-     * The reason this is view-space rather than a height field. The same
-     * physical tilt makes a larger screen gradient up close and a smaller one
-     * far away, so treating depth as a height map reads a wall twenty metres
-     * off as nearly flat-on and the same wall at two metres as steeply raked.
-     * Unprojecting first divides that out.
+     * Perspective is why this is view-space rather than a height field: the
+     * same screen gradient means a steeper physical tilt the further away a
+     * surface is, so a distant wall should not read as flat-on.
      *
-     * Same *screen* gradient, two distances: the near surface must come back
-     * more steeply tilted, because for it to make that gradient at close range
-     * it has to be turned further.
+     * But the gain has to be bounded. Depth Anything answers in *relative
+     * disparity*, which tends to zero in the far field, and dividing by it
+     * unbounded gave a fiftyfold gain on the background — which turned the
+     * eight-bit staircase into contour rings across every flat wall, and
+     * swamped the picture. This pins both halves: the far side leans further,
+     * and not absurdly.
      */
-    const near = normalsFromDepth(grey(32, 32, (x) => 200 + x), 4);
-    const far = normalsFromDepth(grey(32, 32, (x) => 40 + x), 4);
+    const slope = 3;
+    const image = grey(64, 32, (x) => (x < 32 ? 30 + x * slope : 200 + (x - 32) * slope));
+    const normals = normalsFromDepth(image, 4);
 
-    const tilt = (image: RasterImage) => Math.abs(pixel(image, 16, 16)[0] - 128);
-    expect(tilt(far)).toBeGreaterThan(tilt(near));
+    const tilt = (x: number) => Math.abs(pixel(normals, x, 16)[0] - 128);
+    const far = tilt(16);
+    const near = tilt(48);
+
+    expect(far).toBeGreaterThan(near);
+    // Two either way is the clamp; past it relative depth cannot honestly say.
+    expect(far).toBeLessThan(near * 5);
   });
 
   it("responds to strength", () => {
@@ -275,7 +287,12 @@ describe("enhanceWithNormals", () => {
      * relief *along* the light was the blind case.
      */
     const image = grey(32, 32, () => 120);
-    const diagonal = normalsFromDepth(grey(32, 32, (x, y) => ((x + y) % 4) * 60));
+    /*
+     * Period eight, not four. The depth is smoothed by a pixel before
+     * differencing now, and a four-pixel diagonal is mostly removed by it —
+     * which would test the blur rather than the guard.
+     */
+    const diagonal = normalsFromDepth(grey(32, 32, (x, y) => (((x + y) >> 2) % 2) * 120));
 
     const spreadWith = (options: { x: number; y: number; z: number }) => {
       const enhanced = enhanceWithNormals(image, diagonal, 0.6, options);

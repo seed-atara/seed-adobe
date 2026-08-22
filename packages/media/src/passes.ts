@@ -128,13 +128,40 @@ export function normalsFromDepth(
   const focal = Math.max(0.05, focalRatio);
   const out = new Uint8Array(width * height * 4);
 
+  /*
+   * Smoothed before differencing.
+   *
+   * A depth map is eight bits, so a slow gradient across a background is a
+   * staircase. Differentiating a staircase gives a comb, and the perspective
+   * term below multiplies it — the result was concentric contour rings across
+   * every flat wall. One pixel of blur costs no real shape and removes them.
+   */
+  const smooth = blurScalar(
+    (() => {
+      const field = new Float32Array(width * height);
+      for (let index = 0; index < field.length; index += 1) {
+        field[index] = (depth.rgba[index * 4] ?? 0) / 255;
+      }
+      return field;
+    })(),
+    width,
+    height,
+    1,
+  );
+
   const at = (x: number, y: number): number => {
     const cx = Math.max(0, Math.min(width - 1, x));
     const cy = Math.max(0, Math.min(height - 1, y));
-    const index = (cy * width + cx) * 4;
-    // Depth maps are greyscale; red carries it and the rest agree.
-    return (depth.rgba[index] ?? 0) / 255;
+    return smooth[cy * width + cx] as number;
   };
+
+  /*
+   * The middle of the depth range, so the perspective term is 1 for a typical
+   * surface and only leans on things that are unusually near or far.
+   */
+  let total = 0;
+  for (let index = 0; index < smooth.length; index += 1) total += smooth[index] as number;
+  const middle = Math.max(0.05, total / smooth.length);
 
   /*
    * Depth alone gives a silhouette, not a surface.
@@ -195,10 +222,20 @@ export function normalsFromDepth(
        * opposite sign to a height field, and the mistake that produces a normal
        * map lit from the wrong side.
        */
+      /*
+       * Bounded, and relative to the middle of the frame's own range.
+       *
+       * Depth Anything answers in *relative disparity*, not metres — brighter
+       * is nearer, and the far field tends towards zero. Dividing by it
+       * unbounded gave a fiftyfold gain on the background, which turned the
+       * eight-bit staircase into contour rings and swamped the picture.
+       *
+       * Two to one either way is enough to stop a distant wall reading as
+       * flat-on without inventing detail that is not in the data. Beyond that
+       * the honest answer is that relative depth cannot say.
+       */
       const z = Math.max(0.02, at(x, y));
-      // f in pixels, from a plausible field of view. Depth Anything is
-      // relative rather than metric, so this is a scale and not a claim.
-      const perspective = 1 / (z * focal);
+      const perspective = Math.max(0.5, Math.min(2, middle / z)) / focal;
       // The same Sobel over the picture's fine relief, added before normalising.
       const ex =
         detailAt(x + 1, y - 1) + 2 * detailAt(x + 1, y) + detailAt(x + 1, y + 1) -

@@ -217,7 +217,7 @@ const DeriveSchema = z.object({
    * and pores are in the photograph, and this is how much of them reaches the
    * normal map.
    */
-  detail: z.number().min(0).max(40).default(8),
+  detail: z.number().min(0).max(40).default(3),
   /** Below this, the picture is shape rather than surface. In pixels. */
   detailRadius: z.number().min(1).max(64).default(3),
   model: z.string().min(1).optional(),

@@ -129,7 +129,7 @@ export function RooView({
   const [chosen, setChosen] = useState<Set<string>>(new Set(["depth", "normal"]));
   const [lighting, setLighting] = useState("");
   const [strength, setStrength] = useState("4");
-  const [detail, setDetail] = useState("8");
+  const [detail, setDetail] = useState("3");
   const [detailRadius, setDetailRadius] = useState("3");
   const [providerId, setProviderId] = useState("");
 
