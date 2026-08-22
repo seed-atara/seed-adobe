@@ -28,6 +28,7 @@ import {
   type TraitAllocationInput,
 } from "./budget.js";
 import { parseMentions, replaceMentions } from "./mentions.js";
+import { orderPlatesForShot, readShotIntent } from "./shot.js";
 
 /**
  * Expanding `@sara` into a provider-ready request.
@@ -107,9 +108,16 @@ export function resolveBundle(request: ResolveRequest): ResolvedBundle {
     );
   }
 
+  /*
+   * What the prompt says about the shot, so each Item can send the plates that
+   * suit it rather than the first ones in its list. An unrecognised prompt
+   * yields nothing and plate order falls back to weight, exactly as before.
+   */
+  const intent = readShotIntent(request.prompt);
+
   const allocationInputs: AllocationInput[] = request.bindings.map((binding, index) => ({
     itemIndex: index,
-    plates: sortPlates(binding.definition.revision.plates),
+    plates: orderPlatesForShot(binding.definition.revision.plates, intent),
     influence: binding.mention.influence,
     deferred: binding.definition.item.kind === "style",
   }));
@@ -303,9 +311,7 @@ export function tierFor(
   return "brief";
 }
 
-function sortPlates(plates: ItemPlate[]): ItemPlate[] {
-  return [...plates].sort((a, b) => a.weight - b.weight);
-}
+
 
 function plateMediaKind(plate: ItemPlate): "image" | "video" {
   return plate.role === "motion" ? "video" : "image";

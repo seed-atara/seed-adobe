@@ -103,6 +103,22 @@ export type ItemTrait = z.infer<typeof ItemTraitSchema>;
  * rejects it for images, where a hosted URL is the only accepted form. The
  * plate holds every address it has and the adapter picks one it can use.
  */
+/**
+ * What a plate shows, so the resolver can pick the ones that suit the shot.
+ *
+ * Every field optional and every value coarse. A plate library is mostly
+ * untagged, and a scheme that demanded precision would be a scheme nobody
+ * filled in — the describer fills these where it can and the resolver simply
+ * scores an untagged plate as neutral.
+ */
+export const PlateShotSchema = z.object({
+  framing: z.enum(["close", "mid", "wide"]).optional(),
+  angle: z.enum(["front", "three-quarter", "profile", "back"]).optional(),
+  /** How lit, not what colour: it decides whether a plate suits a night shot. */
+  light: z.enum(["bright", "neutral", "dark"]).optional(),
+});
+export type PlateShot = z.infer<typeof PlateShotSchema>;
+
 export const ItemPlateSchema = z.object({
   assetId: z.string().min(1),
   role: PlateRoleSchema.default("reference"),
@@ -111,6 +127,8 @@ export const ItemPlateSchema = z.object({
   notes: z.string().max(500).optional(),
   /** providerId -> the id or URL that provider accepts for this plate. */
   providerRefs: z.record(z.string(), z.string()).default({}),
+  /** What this plate shows, where it is known. See PlateShotSchema. */
+  shot: PlateShotSchema.optional(),
 });
 export type ItemPlate = z.infer<typeof ItemPlateSchema>;
 

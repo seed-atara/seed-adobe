@@ -1,5 +1,11 @@
 import Anthropic from "@anthropic-ai/sdk";
-import { SeedError, type Asset, type ItemKind, type ItemTrait } from "@seed-ae/domain";
+import {
+  SeedError,
+  type Asset,
+  type ItemKind,
+  type ItemTrait,
+  type PlateShot,
+} from "@seed-ae/domain";
 import type { WorkspaceLayout } from "@seed-ae/storage";
 import { loadPreview } from "./preview.js";
 
@@ -49,6 +55,10 @@ Rules:
 - \`priority\` orders them: 0 is the most important thing to preserve.
 - Put in \`avoid\` only things that would clearly be wrong for this subject and are likely to appear anyway — a modern logo on a period costume, sunglasses hiding a face you need. Leave it empty if nothing qualifies.
 - At most 16 traits and 8 avoid entries. Each trait under 200 characters.
+- Also return one \`plates\` entry per plate, in the order given, saying how each
+  is framed, which way the subject faces, and how lit it is. Answer "unknown"
+  rather than guessing — a wrong label is worse than none, because it will send
+  the wrong plate to a shot with confidence.
 - \`summary\` is one plain sentence for the artist, saying what you saw and what you think matters most.
 
 If the plates disagree with each other — different people, different rooms — say so in \`summary\` rather than averaging them into a subject that does not exist.`;
@@ -102,6 +112,30 @@ export const TRAIT_SCHEMA = {
     },
     avoid: { type: "array", items: { type: "string" } },
     summary: { type: "string" },
+    /*
+     * What each plate shows, in the order they were given.
+     *
+     * The model is already looking at every plate to write the traits, so
+     * asking what each one *is* costs nothing extra — and it is the whole
+     * input to choosing which plates suit a shot. A library nobody tags is a
+     * library where that choice cannot be made.
+     */
+    plates: {
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: ["framing", "angle", "light"],
+        properties: {
+          framing: { type: "string", enum: ["close", "mid", "wide", "unknown"] },
+          angle: {
+            type: "string",
+            enum: ["front", "three-quarter", "profile", "back", "unknown"],
+          },
+          light: { type: "string", enum: ["bright", "neutral", "dark", "unknown"] },
+        },
+      },
+    },
   },
 } as const;
 
@@ -120,10 +154,26 @@ export interface DescribeInput {
   plates: Array<{ asset: Asset; role: string }>;
 }
 
+/**
+ * What the model may answer, before it is narrowed.
+ *
+ * "unknown" is offered deliberately — a wrong label is worse than none here,
+ * because it sends the wrong plate to a shot with confidence — but it is not a
+ * value the domain carries, so it exists only between the response and the
+ * narrowing below.
+ */
+type RawPlateShot = {
+  framing?: PlateShot["framing"] | "unknown";
+  angle?: PlateShot["angle"] | "unknown";
+  light?: PlateShot["light"] | "unknown";
+};
+
 export interface DescribeResult {
   traits: ItemTrait[];
   avoid: string[];
   summary: string;
+  /** One per plate, in the order they were given. Absent where unknown. */
+  plates?: PlateShot[];
 }
 
 /**
@@ -248,6 +298,19 @@ export class ItemDescriber {
         .slice(0, 8)
         .map((entry) => entry.trim().slice(0, 120)),
       summary: (parsed.summary ?? "").slice(0, 400),
+      /*
+       * "unknown" becomes an absent field rather than a stored value. The
+       * resolver scores an untagged plate as neutral, which is the right
+       * treatment for one the model could not read — storing "unknown" would
+       * mean carrying a value that every consumer has to special-case.
+       */
+      plates: (parsed.plates as RawPlateShot[] | undefined ?? []).map((shot) => {
+        const kept: PlateShot = {};
+        if (shot?.framing && shot.framing !== "unknown") kept.framing = shot.framing;
+        if (shot?.angle && shot.angle !== "unknown") kept.angle = shot.angle;
+        if (shot?.light && shot.light !== "unknown") kept.light = shot.light;
+        return kept;
+      }),
     };
   }
 }

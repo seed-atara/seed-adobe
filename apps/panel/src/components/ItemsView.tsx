@@ -6,6 +6,7 @@ import type {
   ItemKind,
   ItemTrait,
   PlateRole,
+  PlateShot,
 } from "@seed-ae/domain";
 import { ServiceError } from "../api/client.ts";
 import type { SeedClient } from "../api/client.ts";
@@ -180,7 +181,7 @@ interface NewItemProps {
     name: string;
     project?: string;
     realPerson: boolean;
-    plates: Array<{ assetId: string; role: PlateRole }>;
+    plates: Array<{ assetId: string; role: PlateRole; shot?: PlateShot }>;
     traits: ItemTrait[];
   }) => void;
 }
@@ -191,7 +192,9 @@ function NewItem({ client, assets, activeProject, busy, onCancel, onCreate }: Ne
   const [kind, setKind] = useState<ItemKind>("character");
   const [realPerson, setRealPerson] = useState(false);
   const [studioWide, setStudioWide] = useState(true);
-  const [plates, setPlates] = useState<Array<{ assetId: string; role: PlateRole }>>([]);
+  const [plates, setPlates] = useState<
+    Array<{ assetId: string; role: PlateRole; shot?: PlateShot }>
+  >([]);
   const [traits, setTraits] = useState<ItemTrait[]>([]);
   const [summary, setSummary] = useState<string>();
   const [reading, setReading] = useState(false);
@@ -214,6 +217,20 @@ function NewItem({ client, assets, activeProject, busy, onCancel, onCreate }: Ne
       });
       setTraits(result.traits);
       setSummary(result.summary);
+      /*
+       * Keep what each plate turned out to be. It is what lets the resolver
+       * send the profile close-up to a profile close-up rather than the first
+       * three plates in the list — and reading the plates is the only moment
+       * anything knows.
+       */
+      if (result.plates) {
+        setPlates((current) =>
+          current.map((plate, index) => {
+            const shot = result.plates?.[index];
+            return shot && Object.keys(shot).length > 0 ? { ...plate, shot } : plate;
+          }),
+        );
+      }
     } catch (error) {
       setReadError(
         error instanceof ServiceError && error.code === "unsupported_capability"
@@ -446,6 +463,10 @@ function NewItem({ client, assets, activeProject, busy, onCancel, onCreate }: Ne
            * a character that silently degrades later.
            */
           let written = traits.filter((trait) => trait.text.trim().length > 0);
+          // Merged into the plates sent below rather than through setPlates:
+          // state set here would not be visible until the next render, and the
+          // item is created on the line after this.
+          let tagged = plates;
           if (written.length === 0) {
             setReading(true);
             try {
@@ -460,6 +481,15 @@ function NewItem({ client, assets, activeProject, busy, onCancel, onCreate }: Ne
               written = result.traits;
               setTraits(result.traits);
               setSummary(result.summary);
+              if (result.plates) {
+                tagged = plates.map((plate, index) => {
+                  const shot = result.plates?.[index];
+                  return shot && Object.keys(shot).length > 0
+                    ? { ...plate, shot }
+                    : plate;
+                });
+                setPlates(tagged);
+              }
             } catch {
               // Without a key, or on a refusal, the item is still worth having.
               // It just has no text to fall back on, which the panel says.
@@ -473,7 +503,7 @@ function NewItem({ client, assets, activeProject, busy, onCancel, onCreate }: Ne
             name,
             ...(activeProject && !studioWide ? { project: activeProject } : {}),
             realPerson,
-            plates,
+            plates: tagged,
             // Only what survived the artist's editing.
             traits: written,
           });

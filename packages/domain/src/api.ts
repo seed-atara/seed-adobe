@@ -13,6 +13,7 @@ import {
   ItemTraitSchema,
   ItemVariantSchema,
   PlateRoleSchema,
+  PlateShotSchema,
   ResolvedBundleSchema,
 } from "./item.js";
 
@@ -235,6 +236,13 @@ export const DescribeItemRequestSchema = z.object({
 export type DescribeItemRequest = z.infer<typeof DescribeItemRequestSchema>;
 
 export const DescribeItemResponseSchema = z.object({
+  /**
+   * What each plate turned out to show, in the order they were sent.
+   *
+   * Reading the plates is the only moment anything knows this, and it is the
+   * whole input to sending the profile close-up to a profile close-up.
+   */
+  plates: z.array(PlateShotSchema).optional(),
   traits: z.array(ItemTraitSchema),
   avoid: z.array(z.string()),
   /** One sentence for the artist, including any disagreement between plates. */
