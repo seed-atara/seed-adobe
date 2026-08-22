@@ -693,6 +693,151 @@ function seedResolveRange(comp, startSeconds, durationSeconds) {
     return { start: start, duration: duration };
 }
 
+/**
+ * A shot, sampled as stills — the input the expansion works from.
+ *
+ * Expanding a plate into another aspect starts by finding out how much of the
+ * new area the footage already photographed, and that means looking at frames
+ * spread across the move rather than at a clip. Nothing on the service side
+ * decodes video: a rendered range is H.264 it cannot open. After Effects can
+ * write any frame of the comp as a PNG, which is the same pixels without the
+ * round trip through a codec.
+ *
+ * Sampled rather than exhaustive. The tracker needs enough overlap between
+ * consecutive samples to match them, not every frame — a two-second pan
+ * recovers just as well from twenty stills as from fifty, at a fraction of the
+ * wait. Ordered, because each sample is matched against the one before it.
+ *
+ * Uses saveFrameToPng and not the render queue, which means no output-module
+ * template to find, no other queued items to unqueue, and no undo bookkeeping
+ * to collide with — see seedRenderRange for how much of that a range render
+ * has to deal with. The 32-bit depth guard is taken once for the whole run
+ * rather than per frame, so a long sample does not flip the project depth
+ * back and forth twenty times.
+ */
+function seedSampleRange(outputDir, basename, startSeconds, durationSeconds, count) {
+    var restoreDepth = 0;
+    var restoreTime = null;
+    try {
+        var comp = seedActiveComp();
+        if (!comp) return seedFail("no active composition");
+        if (typeof comp.saveFrameToPng !== "function") {
+            return seedFail(
+                "this After Effects version has no CompItem.saveFrameToPng"
+            );
+        }
+
+        var folder = seedEnsureFolder(outputDir);
+        if (!folder.exists) {
+            return seedFail("could not create output folder: " + outputDir);
+        }
+
+        var span = seedResolveRange(comp, startSeconds, durationSeconds);
+        if (span.failed) return span.failure;
+
+        var samples = Math.round(Number(count));
+        if (isNaN(samples) || samples < 2) samples = 12;
+        if (samples > 60) samples = 60;
+
+        /*
+         * Never more samples than the range has frames. Asking for twenty
+         * across a six-frame work area would write the same frame repeatedly
+         * and the tracker would read that as a locked-off shot.
+         */
+        var available = Math.floor(span.duration * comp.frameRate);
+        if (available < 1) available = 1;
+        if (samples > available) samples = available;
+        if (samples < 2) {
+            return seedFail(
+                "that range is " + available + " frame(s) long; expansion needs " +
+                    "at least two to measure the move"
+            );
+        }
+
+        var safe = String(basename || comp.name).replace(/[^A-Za-z0-9._-]+/g, "_");
+        restoreTime = comp.time;
+        restoreDepth = seedCaptureDepthGuard();
+
+        var step = samples > 1 ? span.duration / (samples - 1) : 0;
+        var frames = [];
+        var i;
+        for (i = 0; i < samples; i++) {
+            /*
+             * Quantised to the frame grid. saveFrameToPng at an off-grid time
+             * renders the frame that contains it, so two nearby samples can
+             * silently be the same picture — which the tracker would read as
+             * the camera stopping.
+             */
+            var at = span.start + step * i;
+            var frameNumber = Math.round(at * comp.frameRate);
+            var exact = frameNumber / comp.frameRate;
+            if (exact > comp.duration) exact = comp.duration;
+
+            var stamp = String(frameNumber);
+            while (stamp.length < 5) stamp = "0" + stamp;
+            var target = new File(
+                seedNormalizePath(folder.fsName) + "/" + safe + "_s" + stamp + ".png"
+            );
+            var targetPath = target.fsName;
+
+            try {
+                comp.saveFrameToPng(exact, target);
+            } catch (writeError) {
+                return seedFail(
+                    "saveFrameToPng failed on sample " + (i + 1) + " of " +
+                        samples + ": " + writeError
+                );
+            }
+
+            var written = seedSettledFile(targetPath, comp.width * comp.height);
+            if (!written) {
+                return seedFail(
+                    "After Effects reported no error but no file appeared at " +
+                        targetPath
+                );
+            }
+
+            frames.push({
+                path: written.fsName,
+                bytes: written.length,
+                frameNumber: frameNumber,
+                timeSeconds: exact
+            });
+        }
+
+        return seedOk({
+            frames: frames,
+            width: comp.width,
+            height: comp.height,
+            frameRate: comp.frameRate,
+            startSeconds: span.start,
+            durationSeconds: span.duration,
+            capturedBitsPerChannel: restoreDepth
+                ? 16
+                : Number(app.project.bitsPerChannel),
+            projectBitsPerChannel: restoreDepth || Number(app.project.bitsPerChannel)
+        });
+    } catch (error) {
+        return seedFail(error);
+    } finally {
+        seedRestoreCaptureDepth(restoreDepth);
+        /*
+         * The playhead goes back where the artist left it. saveFrameToPng does
+         * not move it, but comp.time is set on some paths and a sampler that
+         * quietly parks the timeline at the end of the work area is a nasty
+         * surprise mid-edit.
+         */
+        if (restoreTime !== null) {
+            try {
+                var active = seedActiveComp();
+                if (active) active.time = restoreTime;
+            } catch (restoreError) {
+                // Nothing useful to do; the frames are already written.
+            }
+        }
+    }
+}
+
 function seedCaptureRange(outputDir, basename, startSeconds, durationSeconds, presetPath, quality) {
     /*
      * `presetPath` is Premiere's; After Effects renders through its own queue
@@ -2428,12 +2573,156 @@ function seedPing() {
  * often as it likes, and the panel calls these instead.
  */
 
+/**
+ * The expanded shot, assembled with the original put back on top.
+ *
+ * This is the step that makes a generative expansion safe, and no web reframer
+ * can do it because none of them has the plate as a layer.
+ *
+ * A model asked to widen a shot re-renders all of it, including the part that
+ * was already correct. Whatever it does to a face in the middle of frame is a
+ * loss, however good the new edges are. So the generated wide clip goes
+ * underneath, the original comp goes over it at exactly the rectangle the
+ * expansion was planned around, and only the margins the model invented
+ * survive into the result.
+ *
+ * The performance is then untouched by construction rather than by hoping the
+ * model preserved it — no drift, no identity wobble, no re-graded skin.
+ *
+ * `rect` is normalised 0..1 against the new canvas, and is the same rectangle
+ * the service used to build the mosaic. Passing anything else lands the plate
+ * off by however much the two disagree.
+ */
+function seedAssembleExpansion(widePath, canvasWidth, canvasHeight, rect, name) {
+    var undoing = false;
+    try {
+        var comp = seedActiveComp();
+        if (!comp) return seedFail("no active composition");
+
+        var width = Math.round(Number(canvasWidth));
+        var height = Math.round(Number(canvasHeight));
+        if (!width || !height || width < 4 || height < 4) {
+            return seedFail(
+                "the expanded canvas has to be a real size; received " +
+                    canvasWidth + "x" + canvasHeight
+            );
+        }
+
+        var box = rect || {};
+        var rx = Number(box.x);
+        var ry = Number(box.y);
+        var rw = Number(box.width);
+        var rh = Number(box.height);
+        if (isNaN(rx) || isNaN(ry) || isNaN(rw) || isNaN(rh) || rw <= 0 || rh <= 0) {
+            return seedFail(
+                "the source rectangle is missing or malformed — it should be the " +
+                    "same normalised rect the expansion was built with"
+            );
+        }
+
+        var wide = new File(seedNormalizePath(String(widePath)));
+        if (!wide.exists) {
+            return seedFail("no file at " + widePath);
+        }
+
+        app.beginUndoGroup("SEED assemble expansion");
+        undoing = true;
+
+        var title = String(name || (comp.name + " expanded"));
+        var out = app.project.items.addComp(
+            title,
+            width,
+            height,
+            comp.pixelAspect,
+            comp.duration,
+            comp.frameRate
+        );
+        out.parentFolder = seedProjectFolder();
+
+        /*
+         * The generated clip fills the canvas. It was generated at this shape,
+         * so any scale here is correcting a resolution difference rather than
+         * a framing one — 1080p out of a 4K plan, for instance.
+         */
+        var imported = seedImportWhenReadable(wide.fsName);
+        imported.parentFolder = seedProjectFolder();
+        var generated = out.layers.add(imported);
+        generated.name = "SEED generated edges";
+        generated.property("Transform").property("Position").setValue([
+            width / 2,
+            height / 2
+        ]);
+        if (generated.source && generated.source.width) {
+            var fill = Math.max(
+                width / generated.source.width,
+                height / generated.source.height
+            );
+            generated.property("Transform").property("Scale").setValue([
+                fill * 100,
+                fill * 100
+            ]);
+        }
+
+        /*
+         * The original, over the top, at the planned rectangle. Nested rather
+         * than re-rendered: it stays live, so a change upstream still flows
+         * through, and nothing about it has been through a model.
+         */
+        var plate = out.layers.add(comp);
+        plate.name = "SEED original plate";
+        plate.property("Transform").property("Position").setValue([
+            (rx + rw / 2) * width,
+            (ry + rh / 2) * height
+        ]);
+        var scaleX = (rw * width) / comp.width;
+        var scaleY = (rh * height) / comp.height;
+        plate.property("Transform").property("Scale").setValue([
+            scaleX * 100,
+            scaleY * 100
+        ]);
+        plate.moveToBeginning();
+
+        out.openInViewer();
+
+        return seedOk({
+            compName: out.name,
+            width: width,
+            height: height,
+            plateRect: {
+                x: Math.round(rx * width),
+                y: Math.round(ry * height),
+                width: Math.round(rw * width),
+                height: Math.round(rh * height)
+            },
+            /*
+             * Reported rather than silently corrected. A plate that has to be
+             * scaled to sit in its own rectangle means the canvas and the
+             * mosaic disagree, and an artist should see that number instead of
+             * wondering why the composite is soft.
+             */
+            plateScale: [scaleX, scaleY]
+        });
+    } catch (error) {
+        return seedFail(error);
+    } finally {
+        if (undoing) {
+            try {
+                app.endUndoGroup();
+            } catch (undoError) {
+                // Already closed, or never opened.
+            }
+        }
+    }
+}
+
 var seedAeft_ping = seedPing;
 var seedAeft_getContext = seedGetContext;
 var seedAeft_addGrade = seedAddGrade;
 var seedAeft_setProjectDepth = seedSetProjectDepth;
 var seedAeft_captureFrame = seedCaptureFrame;
 var seedAeft_captureRange = seedCaptureRange;
+var seedAeft_sampleRange = seedSampleRange;
+var seedAeft_assembleExpansion = seedAssembleExpansion;
 var seedAeft_rangeInfo = seedRangeInfo;
 var seedAeft_pickFile = seedPickFile;
 var seedAeft_import = seedImport;

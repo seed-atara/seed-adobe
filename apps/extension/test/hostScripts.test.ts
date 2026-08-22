@@ -100,6 +100,21 @@ const HOST_SPECIFIC: Record<string, { host: string; because: string }> = {
     host: "seed-host.jsx",
     because: "adjustment layers and scriptable effects are After Effects only",
   },
+  /*
+   * Expansion samples frames straight out of a composition and then nests that
+   * composition inside a wider one. Premiere has neither: its stills come from
+   * an exporter and a preset, and a sequence is not a layer you can place at a
+   * rectangle. A speculative Premiere path here would be a guess nothing can
+   * test, so the panel offers the buttons in After Effects only.
+   */
+  seedSampleRange: {
+    host: "seed-host.jsx",
+    because: "samples frames from a composition with saveFrameToPng",
+  },
+  seedAssembleExpansion: {
+    host: "seed-host.jsx",
+    because: "nests the original composition inside the expanded one",
+  },
   seedListRegions: { host: "seed-host.jsx", because: "regions are compositions" },
   seedCreateRegion: { host: "seed-host.jsx", because: "regions are compositions" },
   seedCaptureRegion: { host: "seed-host.jsx", because: "regions are compositions" },

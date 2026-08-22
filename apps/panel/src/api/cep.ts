@@ -444,6 +444,107 @@ export class CepAeBridge {
     );
   }
 
+  /**
+   * The shot as an ordered set of stills, for measuring how far it travels.
+   *
+   * Expansion works from frames, not from a clip: nothing on the service side
+   * decodes video, and a rendered range is H.264 it cannot open. The host
+   * writes frames straight out of the comp instead, which is the same pixels
+   * without a codec in the middle.
+   *
+   * Registered one at a time rather than in parallel. They land in the library
+   * in shot order, which is the order the tracker matches them in — and a
+   * dozen simultaneous thumbnail jobs on 4K plates is a worse trade than the
+   * second it costs to do them in turn.
+   */
+  async sampleRange(options?: {
+    startSeconds?: number;
+    durationSeconds?: number;
+    /** How many stills across the range. Defaults to the host's 12. */
+    count?: number;
+  }): Promise<{
+    assets: Asset[];
+    width: number;
+    height: number;
+    frameRate: number;
+    startSeconds: number;
+    durationSeconds: number;
+  }> {
+    await this.ensureHost();
+    const { workspace } = await this.client.workspace();
+    const context = await this.getContext();
+    const compName = typeof context.compName === "string" ? context.compName : "comp";
+
+    const sampled = await evalHost<{
+      frames: Array<{ path: string; frameNumber: number; timeSeconds: number }>;
+      width: number;
+      height: number;
+      frameRate: number;
+      startSeconds: number;
+      durationSeconds: number;
+    }>(
+      `${hostPrefix()}sampleRange(${quote(workspace.originalsDir)}, ${quote(compName)}, ${
+        options?.startSeconds ?? "null"
+      }, ${options?.durationSeconds ?? "null"}, ${options?.count ?? "null"})`,
+    );
+
+    const assets: Asset[] = [];
+    for (const frame of sampled.frames) {
+      const { asset } = await this.client.registerCapture({
+        path: frame.path,
+        context: {
+          ...context,
+          frameNumber: frame.frameNumber,
+          timeSeconds: frame.timeSeconds,
+        },
+        width: sampled.width,
+        height: sampled.height,
+      });
+      assets.push(asset);
+    }
+
+    return {
+      assets,
+      width: sampled.width,
+      height: sampled.height,
+      frameRate: sampled.frameRate,
+      startSeconds: sampled.startSeconds,
+      durationSeconds: sampled.durationSeconds,
+    };
+  }
+
+  /**
+   * Builds the expanded comp with the original composited back over it.
+   *
+   * The step that makes a generative expansion safe. The generated wide clip
+   * goes underneath and the original comp sits over it at exactly the
+   * rectangle the mosaic was planned around, so only the invented margins
+   * reach the result and the performance is untouched by construction.
+   */
+  async assembleExpansion(options: {
+    /** The generated wide clip, on disk. */
+    path: string;
+    canvas: { width: number; height: number };
+    /** Normalised against the canvas — the same rect the mosaic used. */
+    rect: { x: number; y: number; width: number; height: number };
+    name?: string;
+  }): Promise<{
+    compName: string;
+    width: number;
+    height: number;
+    plateRect: { x: number; y: number; width: number; height: number };
+    plateScale: [number, number];
+  }> {
+    await this.ensureHost();
+    return evalHost(
+      `${hostPrefix()}assembleExpansion(${quote(options.path)}, ${
+        options.canvas.width
+      }, ${options.canvas.height}, ${JSON.stringify(options.rect)}, ${
+        options.name ? quote(options.name) : "null"
+      })`,
+    );
+  }
+
   async captureRange(range?: {
     startSeconds?: number;
     durationSeconds?: number;

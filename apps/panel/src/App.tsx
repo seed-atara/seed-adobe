@@ -25,6 +25,7 @@ import { AssetDetail } from "./components/AssetDetail.tsx";
 import { LineageView } from "./components/LineageView.tsx";
 import { ItemsView } from "./components/ItemsView.tsx";
 import { RooView } from "./components/RooView.tsx";
+import { ExpandView } from "./components/ExpandView.tsx";
 import { findMentions } from "./mentions.ts";
 import { bestQualitySize } from "./quality.ts";
 import {
@@ -37,7 +38,7 @@ import {
 import { resultDepthWarning } from "./colorSummary.ts";
 import { resolveRefineTarget } from "./refine.ts";
 
-type Tab = "generate" | "items" | "roo" | "library" | "lineage";
+type Tab = "generate" | "items" | "roo" | "expand" | "library" | "lineage";
 
 export interface AppProps {
   /**
@@ -136,7 +137,14 @@ const EMPTY_FORM: GenerateForm = {
 };
 
 export function App({ tabs }: AppProps = {}) {
-  const visibleTabs: Tab[] = tabs ?? ["generate", "items", "roo", "library", "lineage"];
+  const visibleTabs: Tab[] = tabs ?? [
+    "generate",
+    "items",
+    "roo",
+    "expand",
+    "library",
+    "lineage",
+  ];
   const [token, setToken] = useState(
     () => localStorage.getItem(TOKEN_KEY) ?? "",
   );
@@ -1426,6 +1434,38 @@ export function App({ tabs }: AppProps = {}) {
               {...(activeProject ? { activeProject } : {})}
               onRefresh={refreshAssets}
               busy={busy}
+            />
+          ) : null}
+
+          {tab === "expand" ? (
+            <ExpandView
+              client={client}
+              {...(activeProject ? { activeProject } : {})}
+              onRefresh={refreshAssets}
+              busy={busy}
+              {...(bridge && hostApp() === "AEFT"
+                ? {
+                    onSample: async (count: number) =>
+                      (await bridge.sampleRange({ count })).assets,
+                  }
+                : {})}
+              onSendToGenerate={(plate, aspect) => {
+                /*
+                 * As a first frame, deliberately. Ark takes the output ratio
+                 * from the first frame and refuses a stated one alongside it —
+                 * so a plate that is already the target shape *is* the aspect
+                 * instruction, and there is nothing left to argue about.
+                 */
+                setForm((current) => ({
+                  ...current,
+                  operation: "video.generate",
+                  inputAssetIds: [plate.id],
+                  inputRoles: ["first"],
+                  aspectRatio: aspect,
+                  parentAssetId: plate.id,
+                }));
+                setTab("generate");
+              }}
             />
           ) : null}
 
