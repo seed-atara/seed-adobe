@@ -318,6 +318,28 @@ describe("expandFromShot", () => {
 });
 
 describe("measureCoverage", () => {
+  /*
+   * The regression that matters most, because it was silent and it was the
+   * advisory number: a shot static apart from one handheld jolt reported 0%
+   * recoverable while the full mosaic recovered 42%. The cheap measurement
+   * strode over the only frame that saw anything new.
+   *
+   * Coverage must never depend on how the samples happen to be spread.
+   */
+  it("counts a single brief excursion the sampling could step over", () => {
+    const distance = 40;
+    const scene = world(FRAME_W + distance + 80, FRAME_H + 80);
+    const frames = Array.from({ length: 16 }, (_, i) =>
+      crop(scene, 40 + (i === 7 ? distance : 0), 40, FRAME_W, FRAME_H),
+    );
+
+    const cheap = measureCoverage(frames, { aspect: 21 / 9 });
+    const full = expandFromShot(frames, { aspect: 21 / 9 }).coverage;
+
+    expect(cheap.coverage).toBeGreaterThan(0.3);
+    expect(cheap.coverage).toBeCloseTo(full.coverage, 2);
+  }, 30_000);
+
   it("agrees with the full mosaic about whether a shot is recoverable", () => {
     const panning = measureCoverage(panFrames(12, 20), { aspect: 21 / 9 });
     const still = crop(world(400, 300), 20, 20, FRAME_W, FRAME_H);

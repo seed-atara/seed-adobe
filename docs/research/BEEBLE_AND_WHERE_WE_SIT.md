@@ -36,8 +36,9 @@ Verified against the live API on 2026-08-23:
 - duration by tier: free 5s, Creator 30s, Professional 60s; ~5 min for 2K
 
 The competitive answer is in ADR 0015: SEED's `POST /v1/switch` does the same
-job by *measurement*, and `SwitchXProvider` is registered alongside it so the
-two can be run on the same frame and compared rather than argued about.
+job by *measurement*. The adapter that let the two be run side by side has since
+been removed (ADR 0016) — the research above is still the reason to keep an eye
+on them, and the contract is recorded here so restoring it is a small job.
 
 ## SwitchLight is not a generative model, and that is its whole story
 

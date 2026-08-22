@@ -52,6 +52,19 @@ export interface TrackOptions {
   minConfidence?: number;
 }
 
+/**
+ * A deterministic stand-in for a random source.
+ *
+ * The reservoir needs to choose a slot without `Math.random`, because the same
+ * shot must always produce the same plate — a mosaic that differs between runs
+ * cannot be compared, cached, or trusted in a comp.
+ */
+function mix(a: number, b: number): number {
+  let h = Math.imul(a | 0, 374761393) ^ Math.imul(b | 0, 668265263);
+  h = Math.imul(h ^ (h >>> 13), 1274126177);
+  return (h ^ (h >>> 16)) >>> 0;
+}
+
 /** Luma at a working size, which is all the matcher needs. */
 function luminance(image: RasterImage): Float32Array {
   const out = new Float32Array(image.width * image.height);
@@ -425,18 +438,28 @@ export function expandFromShot(
   const pixels = canvas.width * canvas.height;
   // A small reservoir of contributions per pixel, so a median can be taken.
   const samples = new Uint8Array(pixels * maxSamples * 3);
+  /** How many samples are actually held, which is what the median reads. */
   const counts = new Uint8Array(pixels);
+  /** How many frames saw the pixel at all — coverage, and the reservoir's n. */
+  const seenCount = new Uint32Array(pixels);
 
   /*
-   * Frames are spread across the reservoir rather than taken in order, so a
-   * pixel seen a hundred times is represented across the whole shot instead of
-   * by its first five frames — which would defeat the median on anything that
-   * moved slowly.
+   * Every frame is visited.
+   *
+   * An earlier version strode over the list to spread the reservoir across the
+   * shot, and it made the coverage number wrong: a shot that is static apart
+   * from one handheld jolt reported **0% recoverable** when 42% was, because
+   * the single frame that saw the new pixels was the one stepped over. The
+   * advisory number is the whole point of measuring first, so it cannot depend
+   * on a sampling stride.
+   *
+   * Spreading is handled per pixel instead, by reservoir sampling below, which
+   * gives the median a fair sample of a pixel's whole run without skipping any
+   * frame's contribution to what was seen at all.
    */
-  const stride = Math.max(1, Math.floor(frames.length / (maxSamples * 4)));
   let used = 0;
 
-  for (let f = 0; f < frames.length; f += stride) {
+  for (let f = 0; f < frames.length; f += 1) {
     const offset = track.offsets[f];
     if (!offset || offset.confidence < minConfidence) continue;
     const frame = frames[f] as RasterImage;
@@ -452,14 +475,27 @@ export function expandFromShot(
         const cx = baseX + x;
         if (cx < 0 || cx >= canvas.width) continue;
         const index = cy * canvas.width + cx;
-        const n = counts[index] as number;
-        if (n >= maxSamples) continue;
+        const seen = seenCount[index] as number;
+        seenCount[index] = seen + 1;
+        if ((counts[index] as number) < maxSamples) counts[index] = seen + 1 > maxSamples ? maxSamples : seen + 1;
+
+        /*
+         * Reservoir sampling (Algorithm R), with a hash standing in for the
+         * random source so the same shot always produces the same plate.
+         * Once the reservoir is full a later sighting replaces a random slot,
+         * which is what spreads the median across the pixel's whole run
+         * instead of freezing it on whatever passed first.
+         */
+        let slot = seen;
+        if (seen >= maxSamples) {
+          slot = mix(index, seen) % (seen + 1);
+          if (slot >= maxSamples) continue;
+        }
         const from = (y * sw + x) * 4;
-        const to = (index * maxSamples + n) * 3;
+        const to = (index * maxSamples + slot) * 3;
         samples[to] = frame.rgba[from] as number;
         samples[to + 1] = frame.rgba[from + 1] as number;
         samples[to + 2] = frame.rgba[from + 2] as number;
-        counts[index] = n + 1;
       }
     }
   }
@@ -515,7 +551,7 @@ export function expandFromShot(
         x >= originX && x < originX + sw && y >= originY && y < originY + sh;
       if (inside) continue;
       newArea += 1;
-      const filled = (counts[y * canvas.width + x] as number) > 0;
+      const filled = (seenCount[y * canvas.width + x] as number) > 0;
       if (filled) recovered += 1;
 
       if (x < originX) {

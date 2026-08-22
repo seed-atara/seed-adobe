@@ -1,3 +1,9 @@
+> **Superseded in part by ADR 0016 (2026-08-23).** `ReframeProvider` was built,
+> measured, and has since been removed: SEED's own `/v1/expand/*` does the job,
+> recovering the edges the footage already contains and handing only the
+> remainder to Seedance. The analysis of the market below still stands; the
+> "Reframe as it stands" step in the order no longer does.
+
 # 0013 — Expanding a shot into another aspect
 
 **Status:** superseded in part by [0014](0014-expansion-by-recovery.md), which

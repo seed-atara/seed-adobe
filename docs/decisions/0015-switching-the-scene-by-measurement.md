@@ -1,3 +1,9 @@
+> **Amended by ADR 0016 (2026-08-23).** The decision to register
+> `SwitchXProvider` alongside our own switch has been reversed: it has been
+> measured, and the adapter is removed. Everything below about *how* the two
+> differ still holds and is why ours can replace it for the common case —
+> though not for genuinely generative work, which is Seedance's job.
+
 # 0015 — Switching the scene by measurement
 
 **Status:** built 2026-08-23 — `POST /v1/switch`, and SwitchX registered beside

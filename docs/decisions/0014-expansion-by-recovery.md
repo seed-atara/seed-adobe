@@ -71,20 +71,31 @@ genuinely different geometry and no 2D offset expresses parallax. Rotation and
 zoom are not modelled. None of these produce a wrong answer; they produce a low
 confidence and are excluded, and the report says how many frames were rejected.
 
+## Corrected 2026-08-23
+
+`measureCoverage` strode over frames, and on a shot static apart from one jolt
+it reported **0% recoverable when 42% was** — the advisory number, wrong in the
+direction that costs money. Every frame is now visited; the reservoir spreads
+per pixel instead, deterministically. Regression test included.
+
+Luma Reframe has since been removed entirely — see ADR 0016.
+
 ## What this does not do yet
 
 - **It takes frames, not a clip.** Nothing here decodes video, so the routes
   take an ordered list of stills. After Effects renders sequences and
   `POST /v1/ae/register-capture` registers them, which is the path that exists.
   A decoder is the obvious next step.
-- **The handover is manual.** The residual mask is registered as an asset and
-  can be sent to any generator, but nothing yet composes "recovered plate +
-  hole" into a single Reframe call automatically.
+- **The handover is one button, not zero.** The Expand tab sends the recovered
+  plate to Generate as Seedance's *first frame* — which is also what locks the
+  output aspect, since Ark takes the shape from the frame and refuses a stated
+  one. The artist still presses Generate.
 - **Full-resolution memory.** The reservoir is `canvas × samples × 3` bytes.
   Fine at preview scale; a 4K canvas at five samples wants a tiled pass.
 
 ## Order from here
 
 1. Frames from a clip, so this runs on footage rather than a rendered sequence.
-2. Automatic handover: recovered plate as the source, residual as the mask.
-3. Rotation and zoom, which turn "a pan recovers" into "a shot recovers".
+2. Rotation and zoom, which turn "a pan recovers" into "a shot recovers".
+3. Passing the residual as an explicit mask, so the model is told where the hole
+   is rather than inferring it from the plate.

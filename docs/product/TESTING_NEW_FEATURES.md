@@ -284,11 +284,12 @@ of a missing key, not a bug.
 | provider | key | what it does |
 |---|---|---|
 | `iclight-v2` | `FAL_KEY` | relight a subject from a description |
-| `luma-reframe` | `FAL_KEY` | expand a shot into another aspect |
-| `beeble-switchx` | `BEEBLE_API_KEY` | switch background, light and wardrobe generatively |
 
-One fal key covers both fal providers. Get it from fal.ai → Keys; Beeble's from
-developer.beeble.ai/api-keys.
+Get it from fal.ai → Keys.
+
+**Luma Reframe and Beeble SwitchX were removed on 2026-08-23** (ADR 0016).
+SEED's own `/v1/expand/*` and `/v1/switch` do those jobs, free and locally, so
+`BEEBLE_API_KEY` and `FAL_REFRAME_MODEL` are no longer read.
 
 Check what actually registered, which is faster than hunting through the panel:
 
@@ -296,11 +297,10 @@ Check what actually registered, which is faster than hunting through the panel:
 npx tsx scripts/api.ts GET /v1/providers
 ```
 
-Expect `iclight-v2` and `luma-reframe` once `FAL_KEY` is set, `beeble-switchx`
-once `BEEBLE_API_KEY` is.
+Expect `iclight-v2` once `FAL_KEY` is set.
 
-**Costs money.** IC-Light is billed per image; Reframe per started source second
-(about $0.06/s at 540p, $0.12/s at 720p, $0.36/s at 1080p); SwitchX by tier.
+**Costs money.** IC-Light is billed per image. The expansion and switch routes
+cost nothing; only the Seedance generation that fills a residual does.
 
 ### Testing IC-Light — 3 minutes, panel
 
@@ -359,12 +359,12 @@ npx tsx scripts/api.ts POST /v1/expand/coverage '{"frameAssetIds":["ast_...","as
 - a `matteCoverage` near 0 or 1 in `auto` mode — the depth threshold went wrong.
   Pass `threshold`, or supply a matte with `alphaMode: "custom"`.
 
-### Comparing ours against Beeble on the same frame
+### If you want the comparison back
 
-With `BEEBLE_API_KEY` set, run `/v1/switch` and a `beeble-switchx` generation
-from the same source and reference. They answer different questions — ours
-measures and cannot invent, theirs generates and can — so the comparison worth
-making is *identity held* and *edge quality*, not overall prettiness.
+Both adapters were complete and tested against their published contracts, and
+are in the history (`394d298`, `ff4dc18`). Reverting one is a small job, and
+worth doing if a shot turns up where ours is visibly worse — that is a thing
+worth knowing rather than arguing about.
 
 
 ## 12. Expanding a plate with Seedance — the Expand tab

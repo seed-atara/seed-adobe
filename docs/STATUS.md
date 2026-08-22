@@ -74,6 +74,17 @@ Both report their own limits: the tracker refuses to answer on periodic texture
 rather than guessing a period, and the switch reports a lighting residual when
 the reference needs light nine harmonics cannot express.
 
+**Luma Reframe and Beeble SwitchX have been removed** (ADR 0016). They were
+built to be measured against and have been; keeping a paid provider beside a
+better free one only asks the artist to know the difference. `FAL_KEY` still
+matters — IC-Light stays.
+
+One bug this review caught, worth knowing because it was silent: `measureCoverage`
+strode over frames, and on a shot static apart from a single handheld jolt it
+reported **0% recoverable when 42% was** — wrong in the direction that costs
+money. Coverage now visits every frame; the reservoir spreads per pixel instead,
+deterministically. There is a regression test with the jolt in it.
+
 ## What exists
 
 ### Packages
