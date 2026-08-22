@@ -20,6 +20,12 @@ reference/
 
 # Plugin build output
 plugins/*/build/
+# A built .aex has been committed to the root twice now, once from a
+# build run outside the plugin folder. It is 160KB of stale binary that
+# nothing loads — installs come from plugins/*/build.
+*.aex
+# Debug artefacts from the thumbnail path.
+_thumb.png
 
 # Probe output: generated images, not source.
 .seed-probes/
