@@ -3,6 +3,7 @@ import {
   applyLighting,
   averageLighting,
   estimateLighting,
+  lightingFromEnvironment,
   relight,
   type LightingSolution,
   type RasterImage,
@@ -210,5 +211,75 @@ describe("averageLighting", () => {
 
   it("survives being given nothing", () => {
     expect(averageLighting([]).samples).toBe(0);
+  });
+});
+
+describe("lightingFromEnvironment", () => {
+  const normals = normalSphere();
+  const albedo = flat(96, 180, 170, 160);
+
+  /** A backdrop that is bright on one side and dark on the other. */
+  function splitBackdrop(brightOnLeft: boolean): RasterImage {
+    const size = 128;
+    const rgba = new Uint8Array(size * size * 4);
+    for (let y = 0; y < size; y += 1) {
+      for (let x = 0; x < size; x += 1) {
+        const at = (y * size + x) * 4;
+        const lit = brightOnLeft ? x < size / 2 : x >= size / 2;
+        const value = lit ? 230 : 25;
+        rgba[at] = value;
+        rgba[at + 1] = value;
+        rgba[at + 2] = value;
+        rgba[at + 3] = 255;
+      }
+    }
+    return { width: size, height: size, rgba };
+  }
+
+  it("lights the subject from the side the backdrop is bright on", () => {
+    /*
+     * The whole point of this over azimuth and elevation. When the background
+     * is being replaced, the artist does not want to describe a light — they
+     * want the subject lit by the environment they just put behind it.
+     */
+    const fromLeft = lightingFromEnvironment(splitBackdrop(true));
+    const fromRight = lightingFromEnvironment(splitBackdrop(false));
+
+    const litByLeft = applyLighting(albedo, normals, fromLeft, 1);
+    const litByRight = applyLighting(albedo, normals, fromRight, 1);
+
+    const at = (image: RasterImage, x: number) => image.rgba[(48 * 96 + x) * 4] ?? 0;
+    // Left-lit backdrop makes the left of the sphere brighter, and vice versa.
+    expect(at(litByLeft, 30)).toBeGreaterThan(at(litByLeft, 66));
+    expect(at(litByRight, 66)).toBeGreaterThan(at(litByRight, 30));
+  });
+
+  it("carries the backdrop's colour", () => {
+    const size = 64;
+    const rgba = new Uint8Array(size * size * 4);
+    for (let at = 0; at < rgba.length; at += 4) {
+      rgba[at] = 220;
+      rgba[at + 1] = 140;
+      rgba[at + 2] = 70;
+      rgba[at + 3] = 255;
+    }
+    const warm = lightingFromEnvironment({ width: size, height: size, rgba });
+    // The flat term is the overall level per channel.
+    expect(warm.coefficients[0][0] as number).toBeGreaterThan(
+      warm.coefficients[2][0] as number,
+    );
+  });
+
+  it("tracks how bright the backdrop is", () => {
+    const dim = lightingFromEnvironment(flat(64, 40, 40, 40));
+    const bright = lightingFromEnvironment(flat(64, 220, 220, 220));
+    expect(bright.coefficients[0][0] as number).toBeGreaterThan(
+      dim.coefficients[0][0] as number,
+    );
+  });
+
+  it("says nothing about an empty plate", () => {
+    const nothing: RasterImage = { width: 2, height: 2, rgba: new Uint8Array(16) };
+    expect(lightingFromEnvironment(nothing).samples).toBeLessThan(32);
   });
 });

@@ -295,3 +295,103 @@ export function averageLighting(solutions: LightingSolution[]): LightingSolution
     samples: usable.reduce((total, entry) => total + entry.samples, 0),
   };
 }
+
+/**
+ * The lighting *in a background plate*, so a subject can be lit by it.
+ *
+ * This is the control that matters when the background is being replaced, and
+ * azimuth and elevation are the wrong ones for that job: the artist does not
+ * want to describe a light, they want the subject lit by the environment they
+ * have just put behind it. Nobody can dial in "the window on the left of that
+ * new backdrop, and the warm bounce off the floor" — but it is sitting right
+ * there in the plate, and it can be read.
+ *
+ * The plate is treated as the part of the environment the camera can see.
+ * Every pixel is mapped to a direction across a field of view and projected
+ * onto the same nine harmonics the solver uses, so the result drops straight
+ * into `applyLighting` alongside a solution measured off a shot.
+ *
+ * **The stated assumption:** a plate is not an HDRI. It covers the solid angle
+ * behind the subject and says nothing about what is behind the *camera*, which
+ * in a real room is half the light. `wrap` is how much of the sphere the plate
+ * is taken to speak for — at 1 it is treated as wrapping the whole way round,
+ * which is wrong but usually flattering; lower values keep the light in front
+ * and let `ambient` carry the rest. It is a modelling choice, not a
+ * measurement, and it is a knob for exactly that reason.
+ */
+export function lightingFromEnvironment(
+  background: RasterImage,
+  options: { fieldOfView?: number; wrap?: number; exposure?: number } = {},
+): LightingSolution {
+  const fov = ((options.fieldOfView ?? 90) * Math.PI) / 180;
+  const wrap = Math.max(0.1, Math.min(1, options.wrap ?? 0.6));
+  const exposure = options.exposure ?? 1;
+
+  const { width, height } = background;
+  const total = width * height;
+  const stride = Math.max(1, Math.floor(total / 40_000));
+
+  const accumulated: [number[], number[], number[]] = [
+    new Array<number>(9).fill(0),
+    new Array<number>(9).fill(0),
+    new Array<number>(9).fill(0),
+  ];
+  let weight = 0;
+  let samples = 0;
+
+  for (let index = 0; index < total; index += stride) {
+    const x = index % width;
+    const y = Math.floor(index / width);
+    const at = index * 4;
+    if ((background.rgba[at + 3] ?? 255) === 0) continue;
+
+    /*
+     * Screen position to direction. The horizontal half-angle is the field of
+     * view; the vertical follows the frame's aspect so a wide plate does not
+     * pretend the light is stacked above the subject.
+     */
+    const u = (x / (width - 1)) * 2 - 1;
+    const v = (y / (height - 1)) * 2 - 1;
+    const azimuth = u * (fov / 2) * (1 / wrap);
+    const elevation = -v * (fov / 2) * (height / width) * (1 / wrap);
+
+    const nx = Math.cos(elevation) * Math.sin(azimuth);
+    const ny = -Math.sin(elevation);
+    const nz = Math.cos(elevation) * Math.cos(azimuth);
+
+    /*
+     * Cosine weighting. A surface facing the camera receives most of its light
+     * from straight ahead and grazing directions contribute little, so
+     * weighting by the projected solid angle is what makes this an irradiance
+     * rather than an average of pixels.
+     */
+    const cosine = Math.max(0, nz);
+    if (cosine <= 0) continue;
+
+    const y9 = basis(nx, ny, nz);
+    for (let c = 0; c < 3; c += 1) {
+      const radiance = ((background.rgba[at + c] ?? 0) / 255) * exposure;
+      for (let i = 0; i < 9; i += 1) {
+        (accumulated[c] as number[])[i] =
+          ((accumulated[c] as number[])[i] as number) + radiance * (y9[i] as number) * cosine;
+      }
+    }
+    weight += cosine;
+    samples += 1;
+  }
+
+  if (samples < 32 || weight <= 0) {
+    return { coefficients: [[], [], []] as never, residual: 0, samples };
+  }
+
+  /*
+   * Normalised so the flat term reproduces the plate's own average brightness.
+   * Without it the answer scales with how many pixels happened to be sampled,
+   * which is an implementation detail rather than a property of the light.
+   */
+  const coefficients = accumulated.map((channel) =>
+    channel.map((value) => (value / weight) / 0.282095),
+  ) as [number[], number[], number[]];
+
+  return { coefficients, residual: 0, samples };
+}
