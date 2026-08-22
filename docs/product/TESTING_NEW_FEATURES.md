@@ -240,6 +240,27 @@ whole point of it existing.
 
 ---
 
+## 10. ROO — passes, relighting and shot matching
+
+Its own guide, because it is a workflow rather than a check:
+**`docs/product/ROO_TEST.md`**.
+
+Short version — the two steps most worth doing, both free:
+
+```
+ROO tab → select a shot → Measure passes
+```
+Depth should show near things pale and far things dark; normals should be
+lavender with cyan and magenta edges. **If depth is inverted, stop** — every
+later step inherits it and still looks plausible.
+
+```
+ROO → section 5 → a product shot on black → Read its camera
+```
+Vignette must report **"not measurable here"**. A subject on black falls off
+exactly like a lens, and a real frame claimed a 0.92 vignette during
+development before the shape check was added.
+
 ## What is still unproven after all of this
 
 - The **detailer's AE glue**, until §8 is run.
