@@ -13,6 +13,8 @@ import {
   decodeJpegPreview,
   decodePng,
   encodePng,
+  applyLighting,
+  estimateLighting,
   normalsFromDepth,
   relight,
   type RasterImage,
@@ -309,5 +311,74 @@ export function relightRoute(deps: AppDeps) {
       .filename.replace(/\.[^.]+$/, "");
     const asset = await keep(deps, lit, `${stem}_relit.png`, request.project);
     return json({ asset }, 201);
+  };
+}
+
+const LightTransferSchema = z.object({
+  /** The shot whose lighting is wanted, and its passes. */
+  referenceAssetId: z.string().min(1),
+  referenceAlbedoId: z.string().min(1),
+  referenceNormalId: z.string().min(1),
+  /** The shot to light that way, and its passes. */
+  targetAlbedoId: z.string().min(1),
+  targetNormalId: z.string().min(1),
+  /** 0–1. A full transfer imposes the reference's key direction outright. */
+  amount: z.number().min(0).max(1).default(1),
+  project: z.string().min(1).optional(),
+});
+
+/**
+ * Light one shot the way another shot is lit.
+ *
+ * The thing a library makes possible and a single image does not. Beeble
+ * relights one frame to an HDRI you author; here the lighting is *solved off a
+ * reference shot* — nine spherical-harmonic coefficients per channel, ordinary
+ * least squares — and applied to another. "Make these two cut together" stops
+ * being a matching exercise by eye and becomes a measurement.
+ *
+ * The residual is returned rather than hidden. Second-order harmonics carry
+ * soft light and cannot carry a hard shadow edge, so a high residual means the
+ * reference has lighting this method genuinely cannot express, and the artist
+ * should know that before trusting the result.
+ */
+export function lightTransferRoute(deps: AppDeps) {
+  return async ({ req }: RequestContext) => {
+    const request = parseWith(LightTransferSchema, await readJsonBody(req));
+
+    const reference = await stillFor(deps, request.referenceAssetId);
+    const referenceAlbedo = await stillFor(deps, request.referenceAlbedoId);
+    const referenceNormals = await stillFor(deps, request.referenceNormalId);
+
+    const solution = estimateLighting(reference, referenceNormals, referenceAlbedo);
+    if (solution.samples < 32) {
+      throw new SeedError(
+        "bad_request",
+        "there was not enough surface variation in that reference to solve its " +
+          "lighting — a flat card cannot say where the light is",
+      );
+    }
+
+    const targetAlbedo = await stillFor(deps, request.targetAlbedoId);
+    const targetNormals = await stillFor(deps, request.targetNormalId);
+    const lit = applyLighting(targetAlbedo, targetNormals, solution, request.amount);
+
+    const stem = deps.assets
+      .requireById(request.targetAlbedoId)
+      .filename.replace(/\.[^.]+$/, "");
+    const asset = await keep(deps, lit, `${stem}_lit.png`, request.project);
+
+    return json(
+      {
+        asset,
+        residual: solution.residual,
+        samples: solution.samples,
+        note:
+          solution.residual > 0.25
+            ? "The reference has lighting this cannot express — hard shadows or " +
+              "strong occlusion. The soft part transferred; the rest did not."
+            : "The reference's lighting solved cleanly.",
+      },
+      201,
+    );
   };
 }
