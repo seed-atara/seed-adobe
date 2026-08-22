@@ -24,6 +24,7 @@ import { LibraryView } from "./components/LibraryView.tsx";
 import { AssetDetail } from "./components/AssetDetail.tsx";
 import { LineageView } from "./components/LineageView.tsx";
 import { ItemsView } from "./components/ItemsView.tsx";
+import { RooView } from "./components/RooView.tsx";
 import { findMentions } from "./mentions.ts";
 import { bestQualitySize } from "./quality.ts";
 import {
@@ -36,7 +37,7 @@ import {
 import { resultDepthWarning } from "./colorSummary.ts";
 import { resolveRefineTarget } from "./refine.ts";
 
-type Tab = "generate" | "items" | "library" | "lineage";
+type Tab = "generate" | "items" | "roo" | "library" | "lineage";
 
 export interface AppProps {
   /**
@@ -135,7 +136,7 @@ const EMPTY_FORM: GenerateForm = {
 };
 
 export function App({ tabs }: AppProps = {}) {
-  const visibleTabs: Tab[] = tabs ?? ["generate", "items", "library", "lineage"];
+  const visibleTabs: Tab[] = tabs ?? ["generate", "items", "roo", "library", "lineage"];
   const [token, setToken] = useState(
     () => localStorage.getItem(TOKEN_KEY) ?? "",
   );
@@ -1412,6 +1413,19 @@ export function App({ tabs }: AppProps = {}) {
               {...(activeProject ? { activeProject } : {})}
               thisProjectOnly={thisProjectOnly}
               onProjectFilterChange={setThisProjectOnly}
+            />
+          ) : null}
+
+          {tab === "roo" ? (
+            <RooView
+              client={client}
+              assets={assets}
+              {...(selectedId ? { selectedId } : {})}
+              onSelect={setSelectedId}
+              providers={providers}
+              {...(activeProject ? { activeProject } : {})}
+              onRefresh={refreshAssets}
+              busy={busy}
             />
           ) : null}
 

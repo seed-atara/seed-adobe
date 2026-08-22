@@ -199,6 +199,57 @@ export class SeedClient {
     return this.request("/v1/ae/register-clip", { method: "POST", body: input });
   }
 
+  /* ------------------------------------------------------------ passes -- */
+
+  /** The pass catalogue, so the panel does not carry its own prompts. */
+  passPresets(): Promise<{
+    presets: Array<{
+      kind: string;
+      label: string;
+      purpose: string;
+      usableAsIdentity: boolean;
+      prompt: string;
+    }>;
+  }> {
+    return this.request("/v1/passes/presets");
+  }
+
+  /** Depth and normals, computed here rather than generated. */
+  derivePasses(input: {
+    sourceAssetId: string;
+    kinds: Array<"depth" | "normal">;
+    strength?: number;
+    project?: string;
+  }): Promise<{ sourceAssetId: string; made: Array<{ kind: string; asset: Asset }> }> {
+    return this.request("/v1/passes/derive", { method: "POST", body: input });
+  }
+
+  /** Albedo and the rest, which need a provider. */
+  startPasses(input: {
+    sourceAssetId: string;
+    kinds: string[];
+    providerId: string;
+    lighting?: string;
+    project?: string;
+  }): Promise<{ started: Array<{ kind: string; job: JobDto }> }> {
+    return this.request("/v1/passes", { method: "POST", body: input });
+  }
+
+  /** Albedo and normals, lit again. Deterministic; no model runs. */
+  relightPasses(input: {
+    albedoAssetId: string;
+    normalAssetId: string;
+    roughnessAssetId?: string;
+    occlusionAssetId?: string;
+    light?: { x: number; y: number; z: number };
+    intensity?: number;
+    ambient?: number;
+    specular?: number;
+    project?: string;
+  }): Promise<{ asset: Asset }> {
+    return this.request("/v1/passes/relight", { method: "POST", body: input });
+  }
+
   /**
    * Makes a flat colour frame and puts it in the library.
    *

@@ -7,6 +7,19 @@ import {
   type PassKind,
 } from "@seed-ae/domain";
 import { z } from "zod";
+import { readFile, writeFile } from "node:fs/promises";
+import path from "node:path";
+import {
+  decodeJpegPreview,
+  decodePng,
+  encodePng,
+  normalsFromDepth,
+  relight,
+  type RasterImage,
+} from "@seed-ae/media";
+import { resolveStorageUri } from "@seed-ae/storage";
+import { estimateDepth } from "../passes/depth.js";
+import { adoptFileIntoLibrary } from "./assets.js";
 import type { AppDeps } from "../app.js";
 import { parseWith, readJsonBody } from "../http/body.js";
 import { json } from "../http/respond.js";
@@ -147,4 +160,154 @@ export function passPresetsRoute() {
         prompt: PASS_PRESETS[kind].prompt,
       })),
     });
+}
+
+/* ------------------------------------------------------------- derived --- */
+
+/**
+ * The still behind an asset, whatever kind it is.
+ *
+ * A clip is read through its poster: nothing here decodes video, and the
+ * poster is a real frame from the shot.
+ */
+async function stillFor(deps: AppDeps, assetId: string): Promise<RasterImage> {
+  const asset = deps.assets.requireById(assetId);
+  const poster =
+    asset.source.type === "after-effects" ? asset.source.posterUri : undefined;
+  const uri = asset.kind === "video" ? (poster ?? asset.thumbnailUri) : asset.storageUri;
+  if (!uri) {
+    throw new SeedError(
+      "bad_request",
+      `${asset.filename} has no still to work from`,
+    );
+  }
+  const bytes = await readFile(resolveStorageUri(deps.workspace, uri));
+  const image = decodePng(bytes) ?? decodeJpegPreview(bytes);
+  if (!image) {
+    throw new SeedError("bad_request", `${asset.filename} could not be decoded`);
+  }
+  return image;
+}
+
+/** Writes an image into the library, through the one ingest path. */
+async function keep(
+  deps: AppDeps,
+  image: RasterImage,
+  name: string,
+  project?: string,
+) {
+  const file = path.join(deps.workspace.originalsDir, name);
+  await writeFile(file, encodePng(image.width, image.height, image.rgba));
+  return adoptFileIntoLibrary(deps, file, project);
+}
+
+const DeriveSchema = z.object({
+  sourceAssetId: z.string().min(1),
+  /** `depth` runs a model; `normal` is arithmetic on the depth. */
+  kinds: z.array(z.enum(["depth", "normal"])).min(1),
+  /** Relief scale for the normal map. Higher is more pronounced. */
+  strength: z.number().min(0.25).max(16).default(4),
+  model: z.string().min(1).optional(),
+  project: z.string().min(1).optional(),
+});
+
+/**
+ * Depth and normals, measured rather than asked for.
+ *
+ * Depth comes from Depth Anything V2 running in this process through ONNX —
+ * no provider, no cost, no network once the weights are cached. Normals are
+ * then arithmetic on that depth, which makes them a measurement rather than a
+ * drawing: the difference between a normal map that can drive relighting and
+ * one that merely looks like a normal map.
+ *
+ * Synchronous rather than a job. It takes about a second a frame, and a job
+ * for something that finishes before the panel could poll it would be
+ * ceremony.
+ */
+export function derivePassesRoute(deps: AppDeps) {
+  return async ({ req }: RequestContext) => {
+    const request = parseWith(DeriveSchema, await readJsonBody(req));
+    const source = deps.assets.requireById(request.sourceAssetId);
+    const still = await stillFor(deps, request.sourceAssetId);
+    const stem = source.filename.replace(/\.[^.]+$/, "");
+
+    // Normals need depth, so it is computed whenever either was asked for.
+    const depth = await estimateDepth(still, request.model);
+
+    const made: Array<{ kind: string; asset: unknown }> = [];
+    if (request.kinds.includes("depth")) {
+      made.push({
+        kind: "depth",
+        asset: await keep(deps, depth, `${stem}_depth.png`, request.project),
+      });
+    }
+    if (request.kinds.includes("normal")) {
+      made.push({
+        kind: "normal",
+        asset: await keep(
+          deps,
+          normalsFromDepth(depth, request.strength),
+          `${stem}_normal.png`,
+          request.project,
+        ),
+      });
+    }
+
+    return json({ sourceAssetId: source.id, made }, 201);
+  };
+}
+
+const RelightSchema = z.object({
+  albedoAssetId: z.string().min(1),
+  normalAssetId: z.string().min(1),
+  roughnessAssetId: z.string().min(1).optional(),
+  occlusionAssetId: z.string().min(1).optional(),
+  light: z
+    .object({ x: z.number(), y: z.number(), z: z.number() })
+    .default({ x: -0.4, y: -0.6, z: 0.7 }),
+  intensity: z.number().min(0).max(4).default(1),
+  ambient: z.number().min(0).max(2).default(0.25),
+  specular: z.number().min(0).max(2).default(0.2),
+  shininess: z.number().min(1).max(200).default(24),
+  lightColour: z.tuple([z.number(), z.number(), z.number()]).optional(),
+  project: z.string().min(1).optional(),
+});
+
+/**
+ * Albedo and normals, lit again.
+ *
+ * The recombination step — Lambert plus Blinn-Phong, the same diffuse and
+ * specular split Beeble computes with Cook-Torrance, and deliberately not
+ * claiming to be it. Deterministic and instant: no model runs here at all.
+ */
+export function relightRoute(deps: AppDeps) {
+  return async ({ req }: RequestContext) => {
+    const request = parseWith(RelightSchema, await readJsonBody(req));
+
+    const albedo = await stillFor(deps, request.albedoAssetId);
+    const normals = await stillFor(deps, request.normalAssetId);
+    const roughness = request.roughnessAssetId
+      ? await stillFor(deps, request.roughnessAssetId)
+      : undefined;
+    const occlusion = request.occlusionAssetId
+      ? await stillFor(deps, request.occlusionAssetId)
+      : undefined;
+
+    const lit = relight(albedo, normals, {
+      light: request.light,
+      intensity: request.intensity,
+      ambient: request.ambient,
+      specular: request.specular,
+      shininess: request.shininess,
+      ...(roughness ? { roughness } : {}),
+      ...(occlusion ? { occlusion } : {}),
+      ...(request.lightColour ? { lightColour: request.lightColour } : {}),
+    });
+
+    const stem = deps.assets
+      .requireById(request.albedoAssetId)
+      .filename.replace(/\.[^.]+$/, "");
+    const asset = await keep(deps, lit, `${stem}_relit.png`, request.project);
+    return json({ asset }, 201);
+  };
 }

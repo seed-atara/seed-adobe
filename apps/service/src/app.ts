@@ -75,8 +75,10 @@ import {
   updateItemRoute,
 } from "./routes/items.js";
 import {
+  derivePassesRoute,
   listPassesRoute,
   passPresetsRoute,
+  relightRoute,
   startPassesRoute,
 } from "./routes/passes.js";
 import { exportPackRoute, importPackRoute } from "./routes/packs.js";
@@ -138,6 +140,8 @@ export function buildRouter(deps: AppDeps): Router {
     .post("/v1/passes", startPassesRoute(deps))
     .get("/v1/passes", listPassesRoute(deps))
     .get("/v1/passes/presets", passPresetsRoute())
+    .post("/v1/passes/derive", derivePassesRoute(deps))
+    .post("/v1/passes/relight", relightRoute(deps))
     .post("/v1/items/resolve", resolvePromptRoute(deps))
     .post("/v1/items/describe", describeItemRoute(deps))
     // Literal paths before `:id`, or "import" is read as an item id.

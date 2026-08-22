@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.116.0",
+    "@huggingface/transformers": "^4.2.0",
     "@seed-ae/ae-host": "*",
     "@seed-ae/domain": "*",
     "@seed-ae/items": "*",
