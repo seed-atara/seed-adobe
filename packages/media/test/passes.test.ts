@@ -107,6 +107,62 @@ describe("normalsFromDepth", () => {
     expect(flatness(withDetail)).toBeGreaterThan(6);
   });
 
+  it("does not turn paint into geometry when given a normal map", () => {
+    /*
+     * The flaw in taking detail from luminance: nothing in a pixel says
+     * whether dark means a groove or a stripe, so a patterned shirt embosses
+     * and a tattoo becomes a dent. A normal map carries surface *without*
+     * albedo, which is the whole reason to prefer one where it exists.
+     */
+    const depth = grey(48, 48, () => 128);
+    // Flat geometry painted with bold stripes.
+    const painted = grey(48, 48, (x) => ((x >> 2) % 2) * 200 + 20);
+
+    const fromLuma = normalsFromDepth(depth, 4, { image: painted, amount: 6, radius: 2 });
+    const fromNormals = normalsFromDepth(depth, 4, {
+      // A normal map of the same flat surface: no tilt anywhere.
+      image: grey(48, 48, () => 128),
+      amount: 6,
+      isNormalMap: true,
+    });
+
+    const spread = (image: RasterImage) => {
+      let widest = 0;
+      for (let x = 8; x < 40; x += 1) {
+        widest = Math.max(widest, Math.abs(pixel(image, x, 24)[0] - 128));
+      }
+      return widest;
+    };
+
+    // Luminance invents relief from the paint; the normal map reports none.
+    expect(spread(fromLuma)).toBeGreaterThan(8);
+    expect(spread(fromNormals)).toBeLessThanOrEqual(2);
+  });
+
+  it("takes tilt straight from a normal map rather than differencing it", () => {
+    // A normal map's own tilt *is* the surface. Running a Sobel over it would
+    // measure how fast the surface turns, which is curvature, not relief.
+    const depth = grey(32, 32, () => 128);
+    const tilted = (() => {
+      const image = grey(32, 32, () => 0);
+      for (let at = 0; at < image.rgba.length; at += 4) {
+        image.rgba[at] = 210; // strongly tilted in x, everywhere
+        image.rgba[at + 1] = 128;
+        image.rgba[at + 2] = 255;
+        image.rgba[at + 3] = 255;
+      }
+      return image;
+    })();
+
+    const normals = normalsFromDepth(depth, 4, {
+      image: tilted,
+      amount: 4,
+      isNormalMap: true,
+    });
+    // A uniform tilt must survive as a uniform tilt.
+    expect(Math.abs(pixel(normals, 16, 16)[0] - 128)).toBeGreaterThan(10);
+  });
+
   it("ignores the picture's large tonal variation, which is shape", () => {
     /*
      * A slow gradient across a face is its lighting, not its surface. Letting

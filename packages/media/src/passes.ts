@@ -116,7 +116,21 @@ function detailField(image: RasterImage, radius: number): Float32Array {
 export function normalsFromDepth(
   depth: RasterImage,
   strength = 4,
-  detail?: { image: RasterImage; amount?: number; radius?: number },
+  detail?: {
+    image: RasterImage;
+    amount?: number;
+    radius?: number;
+    /**
+     * Whether `image` is a normal map rather than a picture.
+     *
+     * Luminance cannot separate surface from paint: a striped shirt embosses
+     * and a tattoo becomes a groove, because both are dark and nothing in the
+     * pixel says which is geometry. A normal map carries surface *without*
+     * albedo, so where one exists it is a strictly better detail source — and
+     * it is read as tilt rather than high-passed as brightness.
+     */
+    isNormalMap?: boolean;
+  },
   /**
    * Focal length as a fraction of the frame's long edge. 1.0 is roughly a
    * normal lens; smaller is wider. Only the shape term is divided by it —
@@ -180,17 +194,35 @@ export function normalsFromDepth(
    * letting it through would have the picture's lighting argue with the depth.
    */
   const detailAmount = detail?.amount ?? 0;
+  const usingNormalMap = detail?.isNormalMap === true;
   const field =
-    detail && detailAmount > 0
+    detail && detailAmount > 0 && !usingNormalMap
       ? detailField(detail.image, Math.max(1, Math.round(detail.radius ?? 3)))
       : undefined;
-  const detailAt = (x: number, y: number): number => {
-    if (!field || !detail) return 0;
+
+  const sampleDetail = (x: number, y: number): [number, number] => {
+    if (!detail || detailAmount <= 0) return [0, 0];
     const source = detail.image;
     const sx = Math.min(source.width - 1, Math.max(0, Math.round((x / width) * source.width)));
     const sy = Math.min(source.height - 1, Math.max(0, Math.round((y / height) * source.height)));
-    return field[sy * source.width + sx] as number;
+
+    if (usingNormalMap) {
+      /*
+       * Already a direction, so it is added as one rather than differenced.
+       * A normal map's own tilt *is* the surface, and running a Sobel over it
+       * would measure how fast the surface turns, which is curvature.
+       */
+      const at = (sy * source.width + sx) * 4;
+      return [
+        ((source.rgba[at] ?? 128) / 255) * 2 - 1,
+        ((source.rgba[at + 1] ?? 128) / 255) * 2 - 1,
+      ];
+    }
+    return [field ? (field[sy * source.width + sx] as number) : 0, 0];
   };
+
+  /** The high-passed luminance at a point, for the Sobel below. */
+  const detailAt = (x: number, y: number): number => sampleDetail(x, y)[0];
 
   for (let y = 0; y < height; y += 1) {
     for (let x = 0; x < width; x += 1) {
@@ -236,13 +268,22 @@ export function normalsFromDepth(
        */
       const z = Math.max(0.02, at(x, y));
       const perspective = Math.max(0.5, Math.min(2, middle / z)) / focal;
-      // The same Sobel over the picture's fine relief, added before normalising.
-      const ex =
-        detailAt(x + 1, y - 1) + 2 * detailAt(x + 1, y) + detailAt(x + 1, y + 1) -
-        (detailAt(x - 1, y - 1) + 2 * detailAt(x - 1, y) + detailAt(x - 1, y + 1));
-      const ey =
-        detailAt(x - 1, y + 1) + 2 * detailAt(x, y + 1) + detailAt(x + 1, y + 1) -
-        (detailAt(x - 1, y - 1) + 2 * detailAt(x, y - 1) + detailAt(x + 1, y - 1));
+      let ex: number;
+      let ey: number;
+      if (usingNormalMap) {
+        // A direction, taken as it stands.
+        const [tiltX, tiltY] = sampleDetail(x, y);
+        ex = -tiltX;
+        ey = -tiltY;
+      } else {
+        // The same Sobel over the picture's fine relief.
+        ex =
+          detailAt(x + 1, y - 1) + 2 * detailAt(x + 1, y) + detailAt(x + 1, y + 1) -
+          (detailAt(x - 1, y - 1) + 2 * detailAt(x - 1, y) + detailAt(x - 1, y + 1));
+        ey =
+          detailAt(x - 1, y + 1) + 2 * detailAt(x, y + 1) + detailAt(x + 1, y + 1) -
+          (detailAt(x - 1, y - 1) + 2 * detailAt(x, y - 1) + detailAt(x + 1, y - 1));
+      }
 
       const [nx, ny, nz] = normalise(
         -(dx * strength * perspective + ex * detailAmount),
