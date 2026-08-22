@@ -1,26 +1,26 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { Asset } from "@seed-ae/domain";
-import type { SeedClient } from "../api/client.ts";
+import type { CameraSignatureDto, MeasuredDto, SeedClient } from "../api/client.ts";
 import { AssetImage, Field, SectionLabel } from "./primitives.tsx";
 
 /**
- * ROO — switcharoo. Taking a shot apart and putting it back together.
+ * ROO — switcharoo. Taking a shot apart, and putting it back together.
  *
- * Two very different ways of getting a pass sit side by side here, and the
- * distinction is the honest part of this screen:
+ * The whole loop lives here, in the order it is used:
  *
- *   **Measured** — depth comes from a real model running locally, and normals
- *   are arithmetic on that depth. Free, instant, offline, and correct in the
- *   sense that it is derived rather than imagined.
+ *   1. **Measure** depth and normals. Free, instant, offline, derived.
+ *   2. **Generate** albedo and the rest. One generation each, and the only
+ *      route that produces an albedo today.
+ *   3. **Relight** from albedo and normals. Arithmetic; no model runs.
+ *   4. **Match** another shot — solve its lighting and take its camera.
  *
- *   **Asked for** — albedo, specular, occlusion and a relight come from
- *   Seedance, given the plate as a reference and a prompt insisting the result
- *   match it exactly. This costs a generation each and can drift, but it is
- *   the only route that produces albedo today.
+ * Steps 1 and 2 are kept visibly apart throughout. An artist choosing between
+ * a free measurement and a paid guess should know which one they are pressing,
+ * and six identical buttons would hide exactly that.
  *
- * The panel says which is which rather than presenting six equal buttons,
- * because an artist choosing between a free measurement and a paid guess
- * should know which one they are pressing.
+ * Step 4 is the part no single-image tool can do. Beeble relights one frame to
+ * a light rig you author; here the lighting and the camera are *measured off a
+ * second shot*, which is what "make these two cut together" actually asks for.
  */
 
 interface PassPreset {
@@ -39,12 +39,45 @@ interface Props {
   providers: Array<{ id: string; displayName: string }>;
   activeProject?: string;
   onRefresh: () => Promise<void> | void;
-  onUseAsPlate?: (asset: Asset) => void;
   busy?: boolean;
 }
 
 /** The passes that come from arithmetic rather than a provider. */
 const MEASURED = new Set(["depth", "normal"]);
+
+/**
+ * A light direction from two angles rather than three numbers.
+ *
+ * Azimuth is where the light sits around the subject, elevation how high. An
+ * artist can picture both; nobody can picture a normalised vector.
+ */
+function directionFrom(azimuth: number, elevation: number): { x: number; y: number; z: number } {
+  const a = (azimuth * Math.PI) / 180;
+  const e = (elevation * Math.PI) / 180;
+  return {
+    x: Math.cos(e) * Math.sin(a),
+    // Screen space: +y is down, so a light above the subject is negative.
+    y: -Math.sin(e),
+    z: Math.cos(e) * Math.cos(a),
+  };
+}
+
+/** One measured number, with how far to trust it said plainly. */
+function Reading({ label, measured }: { label: string; measured?: MeasuredDto }) {
+  if (!measured) return null;
+  const trusted = measured.confidence >= 0.3;
+  return (
+    <div className="row" style={{ justifyContent: "space-between", fontSize: 11 }}>
+      <span className={trusted ? undefined : "faint"}>{label}</span>
+      <span className="mono">
+        {measured.value.toFixed(3)}{" "}
+        <span className="faint">
+          {trusted ? `· ${(measured.confidence * 100).toFixed(0)}%` : "· not measurable here"}
+        </span>
+      </span>
+    </div>
+  );
+}
 
 export function RooView({
   client,
@@ -54,7 +87,6 @@ export function RooView({
   providers,
   activeProject,
   onRefresh,
-  onUseAsPlate,
   busy,
 }: Props) {
   const [presets, setPresets] = useState<PassPreset[]>([]);
@@ -62,6 +94,29 @@ export function RooView({
   const [lighting, setLighting] = useState("");
   const [strength, setStrength] = useState("4");
   const [providerId, setProviderId] = useState("");
+
+  const [albedoId, setAlbedoId] = useState("");
+  const [normalId, setNormalId] = useState("");
+  const [roughnessId, setRoughnessId] = useState("");
+  const [occlusionId, setOcclusionId] = useState("");
+
+  const [azimuth, setAzimuth] = useState("-35");
+  const [elevation, setElevation] = useState("35");
+  const [ambient, setAmbient] = useState("0.25");
+  const [specular, setSpecular] = useState("0.2");
+
+  const [matchId, setMatchId] = useState("");
+  const [matchAlbedoId, setMatchAlbedoId] = useState("");
+  const [matchNormalId, setMatchNormalId] = useState("");
+  const [matchAmount, setMatchAmount] = useState("1");
+  const [camera, setCamera] = useState<{
+    settings: Record<string, number>;
+    skipped: string[];
+    reference: CameraSignatureDto;
+    target?: CameraSignatureDto;
+    note: string;
+  }>();
+
   const [derived, setDerived] = useState<Array<{ kind: string; asset: Asset }>>([]);
   const [note, setNote] = useState<string>();
   const [error, setError] = useState<string>();
@@ -70,10 +125,9 @@ export function RooView({
   useEffect(() => {
     void (async () => {
       try {
-        const { presets: list } = await client.passPresets();
-        setPresets(list);
+        setPresets((await client.passPresets()).presets);
       } catch {
-        // The catalogue is a convenience; the buttons below still work.
+        // The catalogue is a convenience; every button below still works.
       }
     })();
   }, [client]);
@@ -86,89 +140,92 @@ export function RooView({
   }, [providers, providerId]);
 
   const source = assets.find((asset) => asset.id === selectedId);
+
+  /*
+   * Passes are found by name. It is not elegant, but the alternative is asking
+   * the artist to remember which of forty stills was the normal map, and the
+   * derive route names what it writes.
+   */
+  const guess = (suffix: string): string | undefined =>
+    assets.find(
+      (asset) =>
+        asset.kind === "image" &&
+        asset.filename.toLowerCase().includes(suffix) &&
+        (!source || asset.filename.startsWith(source.filename.replace(/\.[^.]+$/, ""))),
+    )?.id;
+
+  // Fill the recombine pickers from whatever exists, without overwriting a choice.
+  useEffect(() => {
+    if (!normalId) setNormalId(guess("_normal") ?? "");
+    if (!albedoId) setAlbedoId(guess("albedo") ?? "");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [assets, source?.id]);
+
+  const stills = useMemo(
+    () => assets.filter((asset) => asset.kind === "image"),
+    [assets],
+  );
+
   const measured = presets.filter((preset) => MEASURED.has(preset.kind));
   const asked = presets.filter((preset) => !MEASURED.has(preset.kind));
 
-  const toggle = (kind: string) => {
+  const toggle = (kind: string) =>
     setChosen((current) => {
       const next = new Set(current);
       if (next.has(kind)) next.delete(kind);
       else next.add(kind);
       return next;
     });
-  };
 
-  const report = (cause: unknown) => {
-    setError(cause instanceof Error ? cause.message : String(cause));
-  };
-
-  /** Depth and normals, here and now. */
-  const derive = async () => {
-    if (!source) return;
+  const run = async (what: string, action: () => Promise<string | undefined>) => {
     setWorking(true);
     setError(undefined);
     setNote(undefined);
     try {
-      const kinds = [...chosen].filter((kind) => MEASURED.has(kind));
-      if (kinds.length === 0) {
-        setNote("Choose depth or normals — the rest are generated, below.");
-        return;
-      }
-      const result = await client.derivePasses({
-        sourceAssetId: source.id,
-        kinds: kinds as Array<"depth" | "normal">,
-        strength: Number(strength) || 4,
-        ...(activeProject ? { project: activeProject } : {}),
-      });
-      setDerived(result.made);
+      const message = await action();
+      if (message) setNote(message);
       await onRefresh();
-      setNote(
-        `Measured ${result.made.map((entry) => entry.kind).join(" and ")} from ` +
-          `${source.filename}. No generation, no cost.`,
-      );
     } catch (cause) {
-      report(cause);
+      setError(
+        cause instanceof Error ? `${what}: ${cause.message}` : `${what}: ${String(cause)}`,
+      );
     } finally {
       setWorking(false);
     }
   };
 
-  /** Albedo and the rest, from the provider. */
-  const request = async () => {
-    if (!source || !providerId) return;
-    setWorking(true);
-    setError(undefined);
-    setNote(undefined);
-    try {
-      const kinds = [...chosen].filter((kind) => !MEASURED.has(kind));
-      if (kinds.length === 0) {
-        setNote("Choose albedo, specular, occlusion or relight first.");
-        return;
-      }
-      const { started } = await client.startPasses({
-        sourceAssetId: source.id,
-        kinds,
-        providerId,
-        ...(lighting ? { lighting } : {}),
-        ...(activeProject ? { project: activeProject } : {}),
-      });
-      setNote(
-        `Started ${started.length} pass${started.length === 1 ? "" : "es"}. ` +
-          "They arrive in the library like any other generation.",
-      );
-    } catch (cause) {
-      report(cause);
-    } finally {
-      setWorking(false);
-    }
-  };
+  const AssetPicker = ({
+    label,
+    hint,
+    value,
+    onChange,
+    optional,
+  }: {
+    label: string;
+    hint?: string;
+    value: string;
+    onChange: (id: string) => void;
+    optional?: boolean;
+  }) => (
+    <Field label={label} {...(hint ? { hint } : {})}>
+      <select value={value} onChange={(event) => onChange(event.target.value)}>
+        <option value="">{optional ? "none" : "choose…"}</option>
+        {stills.map((asset) => (
+          <option key={asset.id} value={asset.id}>
+            {asset.filename}
+          </option>
+        ))}
+      </select>
+    </Field>
+  );
 
   return (
     <>
+      {/* ---------------------------------------------------------- source */}
       <section className="section">
-        <SectionLabel>source</SectionLabel>
+        <SectionLabel>1 · source</SectionLabel>
         <div className="hint faint" style={{ marginBottom: 6 }}>
-          Pick the shot to take apart. A clip is read through its poster frame.
+          The shot to take apart. A clip is read through its poster frame.
         </div>
         {source ? (
           <div className="row" style={{ gap: 8, alignItems: "center" }}>
@@ -184,13 +241,14 @@ export function RooView({
           </div>
         ) : (
           <div className="notice">
-            Nothing selected. Choose a shot in the library and come back.
+            Nothing selected. Pick a shot in the library and come back.
           </div>
         )}
       </section>
 
+      {/* -------------------------------------------------------- measured */}
       <section className="section">
-        <SectionLabel>measured — free, instant, offline</SectionLabel>
+        <SectionLabel>2 · measure — free, instant, offline</SectionLabel>
         <div className="hint faint" style={{ marginBottom: 6 }}>
           Depth comes from a real model running here, not from a provider.
           Normals are arithmetic on that depth, which makes them a measurement
@@ -223,21 +281,54 @@ export function RooView({
 
         <button
           className="btn primary wide"
-          onClick={() => void derive()}
           disabled={busy || working || !source}
           style={{ marginTop: 8 }}
+          onClick={() =>
+            void run("Measuring", async () => {
+              const kinds = [...chosen].filter((kind) => MEASURED.has(kind));
+              if (kinds.length === 0) return "Choose depth or normals first.";
+              const result = await client.derivePasses({
+                sourceAssetId: source!.id,
+                kinds: kinds as Array<"depth" | "normal">,
+                strength: Number(strength) || 4,
+                ...(activeProject ? { project: activeProject } : {}),
+              });
+              setDerived(result.made);
+              for (const entry of result.made) {
+                if (entry.kind === "normal") setNormalId(entry.asset.id);
+              }
+              return `Measured ${result.made.map((e) => e.kind).join(" and ")}. No cost.`;
+            })
+          }
         >
-          {working ? "Measuring…" : "Measure passes"}
+          {working ? "Working…" : "Measure passes"}
         </button>
+
+        {derived.length > 0 ? (
+          <div className="ref-strip" style={{ marginTop: 8 }}>
+            {derived.map((entry) => (
+              <div
+                key={entry.asset.id}
+                className="ref-card"
+                onClick={() => onSelect(entry.asset.id)}
+                title={entry.kind}
+              >
+                <AssetImage client={client} asset={entry.asset} variant="thumbnail" />
+                <span className="ref-index mono">{entry.kind}</span>
+              </div>
+            ))}
+          </div>
+        ) : null}
       </section>
 
+      {/* ------------------------------------------------------- generated */}
       <section className="section">
-        <SectionLabel>asked for — one generation each</SectionLabel>
+        <SectionLabel>3 · generate — one generation each</SectionLabel>
         <div className="hint faint" style={{ marginBottom: 6 }}>
           These come from the model, given your shot as a reference and a prompt
           insisting the result match it exactly. Albedo is the one worth having:
-          surface colour with the lighting removed makes the best identity plate
-          there is.
+          surface colour with the lighting removed is the best identity plate
+          there is, and the only input relighting needs that nothing else makes.
         </div>
 
         {asked.map((preset) => (
@@ -276,42 +367,235 @@ export function RooView({
 
         <button
           className="btn wide"
-          onClick={() => void request()}
           disabled={busy || working || !source || !providerId}
           style={{ marginTop: 8 }}
+          onClick={() =>
+            void run("Generating", async () => {
+              const kinds = [...chosen].filter((kind) => !MEASURED.has(kind));
+              if (kinds.length === 0) return "Choose albedo, specular, occlusion or relight.";
+              const { started } = await client.startPasses({
+                sourceAssetId: source!.id,
+                kinds,
+                providerId,
+                ...(lighting ? { lighting } : {}),
+                ...(activeProject ? { project: activeProject } : {}),
+              });
+              return `Started ${started.length} pass${started.length === 1 ? "" : "es"}. They arrive in the library like any other generation.`;
+            })
+          }
         >
           Generate passes
         </button>
       </section>
 
-      {derived.length > 0 ? (
-        <section className="section">
-          <SectionLabel>measured just now</SectionLabel>
-          <div className="ref-strip">
-            {derived.map((entry) => (
-              <div
-                key={entry.asset.id}
-                className="ref-card"
-                onClick={() => onSelect(entry.asset.id)}
-                title={entry.kind}
-              >
-                <AssetImage client={client} asset={entry.asset} variant="thumbnail" />
-                <span className="ref-index mono">{entry.kind}</span>
-              </div>
-            ))}
-          </div>
-          {onUseAsPlate ? (
-            <div className="hint faint" style={{ marginTop: 6 }}>
-              Select an albedo in the library and use it as an identity plate on
-              an item — lighting removed is what stops a plate teaching the model
-              the lamp along with the face.
+      {/* --------------------------------------------------------- relight */}
+      <section className="section">
+        <SectionLabel>4 · relight — arithmetic, no model</SectionLabel>
+        <div className="hint faint" style={{ marginBottom: 6 }}>
+          Albedo lit by your own key. Instant and free — nothing generates here.
+        </div>
+
+        <AssetPicker
+          label="Albedo"
+          hint="surface colour, lighting removed"
+          value={albedoId}
+          onChange={setAlbedoId}
+        />
+        <AssetPicker label="Normals" value={normalId} onChange={setNormalId} />
+        <AssetPicker label="Roughness" value={roughnessId} onChange={setRoughnessId} optional />
+        <AssetPicker label="Occlusion" value={occlusionId} onChange={setOcclusionId} optional />
+
+        <div className="row">
+          <Field label="Azimuth" hint="degrees around the subject">
+            <input
+              type="number"
+              step={5}
+              value={azimuth}
+              onChange={(event) => setAzimuth(event.target.value)}
+            />
+          </Field>
+          <Field label="Elevation" hint="degrees above">
+            <input
+              type="number"
+              step={5}
+              value={elevation}
+              onChange={(event) => setElevation(event.target.value)}
+            />
+          </Field>
+        </div>
+        <div className="row">
+          <Field label="Ambient" hint="light from everywhere">
+            <input
+              type="number"
+              step={0.05}
+              min={0}
+              max={2}
+              value={ambient}
+              onChange={(event) => setAmbient(event.target.value)}
+            />
+          </Field>
+          <Field label="Specular" hint="highlight strength">
+            <input
+              type="number"
+              step={0.05}
+              min={0}
+              max={2}
+              value={specular}
+              onChange={(event) => setSpecular(event.target.value)}
+            />
+          </Field>
+        </div>
+
+        <button
+          className="btn primary wide"
+          disabled={busy || working || !albedoId || !normalId}
+          style={{ marginTop: 8 }}
+          onClick={() =>
+            void run("Relighting", async () => {
+              const { asset } = await client.relightPasses({
+                albedoAssetId: albedoId,
+                normalAssetId: normalId,
+                ...(roughnessId ? { roughnessAssetId: roughnessId } : {}),
+                ...(occlusionId ? { occlusionAssetId: occlusionId } : {}),
+                light: directionFrom(Number(azimuth) || 0, Number(elevation) || 0),
+                ambient: Number(ambient) || 0,
+                specular: Number(specular) || 0,
+                ...(activeProject ? { project: activeProject } : {}),
+              });
+              onSelect(asset.id);
+              return `Relit into ${asset.filename}.`;
+            })
+          }
+        >
+          Relight
+        </button>
+      </section>
+
+      {/* ----------------------------------------------------------- match */}
+      <section className="section">
+        <SectionLabel>5 · match another shot</SectionLabel>
+        <div className="hint faint" style={{ marginBottom: 6 }}>
+          The part a single image cannot do. The lighting and the camera are
+          <b> measured off a reference shot</b> rather than described by you —
+          which is what "make these two cut together" actually asks for.
+        </div>
+
+        <AssetPicker
+          label="Reference shot"
+          hint="the look to match"
+          value={matchId}
+          onChange={setMatchId}
+        />
+
+        <button
+          className="btn wide"
+          disabled={busy || working || !matchId}
+          style={{ marginTop: 4 }}
+          onClick={() =>
+            void run("Reading the camera", async () => {
+              const result = await client.transferCamera({
+                referenceAssetId: matchId,
+                ...(source ? { targetAssetId: source.id } : {}),
+              });
+              setCamera(result);
+              return undefined;
+            })
+          }
+        >
+          Read its camera
+        </button>
+
+        {camera ? (
+          <div style={{ marginTop: 8 }}>
+            <div className="hint faint">{camera.note}</div>
+            <div style={{ marginTop: 6 }}>
+              <Reading label="Vignette" measured={camera.reference.vignette} />
+              <Reading label="Aberration" measured={camera.reference.aberration} />
+              <Reading label="Grain" measured={camera.reference.grain} />
+              <Reading label="Grain size" measured={camera.reference.grainSize} />
+              <Reading label="Halation" measured={camera.reference.halation} />
             </div>
-          ) : null}
-        </section>
-      ) : null}
+            {Object.keys(camera.settings).length > 0 ? (
+              <>
+                <div className="hint faint" style={{ marginTop: 8 }}>
+                  Film look settings — set these on a SEED Film Look effect:
+                </div>
+                <pre
+                  className="mono"
+                  style={{ fontSize: 11, whiteSpace: "pre-wrap", margin: "4px 0 0" }}
+                >
+                  {Object.entries(camera.settings)
+                    .map(([name, value]) => `${name} = ${value}`)
+                    .join("\n")}
+                </pre>
+              </>
+            ) : null}
+            {camera.skipped.length > 0 ? (
+              <div className="hint faint" style={{ marginTop: 6 }}>
+                Not measurable from these frames:
+                <ul style={{ margin: "2px 0 0 14px", padding: 0 }}>
+                  {camera.skipped.map((entry) => (
+                    <li key={entry}>{entry}</li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
+          </div>
+        ) : null}
+
+        <div className="hint faint" style={{ marginTop: 10 }}>
+          Transferring its <b>lighting</b> needs an albedo and normals for both
+          shots — the reference's, to solve what lit it, and this shot's, to
+          light it the same way.
+        </div>
+        <AssetPicker
+          label="Reference albedo"
+          value={matchAlbedoId}
+          onChange={setMatchAlbedoId}
+        />
+        <AssetPicker
+          label="Reference normals"
+          value={matchNormalId}
+          onChange={setMatchNormalId}
+        />
+        <Field label="Amount" hint="0–1; a full transfer imposes its key outright">
+          <input
+            type="number"
+            step={0.1}
+            min={0}
+            max={1}
+            value={matchAmount}
+            onChange={(event) => setMatchAmount(event.target.value)}
+          />
+        </Field>
+
+        <button
+          className="btn wide"
+          disabled={
+            busy || working || !matchId || !matchAlbedoId || !matchNormalId || !albedoId || !normalId
+          }
+          onClick={() =>
+            void run("Transferring light", async () => {
+              const result = await client.transferLight({
+                referenceAssetId: matchId,
+                referenceAlbedoId: matchAlbedoId,
+                referenceNormalId: matchNormalId,
+                targetAlbedoId: albedoId,
+                targetNormalId: normalId,
+                amount: Number(matchAmount) || 1,
+                ...(activeProject ? { project: activeProject } : {}),
+              });
+              onSelect(result.asset.id);
+              return `${result.note} Solved from ${result.samples} samples, residual ${result.residual}.`;
+            })
+          }
+        >
+          Transfer its lighting
+        </button>
+      </section>
 
       {note ? <div className="notice">{note}</div> : null}
-      {error ? <div className="notice danger">{error}</div> : null}
+      {error ? <div className="notice error">{error}</div> : null}
     </>
   );
 }

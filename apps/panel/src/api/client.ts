@@ -50,6 +50,21 @@ export interface ProviderCapabilitiesDto {
   async: boolean;
 }
 
+/** One measurement and how much the frame supported it. */
+export interface MeasuredDto {
+  value: number;
+  confidence: number;
+}
+
+export interface CameraSignatureDto {
+  vignette: MeasuredDto;
+  aberration: MeasuredDto;
+  grain: MeasuredDto;
+  grainSize: MeasuredDto;
+  halation: MeasuredDto;
+  notes: string[];
+}
+
 export interface JobView {
   job: JobDto;
   generation?: Generation;
@@ -248,6 +263,50 @@ export class SeedClient {
     project?: string;
   }): Promise<{ asset: Asset }> {
     return this.request("/v1/passes/relight", { method: "POST", body: input });
+  }
+
+  /** What has already been derived from a shot. */
+  listPasses(sourceAssetId: string): Promise<{
+    sourceAssetId: string;
+    passes: Array<{
+      kind: string;
+      generationId: string;
+      status: string;
+      assetIds: string[];
+      createdAt: string;
+    }>;
+  }> {
+    return this.request(
+      `/v1/passes?sourceAssetId=${encodeURIComponent(sourceAssetId)}`,
+    );
+  }
+
+  /** Light one shot the way another shot is lit. */
+  transferLight(input: {
+    referenceAssetId: string;
+    referenceAlbedoId: string;
+    referenceNormalId: string;
+    targetAlbedoId: string;
+    targetNormalId: string;
+    amount?: number;
+    project?: string;
+  }): Promise<{ asset: Asset; residual: number; samples: number; note: string }> {
+    return this.request("/v1/passes/light-transfer", { method: "POST", body: input });
+  }
+
+  /** The camera out of a shot, as film-look settings. */
+  transferCamera(input: {
+    referenceAssetId: string;
+    targetAssetId?: string;
+    minimumConfidence?: number;
+  }): Promise<{
+    settings: Record<string, number>;
+    skipped: string[];
+    reference: CameraSignatureDto;
+    target?: CameraSignatureDto;
+    note: string;
+  }> {
+    return this.request("/v1/passes/camera-transfer", { method: "POST", body: input });
   }
 
   /**
