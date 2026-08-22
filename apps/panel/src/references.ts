@@ -90,6 +90,36 @@ export function opensFromFlatColour(
 }
 
 /**
+ * Whether the prompt asks the shot to finish on a flat colour.
+ *
+ * The other half of the fade. Same reasoning as opensFromFlatColour and the
+ * same restraint: a closing frame is offered, never attached on its own, and
+ * the match is narrow enough that "she disappears into black smoke" does not
+ * put a black card on the end of the shot.
+ */
+export function closesToFlatColour(
+  prompt: string,
+): { colour: "black" | "white" } | undefined {
+  const text = prompt.toLowerCase();
+  const fade = /\b(?:fade|fades|fading)\s+(?:out\s+)?to\s+(?:(?:fully|pure|solid)\s+)?(black|white)\b/;
+  const ends = /\b(?:end|ends|ending|finish|finishes|closes?)\s+(?:on|in|with|at)\s+(?:(?:fully|pure|solid|total)\s+)?(black|white)\b/;
+  /*
+   * The bare form has to end the phrase. Without that it fires on
+   * "she walks into black smoke" and "a cut to black cars", which
+   * would put a black card on the end of a shot that never asked for
+   * one. A colour followed by a noun is describing something in the
+   * frame, not the frame itself.
+   */
+  const to = /\b(?:to|into|down to|out to)\s+(?:(?:fully|pure|completely|complete|total|solid|full)\s+)?(black|white)\b(?=\s*(?:[.,;!?]|$))/;
+
+  for (const pattern of [fade, ends, to]) {
+    const found = pattern.exec(text);
+    if (found) return { colour: found[1] === "white" ? "white" : "black" };
+  }
+  return undefined;
+}
+
+/**
  * The provider to move to when a clip is attached, if the current one cannot
  * take one.
  *

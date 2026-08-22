@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   alignRoles,
+  closesToFlatColour,
   isAnchored,
   lastFrameWithoutFirst,
   mixesFrameModes,
@@ -87,6 +88,31 @@ describe("opensFromFlatColour", () => {
     expect(colourOf("she wears a black coat")).toBeUndefined();
     expect(colourOf("the black of the tunnel behind her")).toBeUndefined();
     expect(colourOf("")).toBeUndefined();
+  });
+});
+
+describe("closesToFlatColour", () => {
+  const colourOf = (prompt: string) => closesToFlatColour(prompt)?.colour;
+
+  it("catches the ways an ending is actually written", () => {
+    expect(colourOf("she turns away, then fade to black")).toBe("black");
+    expect(colourOf("fades out to fully black")).toBe("black");
+    expect(colourOf("the train leaves and it ends on black")).toBe("black");
+    expect(colourOf("closes on white")).toBe("white");
+    expect(colourOf("the sparks rise and burn to black")).toBe("black");
+  });
+
+  it("does not fire on colour that is just in the shot", () => {
+    expect(colourOf("she walks into black smoke")).toBeUndefined();
+    expect(colourOf("a cut to black cars on a wet street")).toBeUndefined();
+    expect(colourOf("")).toBeUndefined();
+  });
+
+  it("is independent of the opening", () => {
+    // Both ends in one prompt is the ordinary case, not a conflict.
+    const both = "from fully black, the logo forms, then fade to black";
+    expect(opensFromFlatColour(both)?.colour).toBe("black");
+    expect(closesToFlatColour(both)?.colour).toBe("black");
   });
 });
 

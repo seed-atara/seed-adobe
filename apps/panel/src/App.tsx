@@ -679,14 +679,15 @@ export function App({ tabs }: AppProps = {}) {
   }, [client, bridge, refreshAssets, attachReference, providers, report]);
 
   /**
-   * Makes a flat colour opening frame and anchors the shot to it.
+   * Makes a flat colour frame and anchors one end of the shot to it.
    *
-   * "from fully black" is a direction the model cannot act on — it needs an
-   * image. This makes that image at the shape of the shot, adds it as the
-   * first frame, and leaves the artist's own reference as the last one.
+   * "from fully black" and "fade to black" are directions the model cannot act
+   * on — each needs an image. This makes that image at the shape of the shot
+   * and gives it the role for the end being asked about, leaving the artist's
+   * own reference holding the other end.
    */
-  const addOpeningColour = useCallback(
-    async (colour: "black" | "white") => {
+  const addFlatFrame = useCallback(
+    async (colour: "black" | "white", role: "first" | "last") => {
       setBusy(true);
       setError(undefined);
       try {
@@ -702,18 +703,27 @@ export function App({ tabs }: AppProps = {}) {
           ...(activeProject ? { project: activeProject } : {}),
         });
         await refreshAssets();
-        setForm((current) => ({
-          ...current,
-          // First in the list and first in role: the shot opens here.
-          inputAssetIds: [asset.id, ...current.inputAssetIds],
-          inputRoles: [
-            "first",
-            ...alignRoles(current.inputAssetIds, current.inputRoles),
-          ],
-        }));
+        setForm((current) => {
+          const existing = alignRoles(current.inputAssetIds, current.inputRoles);
+          // Position follows the role, so the strip reads in shot order.
+          return role === "first"
+            ? {
+                ...current,
+                inputAssetIds: [asset.id, ...current.inputAssetIds],
+                inputRoles: ["first" as const, ...existing],
+              }
+            : {
+                ...current,
+                inputAssetIds: [...current.inputAssetIds, asset.id],
+                inputRoles: [...existing, "last" as const],
+              };
+        });
         setNotice(
-          `Added a ${colour} ${width}x${height} opening frame. The shot starts ` +
-            "there and animates towards your last frame.",
+          role === "first"
+            ? `Added a ${colour} ${width}x${height} opening frame. The shot ` +
+                "starts there and animates towards your other frame."
+            : `Added a ${colour} ${width}x${height} closing frame. The shot ` +
+                "animates from your other frame down to it.",
         );
       } catch (cause) {
         report(cause);
@@ -1372,7 +1382,7 @@ export function App({ tabs }: AppProps = {}) {
               onRegionChange={setRegion}
               onAddRegion={addRegion}
               onCaptureRegion={captureRegion}
-              onAddOpeningColour={addOpeningColour}
+              onAddFlatFrame={addFlatFrame}
               onRefreshRegions={refreshRegions}
               onRegionAspect={setRegionAspect}
               onRegionContain={setRegionContain}

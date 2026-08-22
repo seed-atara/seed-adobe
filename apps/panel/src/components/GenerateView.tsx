@@ -10,6 +10,7 @@ import type { AeRegion } from "../api/cep.ts";
 import { assetToken } from "../mentions.ts";
 import {
   alignRoles,
+  closesToFlatColour,
   isAnchored,
   lastFrameWithoutFirst,
   mixesFrameModes,
@@ -145,7 +146,7 @@ interface Props {
   onRegionChange?: (region: RegionSettings) => void;
   onAddRegion?: () => void;
   onCaptureRegion?: (mode: "still" | "clip") => void;
-  onAddOpeningColour?: (colour: "black" | "white") => void;
+  onAddFlatFrame?: (colour: "black" | "white", role: "first" | "last") => void;
   onRefreshRegions?: () => void;
   onRegionAspect?: (aspect: string) => void;
   onRegionContain?: (contained: boolean) => void;
@@ -207,7 +208,7 @@ export function GenerateView({
   onRegionChange,
   onAddRegion,
   onCaptureRegion,
-  onAddOpeningColour,
+  onAddFlatFrame,
   onRefreshRegions,
   onRegionAspect,
   onRegionContain,
@@ -377,8 +378,12 @@ export function GenerateView({
   const anchored = isAnchored(roles);
   const mixesModes = mixesFrameModes(roles);
   const danglingLast = lastFrameWithoutFirst(roles);
-  // "from fully black" is an opening the model needs as an image, not a word.
+  // "from fully black" and "fade to black" are frames the model needs as
+  // images, not words.
   const wantedOpening = opensFromFlatColour(form.prompt);
+  const wantedClosing = closesToFlatColour(form.prompt);
+  const hasOpening = roles.some((role) => role === "first" || role === "loop");
+  const hasClosing = roles.some((role) => role === "last" || role === "loop");
   const rolesOffered =
     form.operation === "video.generate" && provider?.startEndFrames === true;
 
@@ -794,11 +799,11 @@ export function GenerateView({
             A last frame needs a first frame to animate towards — the provider
             refuses a closing frame on its own. Add a first frame, or set this
             one to <b>first</b> or <b>loop</b>.
-            {onAddOpeningColour ? (
+            {onAddFlatFrame ? (
               <div style={{ marginTop: 8 }}>
                 <button
                   className="btn"
-                  onClick={() => onAddOpeningColour(wantedOpening?.colour ?? "black")}
+                  onClick={() => onAddFlatFrame(wantedOpening?.colour ?? "black", "first")}
                   disabled={busy}
                 >
                   Open from {wantedOpening?.colour ?? "black"}
@@ -808,19 +813,38 @@ export function GenerateView({
           </div>
         ) : null}
 
-        {!danglingLast && wantedOpening && !anchored && onAddOpeningColour ? (
+        {!danglingLast && onAddFlatFrame && (
+          (wantedOpening && !hasOpening) || (wantedClosing && !hasClosing)
+        ) ? (
           <div className="notice">
-            Your prompt opens from <b>{wantedOpening.colour}</b>. The model needs
-            that as a frame rather than a word — this makes one at the shape of
-            the shot and anchors the opening to it.
-            <div style={{ marginTop: 8 }}>
-              <button
-                className="btn"
-                onClick={() => onAddOpeningColour(wantedOpening.colour)}
-                disabled={busy}
-              >
-                Open from {wantedOpening.colour}
-              </button>
+            Your prompt {wantedOpening && !hasOpening ? "opens from " : ""}
+            {wantedOpening && !hasOpening ? <b>{wantedOpening.colour}</b> : null}
+            {wantedOpening && !hasOpening && wantedClosing && !hasClosing
+              ? " and "
+              : ""}
+            {wantedClosing && !hasClosing ? "ends on " : ""}
+            {wantedClosing && !hasClosing ? <b>{wantedClosing.colour}</b> : null}
+            . The model needs those as frames rather than words — this makes one
+            at the shape of the shot and anchors that end to it.
+            <div style={{ marginTop: 8, display: "flex", gap: 6 }}>
+              {wantedOpening && !hasOpening ? (
+                <button
+                  className="btn"
+                  onClick={() => onAddFlatFrame(wantedOpening.colour, "first")}
+                  disabled={busy}
+                >
+                  Open from {wantedOpening.colour}
+                </button>
+              ) : null}
+              {wantedClosing && !hasClosing ? (
+                <button
+                  className="btn"
+                  onClick={() => onAddFlatFrame(wantedClosing.colour, "last")}
+                  disabled={busy}
+                >
+                  End on {wantedClosing.colour}
+                </button>
+              ) : null}
             </div>
           </div>
         ) : null}
