@@ -3,6 +3,7 @@ import {
   colourDistance,
   labToRgb,
   matchColour,
+  proposeLevels,
   measureColour,
   rgbToLab,
   type RasterImage,
@@ -178,6 +179,74 @@ describe("matchColour", () => {
     );
     for (let at = 0; at < corrected.rgba.length; at += 4) {
       expect(Number.isFinite(corrected.rgba[at] as number)).toBe(true);
+    }
+  });
+});
+
+describe("proposeLevels", () => {
+  it("proposes a correction that actually closes the gap", () => {
+    /*
+     * The test that matters: apply the proposed Levels the way After Effects
+     * would and check the result lands near the reference. A proposal that
+     * measures well and corrects badly is worse than none.
+     */
+    const reference = ramp(40, 170);
+    const drifted = ramp(95, 110);
+    const referenceStats = measureColour(reference);
+    const driftedStats = measureColour(drifted);
+
+    const { levels } = proposeLevels(drifted, driftedStats, referenceStats, 1);
+
+    const applied = new Uint8Array(drifted.rgba.length);
+    const channels = [levels.red, levels.green, levels.blue];
+    for (let at = 0; at < drifted.rgba.length; at += 4) {
+      for (let c = 0; c < 3; c += 1) {
+        const { inputBlack, inputWhite } = channels[c] as {
+          inputBlack: number;
+          inputWhite: number;
+        };
+        const value = (drifted.rgba[at + c] ?? 0);
+        const out = ((value - inputBlack) * 255) / (inputWhite - inputBlack);
+        applied[at + c] = Math.max(0, Math.min(255, Math.round(out)));
+      }
+      applied[at + 3] = drifted.rgba[at + 3] ?? 255;
+    }
+
+    const before = colourDistance(driftedStats, referenceStats);
+    const after = colourDistance(
+      measureColour({ width: drifted.width, height: drifted.height, rgba: applied }),
+      referenceStats,
+    );
+    expect(before).toBeGreaterThan(3);
+    expect(after).toBeLessThan(before / 2);
+  });
+
+  it("proposes nothing much when the shots already match", () => {
+    const image = ramp(30, 190);
+    const stats = measureColour(image);
+    const { levels, residual } = proposeLevels(image, stats, stats, 1);
+    // A no-op in Levels is black 0, white 255.
+    expect(Math.abs(levels.red.inputBlack)).toBeLessThan(3);
+    expect(Math.abs(levels.red.inputWhite - 255)).toBeLessThan(6);
+    expect(residual).toBeLessThan(3);
+  });
+
+  it("reports a residual when a straight line cannot express the correction", () => {
+    // Levels is linear per channel. Where the drift is not, the number has to
+    // say so rather than handing over a confident bad answer.
+    const image = ramp(0, 255);
+    const from = measureColour(image);
+    const to = measureColour(flat(200, 60, 60));
+    const { residual } = proposeLevels(image, from, to, 1);
+    expect(residual).toBeGreaterThan(0);
+  });
+
+  it("refuses to invert the picture", () => {
+    // A negative slope would turn the shot into a negative; bounded instead.
+    const image = ramp(120, 20);
+    const { levels } = proposeLevels(image, measureColour(image), measureColour(ramp(200, 10)), 1);
+    for (const channel of [levels.red, levels.green, levels.blue]) {
+      expect(channel.inputWhite).toBeGreaterThan(channel.inputBlack);
     }
   });
 });

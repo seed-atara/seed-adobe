@@ -15,6 +15,7 @@ import {
   decodePng,
   encodePng,
   measureColour,
+  proposeLevels,
   readMp4Size,
   readPngSize,
   sniffMimeType,
@@ -156,6 +157,74 @@ export function setPosterRoute(deps: AppDeps) {
       byteSize: bytes.length,
     });
     return json({ asset: deps.assets.setThumbnail(asset.id, thumbnailUri) });
+  };
+}
+
+const GradeProposalSchema = z.object({
+  /** The shot to correct. */
+  assetId: z.string().min(1),
+  /** The shot to correct it towards. */
+  referenceId: z.string().min(1),
+  /** 0–1. A full match will flatten a deliberately warm shot into a neutral one. */
+  amount: z.number().min(0).max(1).default(0.8),
+});
+
+/**
+ * A grade the artist can take, look at, and disagree with.
+ *
+ * The measurement is Lab, because Lab separates exposure from cast. The
+ * proposal is a per-channel linear map, because that is what an adjustment
+ * layer can hold. Those are different jobs, and the residual says how well the
+ * second stands in for the first rather than pretending they are the same.
+ *
+ * A first pass, explicitly. It goes onto an ordinary Levels effect the artist
+ * can drag, and the numbers are visible rather than hidden inside a LUT.
+ */
+export function gradeProposalRoute(deps: AppDeps) {
+  return async ({ req }: RequestContext) => {
+    const request = parseWith(GradeProposalSchema, await readJsonBody(req));
+
+    const load = async (id: string) => {
+      const asset = deps.assets.requireById(id);
+      const poster =
+        asset.source.type === "after-effects" ? asset.source.posterUri : undefined;
+      const uri = asset.kind === "video" ? (poster ?? asset.thumbnailUri) : asset.storageUri;
+      if (!uri) return undefined;
+      const bytes = await readFile(resolveStorageUri(deps.workspace, uri)).catch(
+        () => undefined,
+      );
+      return bytes ? (decodePng(bytes) ?? decodeJpegPreview(bytes)) : undefined;
+    };
+
+    const image = await load(request.assetId);
+    const reference = await load(request.referenceId);
+    if (!image || !reference) {
+      throw new SeedError(
+        "bad_request",
+        "both shots need a still to measure — a clip with no poster cannot be graded",
+      );
+    }
+
+    const from = measureColour(image);
+    const to = measureColour(reference);
+    const proposal = proposeLevels(image, from, to, request.amount);
+
+    return json({
+      levels: proposal.levels,
+      /** Mean error the straight line could not carry, in code values. */
+      residual: proposal.residual,
+      distanceBefore: Number(colourDistance(from, to).toFixed(2)),
+      amount: request.amount,
+      /*
+       * Said plainly rather than left to be inferred: above about 6 the drift
+       * is not a linear per-channel shift and Levels will not express it well
+       * however the numbers are chosen.
+       */
+      note:
+        proposal.residual > 6
+          ? "This drift is not a simple per-channel shift — Levels will only get part of the way. Treat it as a starting point and expect to reach for Curves."
+          : "A per-channel Levels correction should carry most of this.",
+    });
   };
 }
 

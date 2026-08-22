@@ -213,3 +213,164 @@ export function matchColour(
 
   return { width: image.width, height: image.height, rgba: out };
 }
+
+/* ------------------------------------------------------------ proposing -- */
+
+/**
+ * A per-channel linear map, in the form After Effects' Levels effect holds.
+ *
+ * `out = (in - inputBlack) * 255 / (inputWhite - inputBlack)`, per channel,
+ * which is exactly what Levels does with gamma left at 1.
+ */
+export interface LevelsProposal {
+  red: { inputBlack: number; inputWhite: number };
+  green: { inputBlack: number; inputWhite: number };
+  blue: { inputBlack: number; inputWhite: number };
+}
+
+/**
+ * A correction the artist can see, adjust and disagree with.
+ *
+ * The measurement is Lab because Lab separates exposure from cast. The
+ * *proposal* is a per-channel linear map because that is what an adjustment
+ * layer can actually hold — Levels, three channels, no gamma. Those are
+ * different jobs and it is worth being plain that this is a fit rather than
+ * the correction itself.
+ *
+ * Fitted rather than derived: the Lab transfer is applied to a sample of real
+ * pixels, and a least-squares line is fitted from each source channel to its
+ * corrected value. Deriving the numbers from channel statistics alone would
+ * assume the correction is linear in RGB, which it is not — fitting measures
+ * how well a line can stand in for it, and `residual` reports that honestly.
+ *
+ * A residual above roughly 6 means the drift is not a linear per-channel
+ * shift, and Levels will not express it well however the numbers are chosen.
+ */
+export function proposeLevels(
+  image: RasterImage,
+  from: ColourStats,
+  to: ColourStats,
+  amount = 1,
+  maxSamples = 40_000,
+): { levels: LevelsProposal; residual: number; samples: number } {
+  const total = image.width * image.height;
+  const stride = Math.max(1, Math.floor(total / maxSamples));
+
+  // Sums for a least-squares fit of y = m*x + c, per channel.
+  const n = [0, 0, 0];
+  const sx = [0, 0, 0];
+  const sy = [0, 0, 0];
+  const sxx = [0, 0, 0];
+  const sxy = [0, 0, 0];
+  let residualSum = 0;
+  let residualCount = 0;
+
+  const scale: [number, number, number] = [1, 1, 1];
+  for (let c = 0; c < 3; c += 1) {
+    const source = from.deviation[c] as number;
+    const target = to.deviation[c] as number;
+    scale[c] = source > 0.5 ? target / source : 1;
+  }
+  const strength = Math.max(0, Math.min(1, amount));
+
+  const corrected: number[] = [0, 0, 0];
+  for (let index = 0; index < total; index += stride) {
+    const at = index * 4;
+    if ((image.rgba[at + 3] ?? 255) === 0) continue;
+
+    const r = image.rgba[at] ?? 0;
+    const g = image.rgba[at + 1] ?? 0;
+    const b = image.rgba[at + 2] ?? 0;
+
+    const lab = rgbToLab(r, g, b);
+    for (let c = 0; c < 3; c += 1) {
+      const centred = (lab[c] as number) - (from.mean[c] as number);
+      const moved = centred * (scale[c] as number) + (to.mean[c] as number);
+      corrected[c] = (lab[c] as number) + (moved - (lab[c] as number)) * strength;
+    }
+    const wanted = labToRgb(
+      corrected[0] as number,
+      corrected[1] as number,
+      corrected[2] as number,
+    );
+
+    const source = [r, g, b];
+    for (let c = 0; c < 3; c += 1) {
+      const x = source[c] as number;
+      const y = wanted[c] as number;
+      n[c] = (n[c] as number) + 1;
+      sx[c] = (sx[c] as number) + x;
+      sy[c] = (sy[c] as number) + y;
+      sxx[c] = (sxx[c] as number) + x * x;
+      sxy[c] = (sxy[c] as number) + x * y;
+    }
+  }
+
+  const fitted: Array<{ inputBlack: number; inputWhite: number }> = [];
+  const slopes: number[] = [];
+  const intercepts: number[] = [];
+
+  for (let c = 0; c < 3; c += 1) {
+    const count = n[c] as number;
+    let slope = 1;
+    let intercept = 0;
+    if (count > 1) {
+      const denominator = count * (sxx[c] as number) - (sx[c] as number) * (sx[c] as number);
+      if (Math.abs(denominator) > 1e-6) {
+        slope = (count * (sxy[c] as number) - (sx[c] as number) * (sy[c] as number)) / denominator;
+        intercept = ((sy[c] as number) - slope * (sx[c] as number)) / count;
+      }
+    }
+    /*
+     * A slope at or below zero would invert the image, and one that is
+     * enormous would clip everything — neither is a correction anybody asked
+     * for, so the fit is bounded rather than trusted.
+     */
+    slope = Math.max(0.2, Math.min(5, slope));
+    slopes.push(slope);
+    intercepts.push(intercept);
+
+    const inputBlack = -intercept / slope;
+    fitted.push({
+      inputBlack: Number(inputBlack.toFixed(2)),
+      inputWhite: Number((inputBlack + 255 / slope).toFixed(2)),
+    });
+  }
+
+  // How much of the correction the straight line failed to carry.
+  for (let index = 0; index < total; index += stride * 4) {
+    const at = index * 4;
+    if ((image.rgba[at + 3] ?? 255) === 0) continue;
+    const r = image.rgba[at] ?? 0;
+    const g = image.rgba[at + 1] ?? 0;
+    const b = image.rgba[at + 2] ?? 0;
+    const lab = rgbToLab(r, g, b);
+    for (let c = 0; c < 3; c += 1) {
+      const centred = (lab[c] as number) - (from.mean[c] as number);
+      const moved = centred * (scale[c] as number) + (to.mean[c] as number);
+      corrected[c] = (lab[c] as number) + (moved - (lab[c] as number)) * strength;
+    }
+    const wanted = labToRgb(
+      corrected[0] as number,
+      corrected[1] as number,
+      corrected[2] as number,
+    );
+    const source = [r, g, b];
+    for (let c = 0; c < 3; c += 1) {
+      const predicted =
+        (source[c] as number) * (slopes[c] as number) + (intercepts[c] as number);
+      residualSum += Math.abs(predicted - (wanted[c] as number));
+      residualCount += 1;
+    }
+  }
+
+  return {
+    levels: {
+      red: fitted[0] as { inputBlack: number; inputWhite: number },
+      green: fitted[1] as { inputBlack: number; inputWhite: number },
+      blue: fitted[2] as { inputBlack: number; inputWhite: number },
+    },
+    residual: residualCount > 0 ? Number((residualSum / residualCount).toFixed(2)) : 0,
+    samples: n[0] as number,
+  };
+}

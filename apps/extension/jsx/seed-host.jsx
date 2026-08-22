@@ -1853,6 +1853,105 @@ function seedAddEffect(layer, candidates) {
  * spatial half belongs in a real SEED plugin, and until that exists the bake
  * is where to get it.
  */
+/**
+ * Puts a proposed grade on an adjustment layer, as controls the artist owns.
+ *
+ * Deliberately an ordinary Levels effect with visible numbers rather than a
+ * baked LUT. The proposal is a first pass fitted from two measured shots, and
+ * a first pass the artist cannot see inside is a first pass they cannot argue
+ * with — which is the whole value of it. Drag the sliders, delete the layer,
+ * turn it off; nothing else in the comp changes.
+ *
+ * Levels holds one channel per input black/white pair, and gamma is left at 1:
+ * the fit is a straight line per channel, so claiming a gamma would be
+ * inventing a curve that was never measured.
+ */
+function seedAddGrade(name, levels, targetLayerName) {
+    try {
+        var comp = seedActiveComp();
+        if (!comp) return seedFail("no active composition");
+        if (!levels || !levels.red || !levels.green || !levels.blue) {
+            return seedFail("no levels were supplied for the grade");
+        }
+
+        app.beginUndoGroup("SEED: add grade");
+
+        var layer = comp.layers.addSolid(
+            [0, 0, 0], "SEED Grade - " + (name || "match"),
+            comp.width, comp.height, 1, comp.duration
+        );
+        layer.adjustmentLayer = true;
+        layer.label = 9;
+
+        /*
+         * Directly above the shot it was measured for, when that shot can be
+         * found — an adjustment layer at the top of the stack would grade
+         * everything under it, which is not what was measured.
+         */
+        var placed = false;
+        if (targetLayerName) {
+            for (var i = 1; i <= comp.numLayers; i++) {
+                if (comp.layer(i).name === targetLayerName) {
+                    layer.moveBefore(comp.layer(i));
+                    placed = true;
+                    break;
+                }
+            }
+        }
+        if (!placed) layer.moveToBeginning();
+
+        var effect = seedAddEffect(layer, ["ADBE Easy Levels2", "ADBE Pro Levels2"]);
+        if (!effect) {
+            app.endUndoGroup();
+            return seedFail("this After Effects has no Levels effect to apply");
+        }
+
+        /*
+         * Set by property *name* rather than match name. The Levels channel
+         * properties are spelled differently between versions and languages,
+         * so each is tried and anything missing is reported rather than
+         * silently skipped — a grade that applied two channels of three would
+         * be worse than one that refused.
+         */
+        var missing = [];
+        function setChannel(labels, value) {
+            for (var n = 0; n < labels.length; n++) {
+                try {
+                    var property = effect.property(labels[n]);
+                    if (property) {
+                        property.setValue(value);
+                        return true;
+                    }
+                } catch (error) {
+                    // Try the next spelling.
+                }
+            }
+            missing.push(labels[0]);
+            return false;
+        }
+
+        setChannel(["Red Input Black"], levels.red.inputBlack);
+        setChannel(["Red Input White"], levels.red.inputWhite);
+        setChannel(["Green Input Black"], levels.green.inputBlack);
+        setChannel(["Green Input White"], levels.green.inputWhite);
+        setChannel(["Blue Input Black"], levels.blue.inputBlack);
+        setChannel(["Blue Input White"], levels.blue.inputWhite);
+
+        app.endUndoGroup();
+
+        return seedOk({
+            name: layer.name,
+            compName: comp.name,
+            layerIndex: layer.index,
+            over: placed ? targetLayerName : null,
+            missing: missing
+        });
+    } catch (error) {
+        try { app.endUndoGroup(); } catch (ignored) {}
+        return seedFail(error);
+    }
+}
+
 function seedBuildLookRig(name, lutPath, settings) {
     try {
         var comp = seedActiveComp();
@@ -2331,6 +2430,7 @@ function seedPing() {
 
 var seedAeft_ping = seedPing;
 var seedAeft_getContext = seedGetContext;
+var seedAeft_addGrade = seedAddGrade;
 var seedAeft_setProjectDepth = seedSetProjectDepth;
 var seedAeft_captureFrame = seedCaptureFrame;
 var seedAeft_captureRange = seedCaptureRange;

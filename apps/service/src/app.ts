@@ -35,6 +35,7 @@ import {
 import {
   adoptFileRoute,
   colourMatchRoute,
+  gradeProposalRoute,
   solidAssetRoute,
   getAssetFileRoute,
   getAssetPathRoute,
@@ -113,6 +114,7 @@ export function buildRouter(deps: AppDeps): Router {
     .post("/v1/assets/adopt", adoptFileRoute(deps))
     .post("/v1/assets/solid", solidAssetRoute(deps))
     .post("/v1/assets/colour-match", colourMatchRoute(deps))
+    .post("/v1/assets/grade-proposal", gradeProposalRoute(deps))
     .get("/v1/assets", listAssetsRoute(deps))
     .get("/v1/assets/:id", getAssetRoute(deps))
     .delete("/v1/assets/:id", removeAssetRoute(deps))
