@@ -1,6 +1,6 @@
 # Status
 
-Last updated: 2026-08-17
+Last updated: 2026-08-23
 
 ## Current milestone
 
@@ -48,6 +48,31 @@ regression tests:
    `image/png`, so files were written as `.png` containing JPEG, with wrong
    mime metadata and silently skipped thumbnails. The ingestor now sniffs the
    bytes and treats any provider-declared type as a hint.
+
+## Shipped 2026-08-23 — two competitive features
+
+**Expanding a shot by recovering it first** (`POST /v1/expand/coverage`,
+`/v1/expand/recover`). Luma Reframe and Runway Expand invent the new edges; on
+a shot that moves, most of those edges were photographed in another frame. SEED
+measures the motion, projects the shot into the expanded canvas, and fills what
+the camera actually saw — returning the recovered plate, a residual mask of
+what nobody photographed, and a coverage number per edge.
+
+Verified on a 12-frame pan expanded to 21:9: **50%** recoverable centred (left
+edge 0%, right edge 100%), **100%** with the source pinned left. Where the
+original sits decides whether the footage can pay for the expansion, which is
+something a black-box reframer cannot tell anyone. See ADR 0014.
+
+**Switching the scene by measurement** (`POST /v1/switch`). Beeble's SwitchX —
+generative, shipped February 2026 — does this by inference. SEED solves the
+reference's lighting onto the subject's own normals and composites through a
+matte derived from measured depth, so nothing about the subject is
+resynthesised. Returns render *and* matte. `SwitchXProvider` is registered
+beside it so the two can be run on the same frame. See ADR 0015.
+
+Both report their own limits: the tracker refuses to answer on periodic texture
+rather than guessing a period, and the switch reports a lighting residual when
+the reference needs light nine harmonics cannot express.
 
 ## What exists
 

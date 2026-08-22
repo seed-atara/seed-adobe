@@ -269,3 +269,91 @@ development before the shape check was added.
 - Whether Ark accepts **`first_frame` + `last_frame` as two different images**.
   Everything measured used the same image in both slots. §2 and §3 produce
   exactly this shape, so the first fade-from-black generation answers it.
+
+
+---
+
+## 11. Relighting, reframing and scene-switching — the paid providers
+
+Added 2026-08-23. Three of these need a key, and **a provider with no key is not
+registered at all** — so "it is missing from the list" is the expected symptom
+of a missing key, not a bug.
+
+### Which key unlocks what
+
+| provider | key | what it does |
+|---|---|---|
+| `iclight-v2` | `FAL_KEY` | relight a subject from a description |
+| `luma-reframe` | `FAL_KEY` | expand a shot into another aspect |
+| `beeble-switchx` | `BEEBLE_API_KEY` | switch background, light and wardrobe generatively |
+
+One fal key covers both fal providers. Get it from fal.ai → Keys; Beeble's from
+developer.beeble.ai/api-keys.
+
+Check what actually registered, which is faster than hunting through the panel:
+
+```
+npx tsx scripts/api.ts GET /v1/providers
+```
+
+Expect `iclight-v2` and `luma-reframe` once `FAL_KEY` is set, `beeble-switchx`
+once `BEEBLE_API_KEY` is.
+
+**Costs money.** IC-Light is billed per image; Reframe per started source second
+(about $0.06/s at 540p, $0.12/s at 720p, $0.36/s at 1080p); SwitchX by tier.
+
+### Testing IC-Light — 3 minutes, panel
+
+1. Capture or pick a frame with a clear subject.
+2. Select **IC-Light V2 (relight)** and describe the light: *"low warm key from
+   the left, cool rim, dark background"*.
+
+**Pass:** the subject keeps its shape and identity, and the light moves.
+
+**Know before judging it:** this endpoint is the **text-conditioned** model.
+Handing it a backdrop and expecting the light to be matched to that backdrop is
+not what it does — that is the background-conditioned variant, which is not
+exposed. Use SEED's `/v1/switch` for reference-driven light.
+
+### Testing the two SEED features that need no key at all
+
+Both are local, free and instant. The smoke script builds a synthetic panning
+shot, so it needs no footage:
+
+```
+npx tsx --env-file=.env scripts/expand-switch-smoke.ts
+```
+
+**Pass:** coverage reports about **50%** for a centred 21:9 expansion and
+**100%** with the source pinned left, `/v1/expand/recover` registers a plate and
+a residual mask, and `/v1/switch` registers a render and a matte.
+
+That 50/100 split is the feature working, not a shortfall: a camera panning
+right never sees what is off the left edge, so where the original sits in the
+new canvas decides how much the footage can pay for.
+
+On real footage, render a frame sequence out of After Effects, register the
+frames, and ask the cheap question first:
+
+```
+npx tsx scripts/api.ts POST /v1/expand/coverage '{"frameAssetIds":["ast_...","ast_..."],"aspect":"21:9"}'
+```
+
+**Fail modes worth recognising:**
+
+- `coverage: 0` with `travel: {x: 0, y: 0}` — the shot is locked off. Correct;
+  nothing is recoverable and a generator has to invent all of it.
+- a high `framesRejected` — the tracker refused those frames. Repeating texture
+  or a dissolve. It is designed to decline rather than guess a wrong offset.
+- `/v1/switch` reporting `expressible: false` — the reference needs a hard
+  shadow edge, which nine spherical harmonics cannot carry. The relight will be
+  soft where the reference is sharp.
+- a `matteCoverage` near 0 or 1 in `auto` mode — the depth threshold went wrong.
+  Pass `threshold`, or supply a matte with `alphaMode: "custom"`.
+
+### Comparing ours against Beeble on the same frame
+
+With `BEEBLE_API_KEY` set, run `/v1/switch` and a `beeble-switchx` generation
+from the same source and reference. They answer different questions — ours
+measures and cannot invent, theirs generates and can — so the comparison worth
+making is *identity held* and *edge quality*, not overall prettiness.
