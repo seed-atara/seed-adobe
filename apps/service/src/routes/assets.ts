@@ -9,7 +9,17 @@ import {
   assetKindFromMimeType,
   nowIso,
 } from "@seed-ae/domain";
-import { encodePng, readMp4Size, readPngSize, sniffMimeType } from "@seed-ae/media";
+import {
+  colourDistance,
+  decodeJpegPreview,
+  decodePng,
+  encodePng,
+  measureColour,
+  readMp4Size,
+  readPngSize,
+  sniffMimeType,
+  type ColourStats,
+} from "@seed-ae/media";
 import { resolveStorageUri, toStorageUri } from "@seed-ae/storage";
 import { z } from "zod";
 import { MAX_OUTPUT_BYTES } from "../generation/mediaIngestor.js";
@@ -146,6 +156,105 @@ export function setPosterRoute(deps: AppDeps) {
       byteSize: bytes.length,
     });
     return json({ asset: deps.assets.setThumbnail(asset.id, thumbnailUri) });
+  };
+}
+
+const ColourMatchSchema = z.object({
+  /** The shots to compare, in cut order. Posters are used for video. */
+  assetIds: z.array(z.string().min(1)).min(1).max(200),
+  /** The shot everything is measured against. Defaults to the first. */
+  referenceId: z.string().min(1).optional(),
+});
+
+/**
+ * How far each shot sits from the reference, in Lab.
+ *
+ * Generative shots drift: two clips from the same plates, the same Item and
+ * the same prompt come back at different exposures and different casts, and
+ * cut together they read as two different days. Nothing noticed, because
+ * nothing measured.
+ *
+ * This measures. It deliberately does not correct — a grade belongs in the
+ * host where the artist can see it, and the number is what tells them whether
+ * they need one and on which shot.
+ */
+export function colourMatchRoute(deps: AppDeps) {
+  return async ({ req }: RequestContext) => {
+    const request = parseWith(ColourMatchSchema, await readJsonBody(req));
+
+    const measured: Array<{
+      assetId: string;
+      filename: string;
+      stats?: ColourStats;
+      reason?: string;
+    }> = [];
+
+    for (const id of request.assetIds) {
+      const asset = deps.assets.requireById(id);
+      /*
+       * A clip is measured through its poster. Nothing here decodes video,
+       * and the poster is a real frame from the shot — which is the right
+       * sample anyway, since it is what the artist sees on the card.
+       */
+      const poster =
+        asset.source.type === "after-effects" ? asset.source.posterUri : undefined;
+      const uri = asset.kind === "video" ? (poster ?? asset.thumbnailUri) : asset.storageUri;
+      if (!uri) {
+        measured.push({
+          assetId: id,
+          filename: asset.filename,
+          reason: "no still to measure — this clip has no poster",
+        });
+        continue;
+      }
+
+      const bytes = await readFile(resolveStorageUri(deps.workspace, uri)).catch(
+        () => undefined,
+      );
+      const image = bytes ? (decodePng(bytes) ?? decodeJpegPreview(bytes)) : undefined;
+      if (!image) {
+        measured.push({
+          assetId: id,
+          filename: asset.filename,
+          reason: "could not be decoded",
+        });
+        continue;
+      }
+      measured.push({ assetId: id, filename: asset.filename, stats: measureColour(image) });
+    }
+
+    const reference =
+      measured.find((entry) => entry.assetId === request.referenceId && entry.stats) ??
+      measured.find((entry) => entry.stats);
+
+    if (!reference?.stats) {
+      throw new SeedError(
+        "bad_request",
+        "none of those assets could be measured, so there is nothing to compare",
+      );
+    }
+
+    const referenceStats = reference.stats;
+    return json({
+      referenceId: reference.assetId,
+      shots: measured.map((entry) => ({
+        assetId: entry.assetId,
+        filename: entry.filename,
+        ...(entry.reason ? { reason: entry.reason } : {}),
+        ...(entry.stats
+          ? {
+              distance: Number(colourDistance(entry.stats, referenceStats).toFixed(2)),
+              lightness: Number(entry.stats.mean[0].toFixed(1)),
+              /*
+               * Signed, so the panel can say "warmer" rather than only "off".
+               * a is green-to-red, b is blue-to-yellow.
+               */
+              a: Number(entry.stats.mean[1].toFixed(1)),
+              b: Number(entry.stats.mean[2].toFixed(1)),
+            }
+          : {}),
+      })),
+    });
   };
 }
 

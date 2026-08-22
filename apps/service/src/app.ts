@@ -34,6 +34,7 @@ import {
 } from "./routes/ae.js";
 import {
   adoptFileRoute,
+  colourMatchRoute,
   solidAssetRoute,
   getAssetFileRoute,
   getAssetPathRoute,
@@ -111,6 +112,7 @@ export function buildRouter(deps: AppDeps): Router {
     .post("/v1/assets", registerAssetRoute(deps))
     .post("/v1/assets/adopt", adoptFileRoute(deps))
     .post("/v1/assets/solid", solidAssetRoute(deps))
+    .post("/v1/assets/colour-match", colourMatchRoute(deps))
     .get("/v1/assets", listAssetsRoute(deps))
     .get("/v1/assets/:id", getAssetRoute(deps))
     .delete("/v1/assets/:id", removeAssetRoute(deps))
