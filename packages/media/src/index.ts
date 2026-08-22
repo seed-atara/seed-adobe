@@ -5,3 +5,4 @@ export * from "./alpha.js";
 export * from "./jpeg.js";
 export * from "./mp4.js";
 export * from "./colour.js";
+export * from "./passes.js";
