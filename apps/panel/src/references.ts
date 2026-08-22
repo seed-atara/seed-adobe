@@ -62,6 +62,51 @@ export function lastFrameWithoutFirst(roles: readonly ReferenceRole[]): boolean 
   return hasLast && !hasOpening;
 }
 
+/** The flat frames SEED can make on request. */
+export type FlatColour = "black" | "white" | "green" | "blue";
+
+/**
+ * The RGB a flat frame is made at.
+ *
+ * Green and blue are the *pure* primaries rather than broadcast chroma-key
+ * paint (#00B140 green, #0047BB blue). Those values exist because real cloth
+ * lit by real lamps cannot reach a primary and cameras add noise — neither
+ * applies to a frame being synthesised here, and a pure primary is the one a
+ * keyer has least trouble with.
+ */
+export function flatColourLevels(colour: FlatColour): {
+  red: number;
+  green: number;
+  blue: number;
+} {
+  switch (colour) {
+    case "white":
+      return { red: 255, green: 255, blue: 255 };
+    case "green":
+      return { red: 0, green: 255, blue: 0 };
+    case "blue":
+      return { red: 0, green: 0, blue: 255 };
+    default:
+      return { red: 0, green: 0, blue: 0 };
+  }
+}
+
+/** How a flat frame reads in a button or a sentence. */
+export function flatColourLabel(colour: FlatColour): string {
+  return colour === "green" || colour === "blue" ? `${colour} screen` : colour;
+}
+
+/*
+ * The screen colours are matched only as "green screen" / "bluescreen", never
+ * as a bare colour word.
+ *
+ * "from black" is almost always a fade; "from green" is almost always a
+ * field, a light or a coat. Requiring the word "screen" is what keeps a
+ * chroma frame from being offered on every prompt that happens to mention the
+ * colour.
+ */
+const SCREEN = "(green|blue)[\\s-]?screens?";
+
 /**
  * Whether the prompt asks the shot to begin from a flat colour.
  *
@@ -76,11 +121,17 @@ export function lastFrameWithoutFirst(roles: readonly ReferenceRole[]): boolean 
  */
 export function opensFromFlatColour(
   prompt: string,
-): { colour: "black" | "white" } | undefined {
+): { colour: FlatColour } | undefined {
   const text = prompt.toLowerCase();
+  const screen = new RegExp(
+    "\\b(?:from|out of|starts? (?:on|at|in)|opens? on|begins? on)\\s+(?:an?\\s+)?" + SCREEN,
+  );
   const from = /\b(?:from|out of|starts? (?:on|at|in))\s+(?:(?:fully|pure|completely|complete|total|solid|full)\s+)?(black|white)\b/;
   const fade = /\b(?:fade|fades|fading)\s+(?:up|in)\s+from\s+(?:(?:fully|pure|solid)\s+)?(black|white)\b/;
   const begins = /\b(?:begin|begins|open|opens)\s+(?:on|in|with)\s+(?:(?:fully|pure|solid|total)\s+)?(black|white)\b/;
+
+  const screened = screen.exec(text);
+  if (screened) return { colour: screened[1] === "blue" ? "blue" : "green" };
 
   for (const pattern of [fade, begins, from]) {
     const found = pattern.exec(text);
@@ -99,8 +150,11 @@ export function opensFromFlatColour(
  */
 export function closesToFlatColour(
   prompt: string,
-): { colour: "black" | "white" } | undefined {
+): { colour: FlatColour } | undefined {
   const text = prompt.toLowerCase();
+  const screen = new RegExp(
+    "\\b(?:to|into|ends? (?:on|in|with|at)|closes? on|finish(?:es)? on)\\s+(?:an?\\s+)?" + SCREEN,
+  );
   const fade = /\b(?:fade|fades|fading)\s+(?:out\s+)?to\s+(?:(?:fully|pure|solid)\s+)?(black|white)\b/;
   const ends = /\b(?:end|ends|ending|finish|finishes|closes?)\s+(?:on|in|with|at)\s+(?:(?:fully|pure|solid|total)\s+)?(black|white)\b/;
   /*
@@ -111,6 +165,9 @@ export function closesToFlatColour(
    * frame, not the frame itself.
    */
   const to = /\b(?:to|into|down to|out to)\s+(?:(?:fully|pure|completely|complete|total|solid|full)\s+)?(black|white)\b(?=\s*(?:[.,;!?]|$))/;
+
+  const screened = screen.exec(text);
+  if (screened) return { colour: screened[1] === "blue" ? "blue" : "green" };
 
   for (const pattern of [fade, ends, to]) {
     const found = pattern.exec(text);

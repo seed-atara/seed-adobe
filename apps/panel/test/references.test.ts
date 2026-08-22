@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import {
   alignRoles,
   closesToFlatColour,
+  flatColourLabel,
+  flatColourLevels,
   isAnchored,
   lastFrameWithoutFirst,
   mixesFrameModes,
@@ -113,6 +115,54 @@ describe("closesToFlatColour", () => {
     const both = "from fully black, the logo forms, then fade to black";
     expect(opensFromFlatColour(both)?.colour).toBe("black");
     expect(closesToFlatColour(both)?.colour).toBe("black");
+  });
+});
+
+describe("green and blue screens", () => {
+  const opens = (prompt: string) => opensFromFlatColour(prompt)?.colour;
+  const closes = (prompt: string) => closesToFlatColour(prompt)?.colour;
+
+  it("opens on a screen when asked", () => {
+    expect(opens("starts on a green screen, she walks in")).toBe("green");
+    expect(opens("from a bluescreen, the logo resolves")).toBe("blue");
+    expect(opens("opens on green-screen then cuts")).toBe("green");
+  });
+
+  it("closes on a screen when asked", () => {
+    expect(closes("she turns and it ends on a green screen")).toBe("green");
+    expect(closes("fades to a blue screen")).toBe("blue");
+    expect(closes("the shot closes on greenscreen")).toBe("green");
+  });
+
+  it("needs the word screen, never a bare colour", () => {
+    /*
+     * "from black" is almost always a fade. "from green" is almost always a
+     * field, a light or a coat — so the screen colours are only ever matched
+     * with the word that makes them a screen.
+     */
+    expect(opens("from green fields to the sea")).toBeUndefined();
+    expect(closes("from green fields to the sea")).toBeUndefined();
+    expect(opens("from blue skies")).toBeUndefined();
+    expect(closes("she vanishes into blue light")).toBeUndefined();
+  });
+
+  it("does not fire on a screen that is only scenery", () => {
+    // Describing the set, not asking the shot to begin or end there.
+    expect(opens("she stands in front of a green screen")).toBeUndefined();
+    expect(closes("a green screen fills the background")).toBeUndefined();
+  });
+
+  it("gives pure primaries, and black stays black", () => {
+    expect(flatColourLevels("green")).toEqual({ red: 0, green: 255, blue: 0 });
+    expect(flatColourLevels("blue")).toEqual({ red: 0, green: 0, blue: 255 });
+    expect(flatColourLevels("black")).toEqual({ red: 0, green: 0, blue: 0 });
+    expect(flatColourLevels("white")).toEqual({ red: 255, green: 255, blue: 255 });
+  });
+
+  it("reads as a screen in the interface", () => {
+    expect(flatColourLabel("green")).toBe("green screen");
+    expect(flatColourLabel("blue")).toBe("blue screen");
+    expect(flatColourLabel("black")).toBe("black");
   });
 });
 

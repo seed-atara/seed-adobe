@@ -26,7 +26,13 @@ import { LineageView } from "./components/LineageView.tsx";
 import { ItemsView } from "./components/ItemsView.tsx";
 import { findMentions } from "./mentions.ts";
 import { bestQualitySize } from "./quality.ts";
-import { alignRoles, providerForClip } from "./references.ts";
+import {
+  alignRoles,
+  flatColourLabel,
+  flatColourLevels,
+  providerForClip,
+  type FlatColour,
+} from "./references.ts";
 import { resultDepthWarning } from "./colorSummary.ts";
 import { resolveRefineTarget } from "./refine.ts";
 
@@ -687,19 +693,16 @@ export function App({ tabs }: AppProps = {}) {
    * own reference holding the other end.
    */
   const addFlatFrame = useCallback(
-    async (colour: "black" | "white", role: "first" | "last") => {
+    async (colour: FlatColour, role: "first" | "last") => {
       setBusy(true);
       setError(undefined);
       try {
         const width = Number(aeContext.compWidth) || 1920;
         const height = Number(aeContext.compHeight) || 1080;
-        const level = colour === "white" ? 255 : 0;
         const { asset } = await client.createSolidAsset({
           width,
           height,
-          red: level,
-          green: level,
-          blue: level,
+          ...flatColourLevels(colour),
           ...(activeProject ? { project: activeProject } : {}),
         });
         await refreshAssets();
@@ -718,12 +721,13 @@ export function App({ tabs }: AppProps = {}) {
                 inputRoles: [...existing, "last" as const],
               };
         });
+        const named = flatColourLabel(colour);
         setNotice(
           role === "first"
-            ? `Added a ${colour} ${width}x${height} opening frame. The shot ` +
+            ? `Added a ${named} ${width}x${height} opening frame. The shot ` +
                 "starts there and animates towards your other frame."
-            : `Added a ${colour} ${width}x${height} closing frame. The shot ` +
-                "animates from your other frame down to it.",
+            : `Added a ${named} ${width}x${height} closing frame. The shot ` +
+                "animates from your other frame to it.",
         );
       } catch (cause) {
         report(cause);

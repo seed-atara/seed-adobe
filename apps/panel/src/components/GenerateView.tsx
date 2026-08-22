@@ -11,10 +11,12 @@ import { assetToken } from "../mentions.ts";
 import {
   alignRoles,
   closesToFlatColour,
+  flatColourLabel,
   isAnchored,
   lastFrameWithoutFirst,
   mixesFrameModes,
   opensFromFlatColour,
+  type FlatColour,
 } from "../references.ts";
 import { bestQualitySize } from "../quality.ts";
 import { ItemPicker } from "./ItemPicker.tsx";
@@ -146,7 +148,7 @@ interface Props {
   onRegionChange?: (region: RegionSettings) => void;
   onAddRegion?: () => void;
   onCaptureRegion?: (mode: "still" | "clip") => void;
-  onAddFlatFrame?: (colour: "black" | "white", role: "first" | "last") => void;
+  onAddFlatFrame?: (colour: FlatColour, role: "first" | "last") => void;
   onRefreshRegions?: () => void;
   onRegionAspect?: (aspect: string) => void;
   onRegionContain?: (contained: boolean) => void;
@@ -806,7 +808,7 @@ export function GenerateView({
                   onClick={() => onAddFlatFrame(wantedOpening?.colour ?? "black", "first")}
                   disabled={busy}
                 >
-                  Open from {wantedOpening?.colour ?? "black"}
+                  Open from {flatColourLabel(wantedOpening?.colour ?? "black")}
                 </button>
               </div>
             ) : null}
@@ -818,12 +820,12 @@ export function GenerateView({
         ) ? (
           <div className="notice">
             Your prompt {wantedOpening && !hasOpening ? "opens from " : ""}
-            {wantedOpening && !hasOpening ? <b>{wantedOpening.colour}</b> : null}
+            {wantedOpening && !hasOpening ? <b>{flatColourLabel(wantedOpening.colour)}</b> : null}
             {wantedOpening && !hasOpening && wantedClosing && !hasClosing
               ? " and "
               : ""}
             {wantedClosing && !hasClosing ? "ends on " : ""}
-            {wantedClosing && !hasClosing ? <b>{wantedClosing.colour}</b> : null}
+            {wantedClosing && !hasClosing ? <b>{flatColourLabel(wantedClosing.colour)}</b> : null}
             . The model needs those as frames rather than words — this makes one
             at the shape of the shot and anchors that end to it.
             <div style={{ marginTop: 8, display: "flex", gap: 6 }}>
@@ -833,7 +835,7 @@ export function GenerateView({
                   onClick={() => onAddFlatFrame(wantedOpening.colour, "first")}
                   disabled={busy}
                 >
-                  Open from {wantedOpening.colour}
+                  Open from {flatColourLabel(wantedOpening.colour)}
                 </button>
               ) : null}
               {wantedClosing && !hasClosing ? (
@@ -842,7 +844,7 @@ export function GenerateView({
                   onClick={() => onAddFlatFrame(wantedClosing.colour, "last")}
                   disabled={busy}
                 >
-                  End on {wantedClosing.colour}
+                  End on {flatColourLabel(wantedClosing.colour)}
                 </button>
               ) : null}
             </div>
