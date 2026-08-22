@@ -2,6 +2,7 @@ import { MockAeHostAdapter, type AeHostAdapter } from "@seed-ae/ae-host";
 import {
   ArkAssetLibrary,
   ICLightProvider,
+  ReframeProvider,
   ArkOpenApiClient,
   LookProvider,
   MockImageProvider,
@@ -377,6 +378,19 @@ export function buildRegistry(
       }),
     );
     logger.info("provider.registered", { provider: "iclight-v2" });
+
+    /*
+     * Reframe rides the same key. Registered alongside rather than inside the
+     * IC-Light block because they answer different questions — one relights a
+     * shot, the other changes its shape — and an artist should see two tools.
+     */
+    registry.register(
+      new ReframeProvider({
+        apiKey: config.falKey,
+        ...(config.falReframeModel ? { model: config.falReframeModel } : {}),
+      }),
+    );
+    logger.info("provider.registered", { provider: "luma-reframe" });
   }
 
     for (const model of config.seedanceModelIds) {

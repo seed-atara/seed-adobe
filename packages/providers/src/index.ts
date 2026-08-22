@@ -12,3 +12,5 @@ export * from "./seedream/seedreamProvider.js";
 export * from "./types.js";
 export * from "./look/lookProvider.js";
 export * from "./iclight/icLightProvider.js";
+export * from "./fal/queue.js";
+export * from "./fal/reframeProvider.js";
