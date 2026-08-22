@@ -1,6 +1,7 @@
 # 0013 — Expanding a shot into another aspect
 
-**Status:** provider built 2026-08-22; the differentiated half is planned
+**Status:** superseded in part by [0014](0014-expansion-by-recovery.md), which
+built the recovery half. The panel route uses **Seedance**, not Luma — see below.
 **Date:** 2026-08-22
 
 Portrait to landscape and back, on footage that moves — filling in what was
@@ -79,8 +80,33 @@ artist can act on.
    stage 3 is worth it.
 3. **The mosaic fill** — recover those pixels and hand the rest over.
 
-Stage 1 is shipped. Stage 2 is the next piece worth building, because it is
-small and it answers whether stage 3 pays for itself on real footage.
+All three stages are shipped. Stage 1 as `ReframeProvider`, stages 2 and 3 as
+`/v1/expand/coverage` and `/v1/expand/recover` with the Expand tab over them.
+
+## What changed once it was built: Seedance, not Luma
+
+The panel route generates with **Seedance**, and the reason is a constraint
+that reads like an obstacle and is really the mechanism.
+
+Ark decides the output shape from the input rather than from a field — "for
+first-frame or first-last-frame generation, the output ratio follows the
+first-frame image" — and refuses a stated ratio beside a frame. A reference
+clip is the same: "the output ratio and duration follow the input video".
+
+The mosaic is already the target shape. Handing it over as the first frame
+*is* the aspect instruction, so there is nothing to argue about, and Seedance
+is finishing a picture rather than being asked to make one wider. Luma Reframe
+stays registered as the alternative — it takes a clip where this takes a
+plate, and it is the better answer for a locked-off shot where recovery has
+nothing to offer.
+
+## And the step neither of them can do
+
+After Effects nests the **original composition** over the generated clip at the
+rectangle the mosaic was planned around. Only the invented margins survive, so
+the performance is untouched by construction rather than preserved by a model
+that was asked to preserve it. No browser tool can do this, because none of
+them has the plate as a layer.
 
 ## Sources
 

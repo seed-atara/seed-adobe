@@ -310,6 +310,14 @@ once `BEEBLE_API_KEY` is.
 
 **Pass:** the subject keeps its shape and identity, and the light moves.
 
+**It also needs `SEED_R2_*`.** IC-Light takes a link and nothing else, so the
+plate has to be hosted. Until 2026-08-23 the service ignored what a provider
+declared about addressing and handed every non-Seedream provider raw base64 —
+so this would have failed on its first real generation with "needs a fetchable
+URL" for a reference the service had a bucket and every means to host. Fixed;
+if the bucket is not configured the job now fails naming the four settings that
+would fix it, which is the right refusal rather than a confusing one.
+
 **Know before judging it:** this endpoint is the **text-conditioned** model.
 Handing it a backdrop and expecting the light to be matched to that backdrop is
 not what it does — that is the background-conditioned variant, which is not
@@ -357,3 +365,73 @@ With `BEEBLE_API_KEY` set, run `/v1/switch` and a `beeble-switchx` generation
 from the same source and reference. They answer different questions — ours
 measures and cannot invent, theirs generates and can — so the comparison worth
 making is *identity held* and *edge quality*, not overall prettiness.
+
+
+## 12. Expanding a plate with Seedance — the Expand tab
+
+Added 2026-08-23. This is the panel route, and it uses **Seedance** rather than
+Luma: the plate reaches it as a first frame, which is what sets the shape.
+
+### Why a first frame and not an aspect setting
+
+Ark decides the output shape from the input rather than from a field — "for
+first-frame or first-last-frame generation, the output ratio follows the
+first-frame image" — and a stated ratio beside a frame is refused outright. A
+reference clip behaves the same way.
+
+So the mosaic being *already* the target shape is not a workaround, it is the
+instruction. Nothing has to argue with the API about aspect, and the model is
+finishing a picture rather than being asked to make one wider.
+
+### The pass, step by step — 15 minutes, AE
+
+Restart After Effects first: this ships a new host script and a new tab.
+
+1. Open a comp with a shot that **moves** — a pan or a tilt. A locked-off shot
+   is a valid input and will honestly report 0% recoverable.
+2. Set the work area to the shot.
+3. **Expand** tab → **Sample work area**. Twelve stills is a good default;
+   more only helps if the move is fast.
+4. Pick the aspect and where the original sits, then **Measure coverage**.
+   Free, instant, and it decides whether the rest is worth doing.
+5. **Recover plate**. Two images come back: the plate, and a mask where white
+   is what nobody ever photographed.
+6. **Send plate to Generate**. It lands as a first frame with the aspect
+   already set. Write the prompt for the *whole wide shot*, then generate.
+7. When the clip is back, import it and build the comp with the original over
+   the top.
+
+**Pass:** the recovered plate shows real photographed detail out at the edges
+the camera swept into, and the residual mask is smaller than the whole margin.
+
+**Watch for:**
+
+- **Coverage differs a lot between placements.** Expected, and the point. A
+  camera panning right never sees what is off the left edge, so "pinned left"
+  can take an expansion from half-recoverable to entirely recoverable.
+- **A smeared subject in the plate.** The median outvotes anything that moved
+  through, but only if enough frames saw the background behind it. More
+  samples, or a shot where the subject actually clears frame.
+- **`framesRejected` above zero.** The tracker declined those matches rather
+  than guessing an offset — repeating texture, a dissolve, or a cut inside the
+  work area.
+- **The sampler refusing a short range.** It will not write more stills than
+  the range has frames: twenty samples across six frames would be the same
+  picture repeatedly, which reads as a locked-off shot.
+
+### The step that makes it safe
+
+A model asked to widen a shot re-renders all of it, the part that was already
+right included. So the assembly puts the generated clip underneath and nests
+the **original composition** over it at exactly the rectangle the mosaic was
+planned around. Only the invented margins reach the result.
+
+The performance in the middle of frame is then untouched by construction —
+not preserved by a model that was asked nicely. This is the part Luma, Runway
+and every browser reframer cannot do, because none of them has your plate as a
+layer.
+
+**Still unproven:** every host call here (`sampleRange`, `assembleExpansion`)
+runs only inside After Effects and nothing in the suite can execute it. The
+sampler's frame quantising, the depth guard over a long run, and the nesting
+maths are all first-run-in-Adobe.
