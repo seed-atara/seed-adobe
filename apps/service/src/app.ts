@@ -75,6 +75,7 @@ import {
   updateItemRoute,
 } from "./routes/items.js";
 import {
+  cameraTransferRoute,
   derivePassesRoute,
   lightTransferRoute,
   listPassesRoute,
@@ -144,6 +145,7 @@ export function buildRouter(deps: AppDeps): Router {
     .post("/v1/passes/derive", derivePassesRoute(deps))
     .post("/v1/passes/relight", relightRoute(deps))
     .post("/v1/passes/light-transfer", lightTransferRoute(deps))
+    .post("/v1/passes/camera-transfer", cameraTransferRoute(deps))
     .post("/v1/items/resolve", resolvePromptRoute(deps))
     .post("/v1/items/describe", describeItemRoute(deps))
     // Literal paths before `:id`, or "import" is read as an item id.

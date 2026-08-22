@@ -1,6 +1,6 @@
 # 0012 — Where SEED can beat Beeble
 
-**Status:** first stage built 2026-08-22 (lighting solve and transfer)
+**Status:** lighting solve, transfer and camera measurement built 2026-08-22
 **Date:** 2026-08-22
 
 ## The honest starting position
@@ -70,7 +70,7 @@ compositing request and an awkward one for a whole-frame tool. SEED's regions
 already produce a sub-comp, a matte and a feathered composite; pointing the
 lighting solve at one is mostly plumbing.
 
-## 4. Camera transfer — designed, not built
+## 4. Camera transfer — built
 
 The other half of "make these two match", and the half nobody offers.
 
@@ -94,9 +94,31 @@ apply them exists. This is the same trick as the lighting solve — turning a
 matching-by-eye job into a measurement — applied to the optics instead of the
 light.
 
-**This is the piece that would make SEED's shot matching genuinely better than
+**This is the piece that makes SEED's shot matching genuinely better than
 anyone's**, because Beeble does not touch the camera at all and a colourist
 matching grain and halation by hand is doing it by eye.
+
+`measureCamera` and `POST /v1/passes/camera-transfer` are built. Given a
+reference *and* a target the answer is the **difference** — what to add to the
+target so the reference's camera appears to have shot it — because a shot that
+already has grain does not want the reference's grain on top of its own.
+
+Every measurement carries a **confidence**, and nothing below the threshold
+becomes a setting. That is not decoration. Tested against real frames, two
+measurements were confidently wrong:
+
+- A product shot on black claimed a 0.92 vignette. A subject on black falls off
+  towards the edge exactly as a lens does, and strength alone cannot tell them
+  apart. The confidence now comes from *shape* — the ring profile is fitted
+  against the `1 - k·r²` a lens actually produces, and a step fits badly. The
+  same frame now reports 0.00 confidence and contributes nothing.
+- The same shot read maximum grain, because grain was being measured across
+  edges and it is all edges. Grain is the residual in a *flat* area, so
+  neighbourhoods that are already varying are skipped. It fell from a clamped
+  3.0 to 1.24.
+
+Both were found by running the measurements on real footage rather than only
+on the synthetic tests, which passed throughout.
 
 ## 5. Identity that survives relighting — the long game
 
@@ -113,8 +135,8 @@ unlit and lit to match wherever it lands.
 
 1. **Lighting solve and transfer** — built.
 2. **Shot-level averaging** — built.
-3. **Camera transfer** — the largest win still available, and entirely
-   measurement rather than research.
+3. **Camera transfer** — built. The panel does not surface it yet; the route
+   does the work.
 4. **Region-scoped relighting** — mostly plumbing over what regions already do.
 5. **Albedo identity plates** — needs the albedo experiment to come back
    positive first.

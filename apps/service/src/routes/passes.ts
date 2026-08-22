@@ -15,6 +15,7 @@ import {
   encodePng,
   applyLighting,
   estimateLighting,
+  measureCamera,
   normalsFromDepth,
   relight,
   type RasterImage,
@@ -380,5 +381,87 @@ export function lightTransferRoute(deps: AppDeps) {
       },
       201,
     );
+  };
+}
+
+const CameraTransferSchema = z.object({
+  /** The shot whose camera is wanted. */
+  referenceAssetId: z.string().min(1),
+  /** Optional: the shot to match, so the settings are a *difference*. */
+  targetAssetId: z.string().min(1).optional(),
+  /** Below this, a measurement is reported but not turned into a setting. */
+  minimumConfidence: z.number().min(0).max(1).default(0.3),
+});
+
+/**
+ * The camera out of a shot, as film-look settings.
+ *
+ * Lighting is half of why two shots refuse to cut together; the camera is the
+ * other half — corner falloff, channel separation towards the edge, grain in
+ * the midtones, red bleeding around a clipped highlight. A colourist matches
+ * those by eye because no tool offers to measure them, and SEED already has an
+ * engine with exactly these parameters.
+ *
+ * With a target as well as a reference, the answer is the *difference*: what to
+ * add to the target to make it look as though the reference's camera shot it.
+ * A shot that already has grain does not want the reference's grain on top.
+ *
+ * Nothing below the confidence threshold becomes a setting. A frame with no
+ * clipped highlights cannot speak about halation, and applying a confident
+ * zero would be worse than applying nothing.
+ */
+export function cameraTransferRoute(deps: AppDeps) {
+  return async ({ req }: RequestContext) => {
+    const request = parseWith(CameraTransferSchema, await readJsonBody(req));
+
+    const reference = measureCamera(await stillFor(deps, request.referenceAssetId));
+    const target = request.targetAssetId
+      ? measureCamera(await stillFor(deps, request.targetAssetId))
+      : undefined;
+
+    const floor = request.minimumConfidence;
+    const settings: Record<string, number> = {};
+    const skipped: string[] = [];
+
+    const consider = (
+      name: string,
+      from: { value: number; confidence: number },
+      to?: { value: number; confidence: number },
+    ) => {
+      if (from.confidence < floor) {
+        skipped.push(`${name}: the reference frame could not answer`);
+        return;
+      }
+      if (to && to.confidence < floor) {
+        skipped.push(`${name}: the target frame could not answer, so no difference could be taken`);
+        return;
+      }
+      // The difference where there is a target; the raw value otherwise.
+      const value = to ? Math.max(0, from.value - to.value) : from.value;
+      settings[name] = Number(value.toFixed(4));
+    };
+
+    consider("vignette", reference.vignette, target?.vignette);
+    consider("ca_lateral", reference.aberration, target?.aberration);
+    consider("grain_scale", reference.grain, target?.grain);
+    consider("halation_scale", reference.halation, target?.halation);
+    // Size is a property of the grain, not an amount, so it is never a
+    // difference — a coarse grain does not become fine by adding more.
+    if (reference.grainSize.confidence >= floor) {
+      settings.grain_size = Number(reference.grainSize.value.toFixed(4));
+    }
+
+    return json({
+      settings,
+      skipped,
+      reference,
+      ...(target ? { target } : {}),
+      note:
+        Object.keys(settings).length === 0
+          ? "This frame could not measure anything confidently. Try one with midtone, edges away from the centre, and a clipped highlight."
+          : request.targetAssetId
+            ? "These are differences — what to add to the target so the reference's camera appears to have shot it."
+            : "These are the reference's own values, to apply to a shot that has none of its own.",
+    });
   };
 }
