@@ -104,6 +104,41 @@ function angleDistance(
 }
 
 /**
+ * What a plate's *role* already implies about what it shows.
+ *
+ * Roles were named before any of this existed, and half of them are shot
+ * descriptions: `profile`, `three-quarter`, `back` and `front` are angles;
+ * `face`, `detail`, `wide` and `establishing` are framings. Reading them means
+ * shot-aware selection works on a library nobody has tagged — which is every
+ * library that exists today.
+ *
+ * An explicit `shot` always wins. This is the fallback, not the source.
+ */
+export function shotFromRole(role: ItemPlate["role"]): PlateShot | undefined {
+  switch (role) {
+    case "front":
+      return { angle: "front" };
+    case "three-quarter":
+      return { angle: "three-quarter" };
+    case "profile":
+      return { angle: "profile" };
+    case "back":
+      return { angle: "back" };
+    case "face":
+    case "detail":
+      return { framing: "close" };
+    case "full-body":
+    case "wide":
+    case "establishing":
+      return { framing: "wide" };
+    default:
+      // wardrobe, texture, in-situ, style-plate, motion, reference — these say
+      // what a plate is for, not how it is shot.
+      return undefined;
+  }
+}
+
+/**
  * How well a plate suits the shot. Higher is better; 0 is "nothing known".
  *
  * A plate that says nothing about itself scores 0 rather than badly. Most
@@ -111,7 +146,7 @@ function angleDistance(
  * this feature actively harmful the day it shipped.
  */
 export function scorePlate(plate: ItemPlate, intent: ShotIntent): number {
-  const shot = plate.shot;
+  const shot = plate.shot ?? shotFromRole(plate.role);
   if (!shot) return 0;
 
   let score = 0;
@@ -153,6 +188,7 @@ export function orderPlatesForShot(
   intent: ShotIntent,
 ): ItemPlate[] {
   if (!hasShotIntent(intent)) return [...plates].sort((a, b) => a.weight - b.weight);
+
 
   return plates
     .map((plate, index) => ({ plate, index, score: scorePlate(plate, intent) }))

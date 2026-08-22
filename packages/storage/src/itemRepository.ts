@@ -98,6 +98,21 @@ interface RevisionRow {
   look_json: string | null;
 }
 
+/** One generation that used an Item revision which is no longer current. */
+export interface StaleShot {
+  generationId: string;
+  itemId: string;
+  handle: string;
+  variantId: string;
+  usedRevisionId: string;
+  usedRevision: number;
+  currentRevisionId: string;
+  currentRevision: number;
+  prompt: string;
+  createdAt: string;
+  project?: string;
+}
+
 export class ItemRepository {
   constructor(private readonly db: Database) {}
 
@@ -477,7 +492,75 @@ export class ItemRepository {
    * Generations
    * ---------------------------------------------------------------- */
 
-  recordForGeneration(generationId: string, items: ResolvedItem[]): void {
+/**
+   * Shots made from an Item revision that has since moved on.
+   *
+   * This is what makes the library a production tool rather than a filing
+   * cabinet. A character gets a new costume, a location a different time of
+   * day — and every shot generated from the old revision is now inconsistent
+   * with the ones made after it. Nothing could say which, so in practice the
+   * answer was to remember, or to regenerate everything.
+   *
+   * The join was built for exactly this: `generation_items` records the
+   * revision each generation actually resolved to, and a revision is immutable,
+   * so "not the newest revision of its variant" is the whole definition of
+   * stale. No heuristics and no timestamps.
+   *
+   * Only succeeded generations. A failed one has nothing to conform.
+   */
+  listStale(options: { project?: string; itemId?: string; limit?: number } = {}): StaleShot[] {
+    const clauses = ["g.status = 'succeeded'", "newest.id <> gi.revision_id"];
+    const params: unknown[] = [];
+    if (options.project) {
+      clauses.push("g.project = ?");
+      params.push(options.project);
+    }
+    if (options.itemId) {
+      clauses.push("gi.item_id = ?");
+      params.push(options.itemId);
+    }
+    params.push(Math.max(1, Math.min(500, options.limit ?? 200)));
+
+    const rows = this.db
+      .prepare(
+        `SELECT gi.generation_id, gi.item_id, gi.handle, gi.variant_id,
+                gi.revision_id AS used_revision_id,
+                used.revision   AS used_revision,
+                newest.id       AS current_revision_id,
+                newest.revision AS current_revision,
+                g.prompt, g.created_at, g.project
+           FROM generation_items gi
+           JOIN generations g       ON g.id = gi.generation_id
+           JOIN item_revisions used ON used.id = gi.revision_id
+           JOIN (
+             SELECT variant_id, id, revision,
+                    ROW_NUMBER() OVER (
+                      PARTITION BY variant_id ORDER BY revision DESC
+                    ) AS row_no
+               FROM item_revisions
+           ) newest ON newest.variant_id = used.variant_id AND newest.row_no = 1
+          WHERE ${clauses.join(" AND ")}
+          ORDER BY g.created_at DESC
+          LIMIT ?`,
+      )
+      .all(...(params as never[])) as Array<Record<string, string | number | null>>;
+
+    return rows.map((row) => ({
+      generationId: String(row.generation_id),
+      itemId: String(row.item_id),
+      handle: String(row.handle),
+      variantId: String(row.variant_id),
+      usedRevisionId: String(row.used_revision_id),
+      usedRevision: Number(row.used_revision),
+      currentRevisionId: String(row.current_revision_id),
+      currentRevision: Number(row.current_revision),
+      prompt: String(row.prompt ?? ""),
+      createdAt: String(row.created_at),
+      ...(row.project ? { project: String(row.project) } : {}),
+    }));
+  }
+
+    recordForGeneration(generationId: string, items: ResolvedItem[]): void {
     const insert = this.db.prepare(
       `INSERT INTO generation_items (generation_id, position, item_id, variant_id,
          revision_id, handle, tier, influence, labels_json, plate_asset_ids_json,

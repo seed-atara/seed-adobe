@@ -134,6 +134,106 @@ describe("revisions through the API", () => {
     expect(after.revisions[before - 1]?.traits).toHaveLength(0);
   });
 
+  it("reports a shot as stale once the item it used has been revised", async () => {
+    /*
+     * The conform pass. A character gets a new costume and every shot made
+     * before that is now inconsistent with every shot made after — and until
+     * this query nothing could say which, so the choice was to remember or to
+     * regenerate everything.
+     *
+     * A real asset, not a registered filename: the generation has to actually
+     * succeed, because a failed shot has nothing to conform.
+     */
+    const asset = await adoptRealAsset(77);
+    const created = await post("/v1/items/adopt", {
+      handle: "conform_shot",
+      kind: "character",
+      name: "Hero",
+      plates: [{ assetId: asset, role: "face" }],
+    });
+    const { item } = ItemResponseSchema.parse(await readJson(created));
+
+    const { job } = (await readJson(
+      await post("/v1/generations", {
+        providerId: "mock-image",
+        operation: "image.generate",
+        prompt: "@conform_shot on a rooftop",
+        size: "64x64",
+        inputAssetIds: [],
+        itemMentions: [
+          { token: "conform_shot", itemId: item.item.id, influence: 60, tier: "brief" },
+        ],
+      }),
+    )) as { job: { id: string } };
+    await service.deps.generation.whenSettled(job.id);
+
+    const jobView = (await readJson(await service.call(`/v1/jobs/${job.id}`))) as {
+      job: { generationId?: string };
+    };
+    const generationId = jobView.job.generationId ?? "";
+    expect(service.deps.generations.requireById(generationId).status).toBe("succeeded");
+
+    // Nothing has changed yet, so nothing is stale.
+    const before = (await readJson(await service.call("/v1/items/stale"))) as {
+      stale: unknown[];
+    };
+    expect(before.stale).toHaveLength(0);
+
+    await post(`/v1/items/${item.item.id}/revisions`, {
+      message: "new coat",
+      traits: [
+        { text: "long grey coat", facet: "wardrobe", priority: 0, driftProne: true },
+      ],
+    });
+
+    const after = (await readJson(await service.call("/v1/items/stale"))) as {
+      stale: Array<{
+        generationId: string;
+        items: Array<{ handle: string; usedRevision: number; currentRevision: number }>;
+      }>;
+    };
+    expect(after.stale).toHaveLength(1);
+    expect(after.stale[0]?.generationId).toBe(generationId);
+
+    const entry = after.stale[0]?.items[0];
+    expect(entry?.handle).toBe("conform_shot");
+    expect(entry?.currentRevision).toBeGreaterThan(entry?.usedRevision ?? 0);
+  });
+
+  it("does not call a failed shot stale — there is nothing to conform", async () => {
+    // A generation that never produced anything cannot be inconsistent with
+    // the ones that did, and listing it would bury the shots that matter.
+    const created = await post("/v1/items/adopt", {
+      handle: "conform_ghost",
+      kind: "character",
+      name: "Ghost",
+      // Registered but with no bytes on disk, so the generation fails.
+      plates: [{ assetId: await registerAsset("ghost.png"), role: "face" }],
+    });
+    const { item } = ItemResponseSchema.parse(await readJson(created));
+
+    const { job } = (await readJson(
+      await post("/v1/generations", {
+        providerId: "mock-image",
+        operation: "image.generate",
+        prompt: "@conform_ghost on a rooftop",
+        size: "64x64",
+        inputAssetIds: [],
+        itemMentions: [
+          { token: "conform_ghost", itemId: item.item.id, influence: 60 },
+        ],
+      }),
+    )) as { job: { id: string } };
+    await service.deps.generation.whenSettled(job.id);
+
+    await post(`/v1/items/${item.item.id}/revisions`, { message: "moved on" });
+
+    const listed = (await readJson(
+      await service.call(`/v1/items/stale?itemId=${item.item.id}`),
+    )) as { stale: unknown[] };
+    expect(listed.stale).toHaveLength(0);
+  });
+
   it("creates a variant that inherits from its parent", async () => {
     const asset = await registerAsset("bar.png");
     const created = await post("/v1/items/adopt", {

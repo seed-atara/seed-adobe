@@ -66,6 +66,7 @@ import {
   getItemRoute,
   itemGenerationsRoute,
   listItemsRoute,
+  staleShotsRoute,
   removeItemRoute,
   renameItemRoute,
   resolvePromptRoute,
@@ -129,6 +130,7 @@ export function buildRouter(deps: AppDeps): Router {
     .post("/v1/items/describe", describeItemRoute(deps))
     // Literal paths before `:id`, or "import" is read as an item id.
     .post("/v1/items/import", importPackRoute(deps))
+    .get("/v1/items/stale", staleShotsRoute(deps))
     .get("/v1/items", listItemsRoute(deps))
     .get("/v1/items/:id", getItemRoute(deps))
     .delete("/v1/items/:id", removeItemRoute(deps))

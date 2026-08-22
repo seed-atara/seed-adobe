@@ -12,6 +12,7 @@ import {
   type ItemMention,
 } from "@seed-ae/domain";
 import { resolveBundle, type MentionBinding } from "@seed-ae/items";
+import { z } from "zod";
 import type { AppDeps } from "../app.js";
 import { parseWith, readJsonBody } from "../http/body.js";
 import { json } from "../http/respond.js";
@@ -103,6 +104,68 @@ export function describeItemRoute(deps: AppDeps) {
       plates,
     });
     return json(result);
+  };
+}
+
+const StaleQuerySchema = z.object({
+  project: z.string().min(1).optional(),
+  itemId: z.string().min(1).optional(),
+  limit: z.coerce.number().int().positive().max(500).optional(),
+});
+
+/**
+ * Which finished shots were made from an Item revision that has moved on.
+ *
+ * The conform pass. Change a character's costume or a location's hour and
+ * every shot generated before that is now inconsistent with every shot made
+ * after — and until now nothing could say which, so the choice was to
+ * remember or to regenerate everything.
+ *
+ * Grouped by generation rather than listed per item: what an artist acts on is
+ * a shot, and one shot may be stale on three items at once.
+ */
+export function staleShotsRoute(deps: AppDeps) {
+  return ({ url }: RequestContext) => {
+    const query = parseWith(
+      StaleQuerySchema,
+      Object.fromEntries(url.searchParams.entries()),
+    );
+    const rows = deps.items.listStale(query);
+
+    const byGeneration = new Map<
+      string,
+      {
+        generationId: string;
+        prompt: string;
+        createdAt: string;
+        project?: string;
+        items: Array<{
+          itemId: string;
+          handle: string;
+          usedRevision: number;
+          currentRevision: number;
+        }>;
+      }
+    >();
+
+    for (const row of rows) {
+      const existing = byGeneration.get(row.generationId) ?? {
+        generationId: row.generationId,
+        prompt: row.prompt,
+        createdAt: row.createdAt,
+        ...(row.project ? { project: row.project } : {}),
+        items: [],
+      };
+      existing.items.push({
+        itemId: row.itemId,
+        handle: row.handle,
+        usedRevision: row.usedRevision,
+        currentRevision: row.currentRevision,
+      });
+      byGeneration.set(row.generationId, existing);
+    }
+
+    return json({ stale: [...byGeneration.values()] });
   };
 }
 
