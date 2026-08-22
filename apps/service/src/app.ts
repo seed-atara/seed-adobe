@@ -83,6 +83,11 @@ import {
   relightRoute,
   startPassesRoute,
 } from "./routes/passes.js";
+import {
+  expandCoverageRoute,
+  expandRecoverRoute,
+  switchRoute,
+} from "./routes/expand.js";
 import { exportPackRoute, importPackRoute } from "./routes/packs.js";
 import { healthRoute } from "./routes/health.js";
 
@@ -146,6 +151,9 @@ export function buildRouter(deps: AppDeps): Router {
     .post("/v1/passes/relight", relightRoute(deps))
     .post("/v1/passes/light-transfer", lightTransferRoute(deps))
     .post("/v1/passes/camera-transfer", cameraTransferRoute(deps))
+    .post("/v1/expand/coverage", expandCoverageRoute(deps))
+    .post("/v1/expand/recover", expandRecoverRoute(deps))
+    .post("/v1/switch", switchRoute(deps))
     .post("/v1/items/resolve", resolvePromptRoute(deps))
     .post("/v1/items/describe", describeItemRoute(deps))
     // Literal paths before `:id`, or "import" is read as an item id.

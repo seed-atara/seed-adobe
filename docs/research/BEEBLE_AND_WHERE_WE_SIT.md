@@ -1,8 +1,45 @@
 # Beeble, and where SEED sits next to it
 
-Researched 2026-08-22, from the SwitchLight paper and Beeble's own material.
+Researched 2026-08-22 from the SwitchLight paper and Beeble's own material.
+**Corrected and extended 2026-08-23**, against the live SwitchX API.
 
-## Beeble is not a generative model, and that is the whole story
+## Correction: Beeble now ships a generative product
+
+The section below said "Beeble is not a generative model, and that is the whole
+story." That was true of **SwitchLight** and is no longer true of Beeble.
+
+**SwitchX** (announced February 2026) is a generative video-to-video model, and
+it is now their flagship. Both products exist and they are different machines —
+conflating them leads to exactly the wrong strategy, so they are separated here:
+
+| | SwitchLight | SwitchX |
+|---|---|---|
+| what it is | inverse rendering | generative video-to-video |
+| output | layered EXR intrinsics | a render plus an alpha matte |
+| can it invent? | no, by construction | yes — wardrobe, environment, perspective |
+| can identity drift? | no | it is *held* by the source pixels and the matte |
+
+SwitchX's central control is an **alpha mask**: white is retained from the
+source and relit, black is generated from the prompt and reference. The
+reference image supplies environment, lighting, colour grade and wardrobe.
+
+Verified against the live API on 2026-08-23:
+
+- `POST https://api.beeble.ai/v1/switchx/generations`, auth `x-api-key`
+- `generation_type` `image|video`; `alpha_mode` `auto|fill|custom|select`
+- one of `prompt` (≤2000 chars) or `reference_image_uri` is required
+- `alpha_uri` required for `custom` and `select`; `alpha_keyframe_index` selects
+  the frame that `select` propagates from
+- `seed`, `max_resolution` (720 or 1080), `callback_url`, `idempotency_key`
+- limits: source ≤ 2,770,000 px, ≤ 240 frames, inline base64 ≤ 50 MB
+- output: `render`, `source` and `alpha` signed URLs, expiring after 72 hours
+- duration by tier: free 5s, Creator 30s, Professional 60s; ~5 min for 2K
+
+The competitive answer is in ADR 0015: SEED's `POST /v1/switch` does the same
+job by *measurement*, and `SwitchXProvider` is registered alongside it so the
+two can be run on the same frame and compared rather than argued about.
+
+## SwitchLight is not a generative model, and that is its whole story
 
 The instinct is to file Beeble alongside Seedance and Kling. It is a different
 kind of machine entirely, and understanding that explains why it gives better

@@ -5,6 +5,8 @@ export * from "./alpha.js";
 export * from "./jpeg.js";
 export * from "./mp4.js";
 export * from "./colour.js";
+export * from "./matte.js";
+export * from "./mosaic.js";
 export * from "./passes.js";
 export * from "./lighting.js";
 export * from "./camera.js";

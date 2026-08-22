@@ -490,3 +490,84 @@ describe("synchronous providers", () => {
     }
   });
 });
+
+describe("how a reference is addressed", () => {
+  /**
+   * `addressing` was declared by every adapter and read by none of them: the
+   * service picked the form from a hard-coded list of provider ids, so a new
+   * provider silently got raw base64 whatever it said it accepted.
+   *
+   * That is invisible until the provider is one that only takes links — as
+   * IC-Light and Reframe are — and then the first real generation fails with
+   * "needs a fetchable URL" for a reference the service could have hosted.
+   */
+  it("hosts a reference for a provider that only takes links", async () => {
+    const { ProviderRegistry } = await import("@seed-ae/providers");
+
+    const linksOnly = {
+      id: "links-only",
+      async capabilities() {
+        return {
+          id: "links-only",
+          displayName: "Links only",
+          models: ["links-v1"],
+          operations: ["image.edit"],
+          textToImage: false,
+          imageToImage: true,
+          maxImageReferences: 1,
+          // The whole point of the fixture: inline is not on the list.
+          addressing: ["hosted-url"],
+          textToVideo: false,
+          imageToVideo: false,
+          videoReferences: false,
+          startEndFrames: false,
+          audioReferences: false,
+          seed: false,
+          sizes: [],
+          aspectRatios: [],
+          async: false,
+        };
+      },
+      async editImage() {
+        throw new Error("the reference never reached the adapter");
+      },
+      async getJob() {
+        return { status: "succeeded" as const };
+      },
+    };
+
+    const service = await startTestService({
+      registry: new ProviderRegistry().register(linksOnly as never),
+    });
+    try {
+      const { asset } = await readJson(
+        await service.call("/v1/ae/capture-frame", { method: "POST", body: "{}" }),
+      );
+
+      const { job } = await readJson(
+        await service.call("/v1/generations", {
+          method: "POST",
+          body: JSON.stringify({
+            providerId: "links-only",
+            operation: "image.edit",
+            prompt: "warm window light from the left",
+            inputAssetIds: [asset.id],
+          }),
+        }),
+      );
+      await service.deps.generation.whenSettled(job.id);
+
+      const settled = await readJson(await service.call(`/v1/jobs/${job.id}`));
+      expect(settled.job.status).toBe("failed");
+      /*
+       * No bucket is configured in a test workspace, so hosting cannot
+       * succeed — and that is exactly the assertion. The service tried to
+       * host and said which four settings would let it, rather than handing
+       * over base64 and letting the adapter refuse it downstream.
+       */
+      expect(settled.job.errorMessage).toMatch(/SEED_R2_ENDPOINT/);
+    } finally {
+      await service.close();
+    }
+  });
+});

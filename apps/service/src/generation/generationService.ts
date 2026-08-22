@@ -27,7 +27,7 @@ import type {
 import { resolveBundle, type MentionBinding } from "@seed-ae/items";
 import type { ResolvedBundle } from "@seed-ae/domain";
 import type { Logger } from "../logger.js";
-import type { InputMaterializer } from "./inputMaterializer.js";
+import type { InputMaterializer, MaterializeKind } from "./inputMaterializer.js";
 import type { MediaIngestor } from "./mediaIngestor.js";
 
 export interface GenerationServiceOptions {
@@ -423,13 +423,41 @@ export class GenerationService {
       this.options.jobs.update(job.id, { status: "running", progress: 0 });
       this.options.generations.setStatus(generation.id, "running");
 
-      // Seedream takes URLs/data URLs; the mock takes raw base64. Both need the
-      // local file turned into something transportable first.
-      const kind = provider.id === "seedream" ? "dataUrl" : "base64";
-      // Ark accepts an image inline and refuses a video the same way — the
-      // clip has to be somewhere it can fetch from. Only Ark providers are
-      // asked to pay for hosting; the mocks and the look run on local bytes.
-      const hostVideo = provider.id.startsWith("seedance") || provider.id === "seedream";
+      /*
+       * How the plate travels, read from what the provider says it accepts.
+       *
+       * This used to be a list of provider ids, which meant every new adapter
+       * silently got `base64` whatever its capabilities declared — and a
+       * provider that only takes links (IC-Light, Reframe) failed on its first
+       * real generation with "needs a fetchable URL" for a reference the
+       * service had every means to host. `addressing` was declared by all six
+       * adapters and read by none of them.
+       *
+       * Inline where inline is accepted, hosted where it is not. A provider
+       * that thinks in URLs gets a data URL rather than loose base64 because
+       * that is the form it builds anyway, and hosting is offered to exactly
+       * those providers that can fetch — the look and the mocks run on local
+       * bytes and are never asked to pay for a bucket.
+       */
+      /*
+       * Defaulted rather than assumed. The schema makes `addressing` required
+       * and all six adapters declare it, but capabilities arrive straight from
+       * the provider here without passing the DTO — so a stub or a half-written
+       * adapter can still omit it. Inline is the conservative reading: it is
+       * what the omission used to mean, and it never spends money on a bucket
+       * for a provider that never asked for one.
+       */
+      const accepts = capabilities.addressing ?? ["inline"];
+      const fetches = accepts.includes("hosted-url");
+      const kind: MaterializeKind = !accepts.includes("inline")
+        ? "url"
+        : fetches
+          ? "dataUrl"
+          : "base64";
+      // A clip is the exception on both sides: Ark refuses an inline video
+      // outright ("reference_video must be provided as a web url"), so anything
+      // that can fetch is given the link instead of the bytes.
+      const hostVideo = fetches;
       const inputs = await this.options.materializer.materializeAll(inputAssets, kind, {
         hostVideo,
       });

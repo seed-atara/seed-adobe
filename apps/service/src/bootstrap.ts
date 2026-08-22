@@ -2,6 +2,7 @@ import { MockAeHostAdapter, type AeHostAdapter } from "@seed-ae/ae-host";
 import {
   ArkAssetLibrary,
   ICLightProvider,
+  SwitchXProvider,
   ReframeProvider,
   ArkOpenApiClient,
   LookProvider,
@@ -370,6 +371,11 @@ export function buildRegistry(
    * Seedance makes a new shot, this relights one that exists. Absent a key it
    * is simply not offered, rather than appearing and failing on use.
    */
+  if (config.beebleApiKey) {
+    registry.register(new SwitchXProvider({ apiKey: config.beebleApiKey }));
+    logger.info("provider.registered", { provider: "beeble-switchx" });
+  }
+
   if (config.falKey) {
     registry.register(
       new ICLightProvider({

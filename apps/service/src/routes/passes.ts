@@ -173,7 +173,7 @@ export function passPresetsRoute() {
  * A clip is read through its poster: nothing here decodes video, and the
  * poster is a real frame from the shot.
  */
-async function stillFor(deps: AppDeps, assetId: string): Promise<RasterImage> {
+export async function stillFor(deps: AppDeps, assetId: string): Promise<RasterImage> {
   const asset = deps.assets.requireById(assetId);
   const poster =
     asset.source.type === "after-effects" ? asset.source.posterUri : undefined;
@@ -193,7 +193,7 @@ async function stillFor(deps: AppDeps, assetId: string): Promise<RasterImage> {
 }
 
 /** Writes an image into the library, through the one ingest path. */
-async function keep(
+export async function keepImage(
   deps: AppDeps,
   image: RasterImage,
   name: string,
@@ -251,13 +251,13 @@ export function derivePassesRoute(deps: AppDeps) {
     if (request.kinds.includes("depth")) {
       made.push({
         kind: "depth",
-        asset: await keep(deps, depth, `${stem}_depth.png`, request.project),
+        asset: await keepImage(deps, depth, `${stem}_depth.png`, request.project),
       });
     }
     if (request.kinds.includes("normal")) {
       made.push({
         kind: "normal",
-        asset: await keep(
+        asset: await keepImage(
           deps,
           normalsFromDepth(depth, request.strength, {
             // The source frame, so the surface comes from the picture.
@@ -325,7 +325,7 @@ export function relightRoute(deps: AppDeps) {
     const stem = deps.assets
       .requireById(request.albedoAssetId)
       .filename.replace(/\.[^.]+$/, "");
-    const asset = await keep(deps, lit, `${stem}_relit.png`, request.project);
+    const asset = await keepImage(deps, lit, `${stem}_relit.png`, request.project);
     return json({ asset }, 201);
   };
 }
@@ -381,7 +381,7 @@ export function lightTransferRoute(deps: AppDeps) {
     const stem = deps.assets
       .requireById(request.targetAlbedoId)
       .filename.replace(/\.[^.]+$/, "");
-    const asset = await keep(deps, lit, `${stem}_lit.png`, request.project);
+    const asset = await keepImage(deps, lit, `${stem}_lit.png`, request.project);
 
     return json(
       {
