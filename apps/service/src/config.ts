@@ -78,6 +78,9 @@ export interface ProviderConfig {
    * authenticates image generation, that one signs the asset library OpenAPI.
    */
   arkApiKey?: string;
+  /** fal, for IC-Light. Absent means the relighter is simply not offered. */
+  falKey?: string;
+  falIcLightModel?: string;
   arkBaseUrl: string;
   seedreamModelId?: string;
   /** Account access key pair for the asset library. */
@@ -192,6 +195,10 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServiceConfig 
       : {}),
     providers: {
       ...(env.ARK_API_KEY?.trim() ? { arkApiKey: env.ARK_API_KEY.trim() } : {}),
+      ...(env.FAL_KEY?.trim() ? { falKey: env.FAL_KEY.trim() } : {}),
+      ...(env.FAL_ICLIGHT_MODEL?.trim()
+        ? { falIcLightModel: env.FAL_ICLIGHT_MODEL.trim() }
+        : {}),
       arkBaseUrl:
         env.ARK_BASE_URL?.trim() || "https://ark.cn-beijing.volces.com",
       ...(env.SEEDREAM_MODEL_ID?.trim()

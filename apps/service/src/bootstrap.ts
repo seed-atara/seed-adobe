@@ -1,6 +1,7 @@
 import { MockAeHostAdapter, type AeHostAdapter } from "@seed-ae/ae-host";
 import {
   ArkAssetLibrary,
+  ICLightProvider,
   ArkOpenApiClient,
   LookProvider,
   MockImageProvider,
@@ -361,6 +362,23 @@ export function buildRegistry(
      * a seed is honoured — and those differ between 2.0 and 2.5, so a single
      * entry would have to claim the union of them and mislead the panel.
      */
+  /*
+   * IC-Light, where a key exists.
+   *
+   * Registered separately from Ark because it answers a different question:
+   * Seedance makes a new shot, this relights one that exists. Absent a key it
+   * is simply not offered, rather than appearing and failing on use.
+   */
+  if (config.falKey) {
+    registry.register(
+      new ICLightProvider({
+        apiKey: config.falKey,
+        ...(config.falIcLightModel ? { model: config.falIcLightModel } : {}),
+      }),
+    );
+    logger.info("provider.registered", { provider: "iclight-v2" });
+  }
+
     for (const model of config.seedanceModelIds) {
       registry.register(
         new SeedanceProvider({

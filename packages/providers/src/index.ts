@@ -11,3 +11,4 @@ export * from "./seedance/seedanceProvider.js";
 export * from "./seedream/seedreamProvider.js";
 export * from "./types.js";
 export * from "./look/lookProvider.js";
+export * from "./iclight/icLightProvider.js";
