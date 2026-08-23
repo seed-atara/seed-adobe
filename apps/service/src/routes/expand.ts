@@ -3,6 +3,9 @@ import { z } from "zod";
 import {
   applyLighting,
   compositeOver,
+  cropTo,
+  describeBars,
+  detectBars,
   expandFromShot,
   fullMatte,
   lightingFromEnvironment,
@@ -69,16 +72,45 @@ const ExpandSchema = z.object({
   project: z.string().min(1).optional(),
 });
 
-async function loadFrames(deps: AppDeps, ids: string[]): Promise<RasterImage[]> {
+interface LoadedShot {
+  frames: RasterImage[];
+  /** Set when the delivery had bars baked in and they were taken off. */
+  cropped?: { bounds: ReturnType<typeof detectBars>; note: string };
+}
+
+/**
+ * The frames, with any baked-in pillarbox or letterbox removed.
+ *
+ * A square or portrait shot delivered as HD is a 16:9 file, so asking to expand
+ * it to 16:9 adds nothing and the answer is a truthful, useless "0%". Worse,
+ * the bars are static and can be half the frame, which biases the tracker
+ * towards reporting no motion at all — a pan measured through its own
+ * pillarbox reads as locked off.
+ *
+ * So the picture is found first. It is reported, never silent: an artist who
+ * did not know their clip was padded needs telling.
+ */
+async function loadFrames(deps: AppDeps, ids: string[]): Promise<LoadedShot> {
   const frames: RasterImage[] = [];
   for (const id of ids) frames.push(await stillFor(deps, id));
 
   const first = frames[0] as RasterImage;
-  return frames.map((frame) =>
+  const sized = frames.map((frame) =>
     frame.width === first.width && frame.height === first.height
       ? frame
       : resize(frame, first.width, first.height),
   );
+
+  const bounds = detectBars(sized);
+  if (!bounds) return { frames: sized };
+
+  return {
+    frames: sized.map((frame) => cropTo(frame, bounds)),
+    cropped: {
+      bounds,
+      note: describeBars(bounds, first.width, first.height),
+    },
+  };
 }
 
 /** Turns the numbers into the sentence an artist actually decides on. */
@@ -128,7 +160,7 @@ function verdictFor(
 export function expandCoverageRoute(deps: AppDeps) {
   return async ({ req }: RequestContext) => {
     const request = parseWith(ExpandSchema, await readJsonBody(req));
-    const frames = await loadFrames(deps, request.frameAssetIds);
+    const { frames, cropped } = await loadFrames(deps, request.frameAssetIds);
 
     const coverage = measureCoverage(
       frames,
@@ -141,6 +173,7 @@ export function expandCoverageRoute(deps: AppDeps) {
 
     return json({
       coverage,
+      ...(cropped ? { cropped: cropped.bounds, croppedNote: cropped.note } : {}),
       verdict: verdictFor(
         coverage.coverage,
         coverage.travel.x,
@@ -162,7 +195,7 @@ export function expandCoverageRoute(deps: AppDeps) {
 export function expandRecoverRoute(deps: AppDeps) {
   return async ({ req }: RequestContext) => {
     const request = parseWith(ExpandSchema, await readJsonBody(req));
-    const frames = await loadFrames(deps, request.frameAssetIds);
+    const { frames, cropped } = await loadFrames(deps, request.frameAssetIds);
     const source = deps.assets.requireById(request.frameAssetIds[0] as string);
     const stem = source.filename.replace(/\.[^.]+$/, "");
 
@@ -198,6 +231,7 @@ export function expandRecoverRoute(deps: AppDeps) {
     return json(
       {
         coverage: result.coverage,
+        ...(cropped ? { cropped: cropped.bounds, croppedNote: cropped.note } : {}),
         verdict: verdictFor(
           result.coverage.coverage,
           result.coverage.travel.x,

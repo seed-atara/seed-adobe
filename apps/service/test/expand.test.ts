@@ -217,3 +217,75 @@ describe("a shot already at the target aspect", () => {
     }
   }, 30_000);
 });
+
+describe("a clip with bars baked into the delivery", () => {
+  /*
+   * Straight from the field: a 1:1 shot delivered as HD, so the file really is
+   * 16:9 and every honest answer about it was useless. Expanding to 16:9 added
+   * nothing, and the static bars — nearly half the frame — pulled the tracker
+   * towards reporting no motion at all.
+   */
+  it("finds the picture, tracks it, and says what it took off", async () => {
+    const service = await startTestService();
+    try {
+      const ids: string[] = [];
+      const BAR = 40;
+      for (const [index, shift] of [0, 7, 14, 21, 28].entries()) {
+        const rgba = new Uint8Array(WIDTH * HEIGHT * 4);
+        for (let y = 0; y < HEIGHT; y += 1) {
+          for (let x = 0; x < WIDTH; x += 1) {
+            const at = (y * WIDTH + x) * 4;
+            rgba[at + 3] = 255;
+            if (x < BAR || x >= WIDTH - BAR) continue; // the pillarbox
+            for (let c = 0; c < 3; c += 1) {
+              let h =
+                Math.imul(x + shift, 374761393) ^
+                Math.imul(y, 668265263) ^
+                Math.imul(c + 1, 2246822519);
+              h = Math.imul(h ^ (h >>> 13), 1274126177);
+              rgba[at + c] = 30 + (((h ^ (h >>> 16)) >>> 0) % 200);
+            }
+          }
+        }
+        const file = path.join(
+          service.deps.workspace.originalsDir,
+          `boxed_${String(index).padStart(3, "0")}.png`,
+        );
+        await writeFile(file, encodePng(WIDTH, HEIGHT, rgba));
+        const body = await readJson(
+          await service.call("/v1/ae/register-capture", {
+            method: "POST",
+            body: JSON.stringify({
+              path: file,
+              width: WIDTH,
+              height: HEIGHT,
+              context: { compName: "boxed", frameNumber: index },
+            }),
+          }),
+        );
+        ids.push(body.asset.id);
+      }
+
+      const body = await readJson(
+        await service.call("/v1/expand/coverage", {
+          method: "POST",
+          body: JSON.stringify({ frameAssetIds: ids, aspect: "16:9" }),
+        }),
+      );
+
+      // The bars came off, and the artist is told so.
+      expect(body.cropped).toMatchObject({ x: BAR, width: WIDTH - BAR * 2 });
+      expect(body.croppedNote).toMatch(/pillarbox/i);
+
+      /*
+       * And now the request means something: the picture is 4:3-ish rather than
+       * 16:9, so expanding to 16:9 genuinely adds area — where before it added
+       * none and reported a truthful, useless zero.
+       */
+      expect(body.coverage.newArea).toBeGreaterThan(0);
+      expect(body.verdict).not.toMatch(/already at this aspect/i);
+    } finally {
+      await service.close();
+    }
+  }, 30_000);
+});

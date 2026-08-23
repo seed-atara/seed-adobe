@@ -347,8 +347,22 @@ frames, and ask the cheap question first:
 npx tsx scripts/api.ts POST /v1/expand/coverage '{"frameAssetIds":["ast_...","ast_..."],"aspect":"21:9"}'
 ```
 
+**A clip with black bars baked in.** A square or portrait shot delivered as HD
+is a genuine 16:9 file, so expanding it to 16:9 adds nothing and the honest
+answer is a useless "0%". The bars also break the track: they are static and can
+be most of the frame, so a matcher scoring the whole frame is rewarded for
+reporting no motion, and a pan reads as locked off.
+
+Both routes now find the picture inside the padding and crop to it first, and
+say so — the response carries `cropped` and `croppedNote` ("pillarbox removed
+(420px left, 420px right) — the picture is 1080x1080"). Nothing to do by hand;
+just check the note matches what you expect before trusting the coverage number.
+
 **Fail modes worth recognising:**
 
+- `coverage: 0` with `newArea: 0` — the frames are already at the aspect asked
+  for, so nothing is being added. Usually means the shot was sampled from a comp
+  that is already the target shape with the footage sitting inside it.
 - `coverage: 0` with `travel: {x: 0, y: 0}` — the shot is locked off. Correct;
   nothing is recoverable and a generator has to invent all of it.
 - a high `framesRejected` — the tracker refused those frames. Repeating texture
