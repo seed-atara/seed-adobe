@@ -1469,16 +1469,20 @@ export function App({ tabs }: AppProps = {}) {
                 : {})}
               onSendToGenerate={(plate, aspect, prompt) => {
                 /*
-                 * As a first frame, deliberately. Ark takes the output ratio
-                 * from the first frame and refuses a stated one alongside it —
-                 * so a plate that is already the target shape *is* the aspect
-                 * instruction, and there is nothing left to argue about.
+                 * A still, not a clip.
+                 *
+                 * The plate is a *world* now — wider than the delivery, moved
+                 * along the shot's own track by the comp. Generating a clip
+                 * from it would hand back the model's invented camera move,
+                 * which is the drift this whole approach exists to avoid. What
+                 * is wanted is the plate's empty margins filled once, as an
+                 * image, and then panned.
                  */
                 setForm((current) => ({
                   ...current,
-                  operation: "video.generate",
+                  operation: "image.edit",
                   inputAssetIds: [plate.id],
-                  inputRoles: ["first"],
+                  inputRoles: [],
                   aspectRatio: aspect,
                   parentAssetId: plate.id,
                   // Composed alongside the plate, and still editable in Generate.
