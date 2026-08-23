@@ -86,10 +86,20 @@ export function readPngDepth(buffer: Buffer): number | undefined {
 const CHANNELS: Record<number, number> = { 0: 1, 2: 3, 4: 2, 6: 4 };
 
 /**
- * Decoder for 8-bit non-interlaced PNGs (greyscale, RGB, and either with
- * alpha) — the shapes our own encoder and typical provider output produce.
- * Anything else (16-bit, palette, interlaced) returns undefined rather than
- * guessing, and callers degrade gracefully.
+ * Decoder for 8- and 16-bit non-interlaced PNGs (greyscale, RGB, and either
+ * with alpha).
+ *
+ * 16-bit is not exotic here: After Effects writes it from any project above 8
+ * bpc, and the capture path deliberately drops a 32-bit project to 16 for the
+ * write. Rejecting it meant every sampled frame from a real project came back
+ * "could not be decoded" — the expansion could not read its own input.
+ *
+ * Samples are taken down to 8 bits by keeping the high byte. Everything
+ * downstream — matching, medians, the plate — works in 8-bit, so carrying the
+ * low byte would cost memory for precision nothing reads.
+ *
+ * Palette and interlaced still return undefined rather than guessing, and
+ * callers degrade gracefully.
  */
 export function decodePng(buffer: Buffer): RasterImage | undefined {
   if (buffer.length < 24 || !buffer.subarray(0, 8).equals(PNG_SIGNATURE)) {
@@ -221,8 +231,14 @@ function toRgba(
   width: number,
   height: number,
   colorType: number,
+  bytesPerSample = 1,
 ): Uint8Array {
-  if (colorType === 6) return new Uint8Array(pixels);
+  if (colorType === 6 && bytesPerSample === 1) return new Uint8Array(pixels);
+
+  const channels = CHANNELS[colorType] as number;
+  // The high byte of a 16-bit sample is that sample to 8-bit precision.
+  const at = (pixel: number, channel: number) =>
+    pixels[(pixel * channels + channel) * bytesPerSample] as number;
 
   const rgba = new Uint8Array(width * height * 4);
   const count = width * height;
@@ -232,14 +248,15 @@ function toRgba(
     let b: number;
     let a = 255;
     if (colorType === 0) {
-      r = g = b = pixels[i] as number;
+      r = g = b = at(i, 0);
     } else if (colorType === 4) {
-      r = g = b = pixels[i * 2] as number;
-      a = pixels[i * 2 + 1] as number;
+      r = g = b = at(i, 0);
+      a = at(i, 1);
     } else {
-      r = pixels[i * 3] as number;
-      g = pixels[i * 3 + 1] as number;
-      b = pixels[i * 3 + 2] as number;
+      r = at(i, 0);
+      g = at(i, 1);
+      b = at(i, 2);
+      if (colorType === 6) a = at(i, 3);
     }
     rgba[i * 4] = r;
     rgba[i * 4 + 1] = g;

@@ -278,7 +278,19 @@ function verdictFor(
   travelY: number,
   newArea = 1,
   source?: { width: number; height: number },
+  planarity = 1,
 ): string {
+  /*
+   * Parallax, caught before the numbers below get to say anything encouraging.
+   *
+   * When only half the frame agrees with the fitted plane, the transform is a
+   * compromise between near and far, and it drifts. Any coverage figure built
+   * on it is describing a plate that is wrong — so this is reported as the
+   * finding rather than buried under a percentage.
+   */
+  if (planarity < 0.7 && (travelX !== 0 || travelY !== 0)) {
+    return `Only ${Math.round(planarity * 100)}% of the frame moves as one flat plane, so this shot has real depth in it — a dolly or a move past close foreground. Near and far travel at different rates, no single track fits both, and the recovered edges will be wrong however accurate the tracking is. Generate the margins instead: press Send to Generate, or use Luma Reframe on the clip.`;
+  }
   /*
    * Nothing is being added, so there is nothing to recover.
    *
@@ -343,6 +355,7 @@ export function expandCoverageRoute(deps: AppDeps) {
         coverage.travel.y,
         coverage.newArea,
         { width: coverage.canvas.width, height: coverage.canvas.height },
+        coverage.planarity,
       ),
     });
   };
@@ -451,6 +464,7 @@ export function expandRecoverRoute(deps: AppDeps) {
             width: result.coverage.canvas.width,
             height: result.coverage.canvas.height,
           },
+          result.coverage.planarity,
         ),
         plate,
         residual,

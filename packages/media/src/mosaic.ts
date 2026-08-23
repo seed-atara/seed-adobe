@@ -416,6 +416,22 @@ export interface CoverageReport {
   framesUsed: number;
   framesRejected: number;
   travel: { x: number; y: number };
+  /**
+   * How well one flat plane explained the shot, 0..1 — the mean share of
+   * patches that agreed with the fitted transform.
+   *
+   * This is the parallax detector. A pan across a distant scene is very nearly
+   * a plane and scores near 1. A dolly down an aisle is not: the near shelf and
+   * the far end move at different rates, no single transform fits both, and the
+   * majority that RANSAC settles on is a compromise that drifts.
+   *
+   * Reported as the **weakest link, not the average**. Transforms compose, so a
+   * single bad step displaces every frame after it — averaging let a chain
+   * containing a 0.33 read as 0.75 because later frames happened to score 1.0,
+   * and a plate built on that chain was badly wrong while the number looked
+   * fine.
+   */
+  planarity: number;
 }
 
 /**
@@ -556,15 +572,62 @@ export function expandFromShot(
    * lets a comp move the background in step with the original instead of
    * leaving it static behind a moving picture.
    */
-  const usable = track.offsets.filter(
-    (offset) => offset.confidence >= (options.minConfidence ?? 0.15),
-  );
-  const xs = usable.map((offset) => offset.x);
-  const ys = usable.map((offset) => offset.y);
-  const minX = xs.length ? Math.min(...xs) : 0;
-  const maxX = xs.length ? Math.max(...xs) : 0;
-  const minY = ys.length ? Math.min(...ys) : 0;
-  const maxY = ys.length ? Math.max(...ys) : 0;
+  const threshold = options.minConfidence ?? 0.15;
+
+  /*
+   * The extent the frames actually cover, corner by corner.
+   *
+   * Taking it from each frame's top-left alone is only right for a pure
+   * translation. Let the transform carry any scale — which a dolly does, and
+   * which is most of what a planar fit finds on a shot with depth — and the
+   * corner flies outward while the picture barely moves. On real footage that
+   * padded a 1080-tall shot into an 1864-tall plate and asked a model to invent
+   * 785px below a camera that never tilted.
+   *
+   * Warping all four corners and taking the box around them is the extent that
+   * is actually needed, under translation, rotation, scale and perspective
+   * alike.
+   */
+  const bounds = { minX: 0, maxX: 0, minY: 0, maxY: 0 };
+  let measured = false;
+  track.offsets.forEach((offset, frame) => {
+    if (offset.confidence < threshold) return;
+    const plane = options.planes?.[frame];
+    const back = plane ? invert(plane) : undefined;
+
+    const points = back
+      ? [
+          [0, 0],
+          [sw, 0],
+          [0, sh],
+          [sw, sh],
+        ].map(([x, y]) => applyHomography(back, x as number, y as number))
+      : [
+          { x: offset.x, y: offset.y },
+          { x: offset.x + sw, y: offset.y + sh },
+        ];
+
+    for (const point of points) {
+      if (!measured) {
+        bounds.minX = point.x;
+        bounds.maxX = point.x;
+        bounds.minY = point.y;
+        bounds.maxY = point.y;
+        measured = true;
+        continue;
+      }
+      bounds.minX = Math.min(bounds.minX, point.x);
+      bounds.maxX = Math.max(bounds.maxX, point.x);
+      bounds.minY = Math.min(bounds.minY, point.y);
+      bounds.maxY = Math.max(bounds.maxY, point.y);
+    }
+  });
+
+  // A frame's own box is the floor; the plate is never smaller than the shot.
+  const minX = Math.round(Math.min(0, bounds.minX));
+  const maxX = Math.round(Math.max(sw, bounds.maxX)) - sw;
+  const minY = Math.round(Math.min(0, bounds.minY));
+  const maxY = Math.round(Math.max(sh, bounds.maxY)) - sh;
 
   const pad = options.padToTravel ?? false;
   const canvas = pad
@@ -779,6 +842,19 @@ export function expandFromShot(
       framesUsed: used,
       framesRejected: track.rejected,
       travel: track.travel,
+      planarity: (() => {
+        /*
+         * Over the links that were used. A frame that failed outright is
+         * counted by `framesRejected` instead — it is a different fact, and
+         * folding it in here would report every shot with one weak frame as
+         * pure parallax.
+         */
+        const scores = track.offsets
+          .slice(1)
+          .map((offset) => offset.confidence)
+          .filter((score) => score >= threshold);
+        return scores.length === 0 ? 0 : Number(Math.min(...scores).toFixed(3));
+      })(),
     },
     windows,
     delivery,

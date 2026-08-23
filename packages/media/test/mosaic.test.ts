@@ -521,3 +521,43 @@ describe("warping through planes", () => {
     expect(Math.abs(planar.travel.y)).toBeLessThan(FRAME_H * 0.1);
   }, 60_000);
 });
+
+/*
+ * From a real shot: a dolly down a supermarket aisle. Near shelf and far end
+ * travel at different rates, so no single plane fits both. The tracker still
+ * returned *a* transform, the plate padded to 1998 tall on a 1080 shot, and a
+ * prompt went out asking a model to invent 785px below a camera that never
+ * tilted. Everything downstream looked confident.
+ */
+describe("planarity", () => {
+  it("is the weakest link, because transforms compose", () => {
+    const frames = panFrames(6, 14);
+    const result = expandFromShot(
+      frames,
+      { aspect: 21 / 9 },
+      {
+        padToTravel: true,
+        track: {
+          // One bad step displaces every frame after it, so an average of
+          // these would be a lie: 0.9 mean, 0.2 actual.
+          offsets: [
+            { x: 0, y: 0, confidence: 1 },
+            { x: 14, y: 0, confidence: 1 },
+            { x: 28, y: 0, confidence: 0.2 },
+            { x: 42, y: 0, confidence: 1 },
+            { x: 56, y: 0, confidence: 1 },
+            { x: 70, y: 0, confidence: 1 },
+          ],
+          travel: { x: 70, y: 0 },
+          rejected: 0,
+        },
+      },
+    );
+    expect(result.coverage.planarity).toBeCloseTo(0.2, 2);
+  }, 30_000);
+
+  it("is high for a shot that really is one plane", () => {
+    const result = expandFromShot(panFrames(6, 14), { aspect: 21 / 9 });
+    expect(result.coverage.planarity).toBeGreaterThan(0.7);
+  }, 30_000);
+});
