@@ -16,6 +16,9 @@ import {
   resize,
   type RasterImage,
 } from "@seed-ae/media";
+import { readFile } from "node:fs/promises";
+import path from "node:path";
+import { decodeJpegPreview, decodePng } from "@seed-ae/media";
 import { estimateDepth } from "../passes/depth.js";
 import { keepImage, stillFor } from "./passes.js";
 import type { AppDeps } from "../app.js";
@@ -58,13 +61,23 @@ const RectSchema = z.object({
 
 const ExpandSchema = z.object({
   /**
-   * The shot, in order, as stills.
+   * The shot, in order, as stills already in the library.
    *
-   * Frames rather than a clip because nothing here decodes video. After Effects
-   * can render a sequence and `POST /v1/ae/register-capture` puts each one in
-   * the library, which is the route that exists today.
+   * Frames rather than a clip because nothing here decodes video. Use this when
+   * the frames are real media — an adopted sequence, say. For frames sampled
+   * only to measure a shot, prefer `framePaths`.
    */
-  frameAssetIds: z.array(z.string().min(1)).min(1).max(600),
+  frameAssetIds: z.array(z.string().min(1)).min(1).max(600).default([]),
+  /**
+   * The shot, in order, as scratch files inside the workspace.
+   *
+   * Sampling a shot produces a dozen stills whose only purpose is to be
+   * measured. Registering those as library media buries the actual work under
+   * intermediates nobody asked for, so the host writes them to `.seed-ae/samples`
+   * and they are read straight off disk — never registered, never thumbnailed,
+   * replaced by the next sample.
+   */
+  framePaths: z.array(z.string().min(1)).min(1).max(600).default([]),
   aspect: AspectSchema,
   /** Where the original sits in the new canvas. Defaults to centred. */
   sourceRect: RectSchema.optional(),
@@ -90,9 +103,45 @@ interface LoadedShot {
  * So the picture is found first. It is reported, never silent: an artist who
  * did not know their clip was padded needs telling.
  */
-async function loadFrames(deps: AppDeps, ids: string[]): Promise<LoadedShot> {
+/**
+ * Reads a scratch still, refusing anything outside the workspace.
+ *
+ * These paths come from the panel, so they are input: a path that escapes
+ * `.seed-ae` would turn "measure my shot" into "read me that file".
+ */
+async function stillFromPath(deps: AppDeps, filePath: string): Promise<RasterImage> {
+  const absolute = path.resolve(filePath);
+  const relative = path.relative(deps.workspace.root, absolute);
+  if (relative.startsWith("..") || path.isAbsolute(relative)) {
+    throw new SeedError(
+      "bad_request",
+      "sample frames have to live inside the workspace",
+    );
+  }
+  const bytes = await readFile(absolute).catch(() => {
+    throw new SeedError("not_found", `sample frame is missing: ${path.basename(absolute)}`);
+  });
+  const image = decodePng(bytes) ?? decodeJpegPreview(bytes);
+  if (!image) {
+    throw new SeedError("bad_request", `${path.basename(absolute)} could not be decoded`);
+  }
+  return image;
+}
+
+async function loadFrames(
+  deps: AppDeps,
+  ids: string[],
+  paths: string[] = [],
+): Promise<LoadedShot> {
+  if (ids.length === 0 && paths.length === 0) {
+    throw new SeedError(
+      "bad_request",
+      "give the shot as frameAssetIds or framePaths",
+    );
+  }
   const frames: RasterImage[] = [];
   for (const id of ids) frames.push(await stillFor(deps, id));
+  for (const file of paths) frames.push(await stillFromPath(deps, file));
 
   const first = frames[0] as RasterImage;
   const sized = frames.map((frame) =>
@@ -160,7 +209,11 @@ function verdictFor(
 export function expandCoverageRoute(deps: AppDeps) {
   return async ({ req }: RequestContext) => {
     const request = parseWith(ExpandSchema, await readJsonBody(req));
-    const { frames, cropped } = await loadFrames(deps, request.frameAssetIds);
+    const { frames, cropped } = await loadFrames(
+      deps,
+      request.frameAssetIds,
+      request.framePaths,
+    );
 
     const coverage = measureCoverage(
       frames,
@@ -195,9 +248,22 @@ export function expandCoverageRoute(deps: AppDeps) {
 export function expandRecoverRoute(deps: AppDeps) {
   return async ({ req }: RequestContext) => {
     const request = parseWith(ExpandSchema, await readJsonBody(req));
-    const { frames, cropped } = await loadFrames(deps, request.frameAssetIds);
-    const source = deps.assets.requireById(request.frameAssetIds[0] as string);
-    const stem = source.filename.replace(/\.[^.]+$/, "");
+    const { frames, cropped } = await loadFrames(
+      deps,
+      request.frameAssetIds,
+      request.framePaths,
+    );
+
+    /*
+     * A name for the plate. Sampled frames are scratch and have no asset to
+     * borrow one from, so the file's own name stands in.
+     */
+    const firstId = request.frameAssetIds[0];
+    const stem = (
+      firstId
+        ? deps.assets.requireById(firstId).filename
+        : path.basename(request.framePaths[0] as string)
+    ).replace(/\.[^.]+$/, "");
 
     const result = expandFromShot(
       frames,
@@ -222,7 +288,7 @@ export function expandRecoverRoute(deps: AppDeps) {
     );
 
     deps.logger.info("expand.recovered", {
-      sourceAssetId: source.id,
+      ...(firstId ? { sourceAssetId: firstId } : { sampled: frames.length }),
       coverage: result.coverage.coverage,
       framesUsed: result.coverage.framesUsed,
       framesRejected: result.coverage.framesRejected,

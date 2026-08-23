@@ -18,6 +18,8 @@ export interface WorkspaceLayout {
   generatedDir: string;
   proxiesDir: string;
   thumbnailsDir: string;
+  /** Scratch stills that are not library media — see `samplesDir` below. */
+  samplesDir: string;
   manifestsDir: string;
 }
 
@@ -37,6 +39,15 @@ export function resolveWorkspace(projectRoot: string): WorkspaceLayout {
     generatedDir: path.join(assetsDir, "generated"),
     proxiesDir: path.join(assetsDir, "proxies"),
     thumbnailsDir: path.join(assetsDir, "thumbnails"),
+    /*
+     * Frames sampled off a shot to measure it — the expansion tracker's input.
+     *
+     * Deliberately *not* under `assets/`, because they are not assets. A dozen
+     * stills per attempt registered as library media buries the actual work
+     * under intermediates nobody asked for and nobody will ever open. They are
+     * scratch: written, read once, and replaced by the next sample.
+     */
+    samplesDir: path.join(root, "samples"),
     manifestsDir: path.join(root, "manifests"),
   };
 }
@@ -51,6 +62,7 @@ export async function ensureWorkspace(
     layout.generatedDir,
     layout.proxiesDir,
     layout.thumbnailsDir,
+    layout.samplesDir,
     layout.manifestsDir,
   ]) {
     await mkdir(dir, { recursive: true });

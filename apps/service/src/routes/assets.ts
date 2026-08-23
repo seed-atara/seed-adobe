@@ -562,6 +562,7 @@ export function workspaceRoute(deps: AppDeps) {
         root: deps.workspace.root,
         originalsDir: deps.workspace.originalsDir,
         generatedDir: deps.workspace.generatedDir,
+        samplesDir: deps.workspace.samplesDir,
       },
       aeHost: deps.aeHost.id,
       // The panel hides direction rather than offering a button that 501s.

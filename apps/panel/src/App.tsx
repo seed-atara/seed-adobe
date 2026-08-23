@@ -1445,8 +1445,14 @@ export function App({ tabs }: AppProps = {}) {
               busy={busy}
               {...(bridge && hostApp() === "AEFT"
                 ? {
-                    onSample: async (count: number) =>
-                      (await bridge.sampleRange({ count })).assets,
+                    onSample: async (count: number) => {
+                      const sampled = await bridge.sampleRange({ count });
+                      return {
+                        paths: sampled.paths,
+                        width: sampled.width,
+                        height: sampled.height,
+                      };
+                    },
                   }
                 : {})}
               onSendToGenerate={(plate, aspect) => {

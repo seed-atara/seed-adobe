@@ -1,5 +1,12 @@
 import { useMemo, useState } from "react";
 import type { Asset } from "@seed-ae/domain";
+
+/** A sampled shot: scratch stills on disk, plus the shape they were taken at. */
+export interface SampledShot {
+  paths: string[];
+  width: number;
+  height: number;
+}
 import type { ExpandCoverage, SeedClient } from "../api/client.ts";
 import { AssetImage, Field, SectionLabel } from "./primitives.tsx";
 
@@ -29,8 +36,14 @@ interface Props {
   client: SeedClient;
   activeProject?: string;
   onRefresh: () => Promise<void> | void;
-  /** Samples the comp through the host. Absent outside After Effects. */
-  onSample?: (count: number) => Promise<Asset[]>;
+  /**
+   * Samples the comp through the host. Absent outside After Effects.
+   *
+   * Returns scratch file paths rather than assets: these frames exist to be
+   * measured, and putting a dozen of them in the library per attempt buries the
+   * work the artist came for.
+   */
+  onSample?: (count: number) => Promise<SampledShot>;
   /** Hands the plate to the Generate tab as an anchoring first frame. */
   onSendToGenerate?: (plate: Asset, aspect: string) => void;
   busy?: boolean;
@@ -95,7 +108,7 @@ export function ExpandView({
   const [count, setCount] = useState(12);
   const [aspect, setAspect] = useState("16:9");
   const [placement, setPlacement] = useState<Placement>("centre");
-  const [frames, setFrames] = useState<Asset[]>([]);
+  const [frames, setFrames] = useState<SampledShot | undefined>();
   const [coverage, setCoverage] = useState<
     { coverage: ExpandCoverage; verdict: string } | undefined
   >();
@@ -107,14 +120,14 @@ export function ExpandView({
 
   const shape = useMemo(
     () =>
-      frames[0]?.width && frames[0]?.height
-        ? { width: frames[0].width, height: frames[0].height }
+      frames?.width && frames?.height
+        ? { width: frames.width, height: frames.height }
         : undefined,
     [frames],
   );
 
   const rect = shape ? rectFor(placement, aspect, shape) : undefined;
-  const frameIds = frames.map((frame) => frame.id);
+  const framePaths = frames?.paths ?? [];
 
   async function run(label: string, work: () => Promise<void>) {
     setWorking(label);
@@ -155,7 +168,7 @@ export function ExpandView({
           onClick={() =>
             run("Sampling", async () => {
               const sampled = await onSample?.(count);
-              setFrames(sampled ?? []);
+              setFrames(sampled);
               setCoverage(undefined);
               setRecovered(undefined);
               await onRefresh();
@@ -168,14 +181,14 @@ export function ExpandView({
       {!onSample ? (
         <p className="hint">
           Sampling reads frames out of the open composition, so it needs After
-          Effects. The rest of this works on any frames already in the library.
+          Effects.
         </p>
       ) : null}
-      {frames.length > 0 ? (
+      {framePaths.length > 0 ? (
         <p className="hint">
-          {frames.length} frames
-          {shape ? `, ${shape.width}x${shape.height}` : ""} — sampled and in the
-          library.
+          {framePaths.length} frames
+          {shape ? `, ${shape.width}x${shape.height}` : ""} — scratch, not added
+          to the library.
         </p>
       ) : null}
 
@@ -209,12 +222,12 @@ export function ExpandView({
         </Field>
         <button
           type="button"
-          disabled={disabled || frameIds.length < 2}
+          disabled={disabled || framePaths.length < 2}
           onClick={() =>
             run("Measuring", async () => {
               setCoverage(
                 await client.expandCoverage({
-                  frameAssetIds: frameIds,
+                  framePaths,
                   aspect,
                   ...(rect ? { sourceRect: rect } : {}),
                 }),
@@ -236,11 +249,11 @@ export function ExpandView({
       </p>
       <button
         type="button"
-        disabled={disabled || frameIds.length < 2}
+        disabled={disabled || framePaths.length < 2}
         onClick={() =>
           run("Recovering", async () => {
             const result = await client.expandRecover({
-              frameAssetIds: frameIds,
+              framePaths,
               aspect,
               ...(rect ? { sourceRect: rect } : {}),
               ...(activeProject ? { project: activeProject } : {}),

@@ -463,7 +463,8 @@ export class CepAeBridge {
     /** How many stills across the range. Defaults to the host's 12. */
     count?: number;
   }): Promise<{
-    assets: Asset[];
+    /** Scratch file paths, not assets — see below. */
+    paths: string[];
     width: number;
     height: number;
     frameRate: number;
@@ -483,28 +484,22 @@ export class CepAeBridge {
       startSeconds: number;
       durationSeconds: number;
     }>(
-      `${hostPrefix()}sampleRange(${quote(workspace.originalsDir)}, ${quote(compName)}, ${
+      `${hostPrefix()}sampleRange(${quote(workspace.samplesDir)}, ${quote(compName)}, ${
         options?.startSeconds ?? "null"
       }, ${options?.durationSeconds ?? "null"}, ${options?.count ?? "null"})`,
     );
 
-    const assets: Asset[] = [];
-    for (const frame of sampled.frames) {
-      const { asset } = await this.client.registerCapture({
-        path: frame.path,
-        context: {
-          ...context,
-          frameNumber: frame.frameNumber,
-          timeSeconds: frame.timeSeconds,
-        },
-        width: sampled.width,
-        height: sampled.height,
-      });
-      assets.push(asset);
-    }
-
+    /*
+     * Deliberately not registered.
+     *
+     * These exist to be measured and then forgotten. A dozen stills per attempt
+     * in the library buries the work the artist actually cares about under
+     * intermediates they never asked for and will never open — the complaint
+     * that prompted this. They stay in `.seed-ae/samples` and are read straight
+     * off disk by the expansion routes.
+     */
     return {
-      assets,
+      paths: sampled.frames.map((frame) => frame.path),
       width: sampled.width,
       height: sampled.height,
       frameRate: sampled.frameRate,

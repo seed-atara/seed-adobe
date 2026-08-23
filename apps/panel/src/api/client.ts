@@ -171,6 +171,7 @@ export class SeedClient {
       projectRoot: string;
       root: string;
       originalsDir: string;
+    samplesDir: string;
       generatedDir: string;
     };
     aeHost: string;
@@ -290,7 +291,8 @@ export class SeedClient {
    * otherwise invent, and this says how much.
    */
   expandCoverage(input: {
-    frameAssetIds: string[];
+    framePaths?: string[];
+    frameAssetIds?: string[];
     aspect: string | number;
     sourceRect?: { x: number; y: number; width: number; height: number };
   }): Promise<{ coverage: ExpandCoverage; verdict: string }> {
@@ -299,7 +301,8 @@ export class SeedClient {
 
   /** The recovered plate, and a mask of what nobody ever photographed. */
   expandRecover(input: {
-    frameAssetIds: string[];
+    framePaths?: string[];
+    frameAssetIds?: string[];
     aspect: string | number;
     sourceRect?: { x: number; y: number; width: number; height: number };
     project?: string;
