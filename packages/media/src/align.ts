@@ -224,11 +224,24 @@ export function gridCorrespondences(
   b: RasterImage,
   options: AlignOptions = {},
 ): Correspondence[] {
-  const gx = options.grid?.x ?? 6;
-  const gy = options.grid?.y ?? 4;
+  /*
+   * The grid shrinks to fit rather than giving up.
+   *
+   * A fixed 6x4 needs a frame of a certain size, and below it every patch fell
+   * under the minimum and this returned nothing at all — no correspondences, no
+   * plane, every frame rejected, and no indication why. Small frames are not
+   * exotic: previews and proxies are exactly that.
+   */
+  const MIN_PATCH = 24;
+  let gx = options.grid?.x ?? 6;
+  let gy = options.grid?.y ?? 4;
+  while (gx > 2 && Math.floor(a.width / gx) < MIN_PATCH) gx -= 1;
+  while (gy > 2 && Math.floor(a.height / gy) < MIN_PATCH) gy -= 1;
+
   const pw = Math.floor(a.width / gx);
   const ph = Math.floor(a.height / gy);
-  if (pw < 24 || ph < 24) return [];
+  // Below this even a 2x2 has nothing to match on, and saying so beats guessing.
+  if (pw < MIN_PATCH || ph < MIN_PATCH) return [];
 
   /*
    * One global match first, used as the prior for every patch.

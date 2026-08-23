@@ -468,3 +468,56 @@ describe("padToTravel", () => {
     for (const window of result.windows) expect(window.x).toBe(0);
   }, 30_000);
 });
+
+/*
+ * The bug this guards against reached real footage: the plate came back holding
+ * a single frame in the middle of a large empty canvas. Every frame reported
+ * its bounds through the plate-to-frame transform instead of the inverse, so
+ * they all wrote into the same patch. The synthetic tests missed it because
+ * they never passed `planes`.
+ */
+describe("warping through planes", () => {
+  it("spreads the shot across the world instead of stacking it in one place", async () => {
+    const { trackPlanes } = await import("../src/index.js");
+    const frames = panFrames(8, 18);
+    const planar = trackPlanes(frames);
+
+    const result = expandFromShot(
+      frames,
+      { aspect: 21 / 9 },
+      {
+        padToTravel: true,
+        planes: planar.planes,
+        track: {
+          offsets: planar.offsets,
+          travel: planar.travel,
+          rejected: planar.rejected,
+        },
+      },
+    );
+
+    // Widest run of filled pixels on the middle row.
+    const row = result.mosaic.height >> 1;
+    let filled = 0;
+    for (let x = 0; x < result.mosaic.width; x += 1) {
+      if ((result.mosaic.rgba[(row * result.mosaic.width + x) * 4 + 3] as number) > 0) {
+        filled += 1;
+      }
+    }
+
+    /*
+     * A pan that travels has to fill more than one frame's width — that is the
+     * entire point of stitching. One frame's worth means the frames landed on
+     * top of each other.
+     */
+    expect(planar.travel.x).toBeGreaterThan(FRAME_W * 0.4);
+    expect(filled).toBeGreaterThan(FRAME_W * 1.3);
+  }, 60_000);
+
+  it("does not invent vertical travel on a level pan", async () => {
+    const { trackPlanes } = await import("../src/index.js");
+    const planar = trackPlanes(panFrames(8, 18));
+    // A sideways move must not accumulate into a taller world.
+    expect(Math.abs(planar.travel.y)).toBeLessThan(FRAME_H * 0.1);
+  }, 60_000);
+});

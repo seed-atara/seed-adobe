@@ -1,4 +1,4 @@
-import { applyHomography, type Homography } from "./align.js";
+import { applyHomography, invert, type Homography } from "./align.js";
 import { fitWithin, resize } from "./resize.js";
 import type { RasterImage } from "./png.js";
 
@@ -630,9 +630,21 @@ export function expandFromShot(
      * transform stretches.
      */
     const plane = options.planes?.[f];
-    const bounds = plane
-      ? warpedBounds(plane, sw, sh, originX, originY, canvas)
-      : { x0: 0, y0: 0, x1: sw, y1: sh };
+    /*
+     * Where this frame lands in the plate needs the *other* direction.
+     *
+     * `plane` maps plate coordinates to this frame's, which is what the
+     * per-pixel lookup below wants. Feeding the frame's own corners through it
+     * answers a different question entirely — and did: every frame reported
+     * bounds around its own position, so they all wrote into the same patch of
+     * a huge canvas and the plate came back holding one frame with empty space
+     * around it.
+     */
+    const back = plane ? invert(plane) : undefined;
+    const bounds =
+      plane && back
+        ? warpedBounds(back, sw, sh, originX, originY, canvas)
+        : { x0: 0, y0: 0, x1: sw, y1: sh };
 
     for (let y = bounds.y0; y < bounds.y1; y += 1) {
       const cy = plane ? y : baseY + y;
