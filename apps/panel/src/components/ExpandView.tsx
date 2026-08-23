@@ -42,7 +42,13 @@ interface Props {
    */
   onSample?: (count: number) => Promise<SampledShot>;
   /** Hands the plate to the Generate tab as an anchoring first frame. */
-  onSendToGenerate?: (plate: Asset, aspect: string, prompt: string) => void;
+  onSendToGenerate?: (
+    plate: Asset,
+    aspect: string,
+    prompt: string,
+    /** The plate's own size, which the fill has to come back at. */
+    size: { width: number; height: number },
+  ) => void;
   /**
    * Builds the comp: the plate animated along the shot's track, original over.
    *
@@ -350,9 +356,11 @@ export function ExpandView({
               type="button"
               className="primary"
               disabled={disabled || !onSendToGenerate}
-              onClick={() => onSendToGenerate?.(plate.plate, aspect, plate.prompt)}
+              onClick={() =>
+                onSendToGenerate?.(plate.plate, aspect, plate.prompt, plate.world)
+              }
             >
-              Send to Generate
+              Fill the margins
             </button>
             <button
               type="button"
@@ -528,7 +536,10 @@ export function ExpandView({
                 type="button"
                 disabled={disabled || !onSendToGenerate}
                 onClick={() =>
-                  onSendToGenerate?.(recovered.plate, aspect, recovered.prompt)
+                  onSendToGenerate?.(recovered.plate, aspect, recovered.prompt, {
+                    width: recovered.coverage.canvas.width,
+                    height: recovered.coverage.canvas.height,
+                  })
                 }
               >
                 Send recovered plate to Generate

@@ -405,6 +405,15 @@ export function expandRecoverRoute(deps: AppDeps) {
      */
     const planar = await trackPlanesYielding(frames, request.minConfidence);
 
+    const usableLinks = planar.offsets
+      .slice(1)
+      .map((offset) => offset.confidence)
+      .filter((score) => score >= request.minConfidence);
+    const planarity = usableLinks.length === 0 ? 0 : Math.min(...usableLinks);
+    const stitchable =
+      planarity >= 0.7 &&
+      (Math.abs(planar.travel.x) > 2 || Math.abs(planar.travel.y) > 2);
+
     const result = expandFromShot(
       frames,
       {
@@ -413,7 +422,19 @@ export function expandRecoverRoute(deps: AppDeps) {
       },
       {
         minConfidence: request.minConfidence,
-        padToTravel: true,
+        /*
+         * A world plate only earns its keep when the track can be trusted.
+         *
+         * Padding exists so a comp can slide the background along the camera
+         * move. Where the shot has parallax the track is a compromise that
+         * drifts, so sliding by it would be worse than not sliding at all — and
+         * the odd-sized plate that padding produces is one no provider offers a
+         * matching output size for, which is what left the fill unfinishable.
+         * Unstitchable shots therefore get a delivery-sized plate and a static
+         * background, which is correct *and* generatable.
+         */
+        padToTravel: stitchable,
+        opaquePlate: true,
         planes: planar.planes,
         track: {
           offsets: planar.offsets,

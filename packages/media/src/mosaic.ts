@@ -534,6 +534,15 @@ export interface MosaicOptions extends TrackOptions {
    * and frames are blitted — cheaper, and right for a locked-off pan.
    */
   planes?: Homography[];
+  /**
+   * Write the plate fully opaque, black where nothing was seen.
+   *
+   * A plate destined for a generator wants this: providers take an image, not
+   * an image plus a mask, so "fill here" has to be visible in the pixels. The
+   * residual still records what was invented. Left off, unseen area stays
+   * transparent, which is what a comp wants.
+   */
+  opaquePlate?: boolean;
 }
 
 /**
@@ -767,11 +776,13 @@ export function expandFromShot(
     const n = counts[index] as number;
     const at = index * 4;
     if (n === 0) {
-      // Nothing ever saw this. Transparent in the plate, white in the mask.
+      // Nothing ever saw this. White in the mask; black in the plate when it is
+      // going to a generator, transparent when it is going to a comp.
       residual.rgba[at] = 255;
       residual.rgba[at + 1] = 255;
       residual.rgba[at + 2] = 255;
       residual.rgba[at + 3] = 255;
+      if (options.opaquePlate) mosaic.rgba[at + 3] = 255;
       continue;
     }
     for (let c = 0; c < 3; c += 1) {

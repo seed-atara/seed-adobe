@@ -1467,7 +1467,22 @@ export function App({ tabs }: AppProps = {}) {
                       }),
                   }
                 : {})}
-              onSendToGenerate={(plate, aspect, prompt) => {
+              onSendToGenerate={(plate, aspect, prompt, size) => {
+                /*
+                 * Pick a provider that can actually deliver this plate back.
+                 *
+                 * The fill has to return at the plate's exact size or the comp
+                 * lands off by however much it differs, and providers only
+                 * accept sizes from their own declared list. So the choice is
+                 * made here against what the plate needs, rather than left on
+                 * whatever the Generate tab happened to have selected.
+                 */
+                const wanted = `${size.width}x${size.height}`;
+                const filler = providers.find(
+                  (candidate) =>
+                    candidate.operations.includes("image.edit") &&
+                    candidate.sizes.includes(wanted),
+                );
                 /*
                  * A still, not a clip.
                  *
@@ -1478,9 +1493,20 @@ export function App({ tabs }: AppProps = {}) {
                  * is wanted is the plate's empty margins filled once, as an
                  * image, and then panned.
                  */
+                if (!filler) {
+                  setError(
+                    `No provider offers ${wanted}, which is the size this plate has ` +
+                      "to come back at. Pick a different aspect, or configure one that does.",
+                  );
+                  return;
+                }
+
                 setForm((current) => ({
                   ...current,
+                  providerId: filler.id,
+                  model: filler.models[0] ?? current.model,
                   operation: "image.edit",
+                  size: wanted,
                   inputAssetIds: [plate.id],
                   inputRoles: [],
                   aspectRatio: aspect,
