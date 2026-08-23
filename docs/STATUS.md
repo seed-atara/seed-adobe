@@ -74,7 +74,12 @@ Both report their own limits: the tracker refuses to answer on periodic texture
 rather than guessing a period, and the switch reports a lighting residual when
 the reference needs light nine harmonics cannot express.
 
-**Luma Reframe and Beeble SwitchX have been removed** (ADR 0016). They were
+**Beeble SwitchX has been removed** (ADR 0016). **Luma Reframe was removed and
+restored** (ADR 0017): expanding a still and generating a clip from it cannot
+match the source, because the generator invents its own camera move — and
+Seedance cannot close the gap, since a first frame and a reference video are
+mutually exclusive and a reference video makes the output follow the input's
+ratio. Reframe is video-native, so the source frames survive. They were
 built to be measured against and have been; keeping a paid provider beside a
 better free one only asks the artist to know the difference. `FAL_KEY` still
 matters — IC-Light stays.

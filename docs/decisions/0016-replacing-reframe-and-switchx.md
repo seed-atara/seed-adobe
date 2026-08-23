@@ -1,3 +1,11 @@
+> **Half of this was wrong, and is reversed by ADR 0017 (2026-08-24).**
+> `ReframeProvider` is restored. Ours expands a *still* and asks a generator to
+> make a clip from it, so the invented margins carry the model's camera move
+> rather than yours and drift against the original once it is composited back.
+> Reframe is video-to-video: the source frames survive, so it matches by
+> construction. The comparison below is accurate and was measuring the wrong
+> axis. The SwitchX half of this ADR stands.
+
 # 0016 — SEED's own expansion and switch replace the bought ones
 
 **Status:** done 2026-08-23 — `ReframeProvider` and `SwitchXProvider` removed

@@ -81,6 +81,7 @@ export interface ProviderConfig {
   /** fal, for IC-Light. Absent means the relighter is not offered. */
   falKey?: string;
   falIcLightModel?: string;
+  falReframeModel?: string;
   arkBaseUrl: string;
   seedreamModelId?: string;
   /** Account access key pair for the asset library. */
@@ -198,6 +199,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServiceConfig 
       ...(env.FAL_KEY?.trim() ? { falKey: env.FAL_KEY.trim() } : {}),
       ...(env.FAL_ICLIGHT_MODEL?.trim()
         ? { falIcLightModel: env.FAL_ICLIGHT_MODEL.trim() }
+        : {}),
+      ...(env.FAL_REFRAME_MODEL?.trim()
+        ? { falReframeModel: env.FAL_REFRAME_MODEL.trim() }
         : {}),
       arkBaseUrl:
         env.ARK_BASE_URL?.trim() || "https://ark.cn-beijing.volces.com",

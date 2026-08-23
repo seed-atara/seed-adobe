@@ -2,6 +2,7 @@ import { MockAeHostAdapter, type AeHostAdapter } from "@seed-ae/ae-host";
 import {
   ArkAssetLibrary,
   ICLightProvider,
+  ReframeProvider,
   ArkOpenApiClient,
   LookProvider,
   MockImageProvider,
@@ -378,6 +379,21 @@ export function buildRegistry(
       }),
     );
     logger.info("provider.registered", { provider: "iclight-v2" });
+
+    /*
+     * Reframe rides the same key, and it is the only tool here that can widen a
+     * *shot*. Seedance cannot: a first frame and a reference video are mutually
+     * exclusive, and a reference video makes the output follow the input's
+     * ratio — both measured. So a still-seeded generation invents its own camera
+     * move and the margins swim against the original when it is composited back.
+     */
+    registry.register(
+      new ReframeProvider({
+        apiKey: config.falKey,
+        ...(config.falReframeModel ? { model: config.falReframeModel } : {}),
+      }),
+    );
+    logger.info("provider.registered", { provider: "luma-reframe" });
   }
 
     for (const model of config.seedanceModelIds) {
