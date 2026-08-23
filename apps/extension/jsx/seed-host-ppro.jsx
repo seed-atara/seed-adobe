@@ -2204,23 +2204,5 @@ var seedPpro_import = seedImport;
 var seedPpro_insertAtPlayhead = seedInsertAtPlayhead;
 var seedPpro_pickFile = seedPickFile;
 
-/*
- * After Effects only.
- *
- * Present so the panel-to-host contract holds in both namespaces, and so the
- * failure is a sentence rather than "function is undefined". Premiere has no
- * composition to nest the original into and no keyframable plate to pan, which
- * is the whole mechanism — this is not a gap to fill later, it is the wrong
- * host for the job.
- */
-function seedAssemblePlateExpansion() {
-    return seedFail(
-        "building a tracked expansion comp needs After Effects — Premiere has " +
-            "no composition to nest the original into. Expand the shot in After " +
-            "Effects, or send the plate to Generate and cut the result in here."
-    );
-}
-
 var seedPpro_captureRange = seedCaptureRange;
-var seedPpro_assemblePlateExpansion = seedAssemblePlateExpansion;
 var seedPpro_rangeInfo = seedRangeInfo;

@@ -49,79 +49,29 @@ regression tests:
    mime metadata and silently skipped thumbnails. The ingestor now sniffs the
    bytes and treats any provider-declared type as a hint.
 
-## Shipped 2026-08-24 — expansion, end to end on a real clip
+## Withdrawn 2026-08-24 — aspect expansion
 
-The expand tab is now one flow: **Expand to 16:9 → Fill the margins → Build
-comp**, without leaving the tab. Recovery moved behind *Recover real pixels
-first (advanced)*, because most shots cannot be recovered and leading with the
-clever path was leading with the failure.
+**Everything SEED built for aspect expansion is deleted** — `/v1/expand/*`, the
+Expand tab, the mosaic, alignment and letterbox modules, and the host functions
+that sampled a comp and assembled a plate. It is preserved at the tag
+`expand-attempt-1` and nowhere else. ADR 0018 records why; the short version is
+that it failed on the footage it was built for, and was written up as working
+before anyone had run it end to end in After Effects.
 
-Measured on the user's own clip (`Puffs_1x1_to 16.9_5.mp4`, a 1:1 picture
-pillarboxed inside 1920×1080, dolly down a supermarket aisle):
+`ReframeProvider` is again the only expansion route. Nothing replaces the rest
+yet, deliberately.
 
-- 24/24 frames decode — After Effects writes **16-bit PNG**, which the decoder
-  used to reject outright.
-- The picture is found at **1075×1080, offset (423,0)**; the baked-in bars are
-  cropped before anything measures motion.
-- **Planarity 0.33** — the dolly has parallax, so recovery correctly declines
-  and the route says to generate the margins instead.
-- Margin fill verified live: 1920×1080 plate → `seedream-4-0-250828`
-  `image.edit` → filled 1920×1080 in **13.7s**, aisle and shelves continuing
-  past both edges, nothing invented in the middle.
-
-Planar tracking went from **19.5s to 2.7s a frame pair** and now yields to the
-event loop between pairs, so the service stays answerable while a track runs.
-
-Nine bugs, their causes, and the process lessons behind them are written up in
-**[docs/HANDOVER_EXPANSION.md](HANDOVER_EXPANSION.md)** — read that before
-touching the mosaic, alignment or letterbox code. The short version: every one
-of those bugs passed a green suite, because the tests were synthetic and at
-resolutions too small for the resolution bugs to appear.
-
-**The one unverified link** is the assembled comp inside After Effects.
-`seedAssemblePlateExpansion` is wired and typechecks; nobody has scrubbed a
-finished comp yet.
-
-## Shipped 2026-08-23 — two competitive features
-
-**Expanding a shot by recovering it first** (`POST /v1/expand/coverage`,
-`/v1/expand/recover`). Luma Reframe and Runway Expand invent the new edges; on
-a shot that moves, most of those edges were photographed in another frame. SEED
-measures the motion, projects the shot into the expanded canvas, and fills what
-the camera actually saw — returning the recovered plate, a residual mask of
-what nobody photographed, and a coverage number per edge.
-
-Verified on a 12-frame pan expanded to 21:9: **50%** recoverable centred (left
-edge 0%, right edge 100%), **100%** with the source pinned left. Where the
-original sits decides whether the footage can pay for the expansion, which is
-something a black-box reframer cannot tell anyone. See ADR 0014.
-
-**Switching the scene by measurement** (`POST /v1/switch`). Beeble's SwitchX —
-generative, shipped February 2026 — does this by inference. SEED solves the
+**Switching the scene by measurement** (`POST /v1/switch`) is unaffected and now
+lives in its own file, `apps/service/src/routes/switch.ts`. Beeble's SwitchX —
+generative, shipped February 2026 — does this job by inference. SEED solves the
 reference's lighting onto the subject's own normals and composites through a
 matte derived from measured depth, so nothing about the subject is
-resynthesised. Returns render *and* matte. `SwitchXProvider` is registered
-beside it so the two can be run on the same frame. See ADR 0015.
+resynthesised. Returns render *and* matte, and reports a lighting residual when
+the reference needs light nine harmonics cannot express. See ADR 0015.
 
-Both report their own limits: the tracker refuses to answer on periodic texture
-rather than guessing a period, and the switch reports a lighting residual when
-the reference needs light nine harmonics cannot express.
-
-**Beeble SwitchX has been removed** (ADR 0016). **Luma Reframe was removed and
-restored** (ADR 0017): expanding a still and generating a clip from it cannot
-match the source, because the generator invents its own camera move — and
-Seedance cannot close the gap, since a first frame and a reference video are
-mutually exclusive and a reference video makes the output follow the input's
-ratio. Reframe is video-native, so the source frames survive. They were
-built to be measured against and have been; keeping a paid provider beside a
-better free one only asks the artist to know the difference. `FAL_KEY` still
-matters — IC-Light stays.
-
-One bug this review caught, worth knowing because it was silent: `measureCoverage`
-strode over frames, and on a shot static apart from a single handheld jolt it
-reported **0% recoverable when 42% was** — wrong in the direction that costs
-money. Coverage now visits every frame; the reservoir spreads per pixel instead,
-deterministically. There is a regression test with the jolt in it.
+**Beeble SwitchX has been removed** as a provider (ADR 0016), on the grounds
+that keeping a paid provider beside a better free one only asks the artist to
+know the difference. `FAL_KEY` still matters — IC-Light stays.
 
 ## What exists
 
@@ -701,9 +651,9 @@ explains it. Worth asking Adobe rather than reverse-engineering.
 
 ## Next engineering actions
 
-1. Scrub an assembled expansion comp in After Effects — the last unverified
-   link in the expand flow. Then exposure-match frames before accumulating; the
-   median currently averages across a brightness step between frames.
+1. Aspect expansion, from nothing. The rule from ADR 0018: start from a shot in
+   After Effects, and do not report it as working until that shot is finished,
+   in the application, and looked at.
 2. Exercise iterate-in-place in Premiere. It is built and has never replaced a
    real clip there; After Effects has.
 3. Decide whether video references should register as Ark assets rather than

@@ -25,7 +25,6 @@ import { AssetDetail } from "./components/AssetDetail.tsx";
 import { LineageView } from "./components/LineageView.tsx";
 import { ItemsView } from "./components/ItemsView.tsx";
 import { RooView } from "./components/RooView.tsx";
-import { ExpandView } from "./components/ExpandView.tsx";
 import { findMentions } from "./mentions.ts";
 import { bestQualitySize } from "./quality.ts";
 import {
@@ -38,7 +37,7 @@ import {
 import { resultDepthWarning } from "./colorSummary.ts";
 import { resolveRefineTarget } from "./refine.ts";
 
-type Tab = "generate" | "items" | "roo" | "expand" | "library" | "lineage";
+type Tab = "generate" | "items" | "roo" | "library" | "lineage";
 
 export interface AppProps {
   /**
@@ -141,7 +140,6 @@ export function App({ tabs }: AppProps = {}) {
     "generate",
     "items",
     "roo",
-    "expand",
     "library",
     "lineage",
   ];
@@ -1434,82 +1432,6 @@ export function App({ tabs }: AppProps = {}) {
               {...(activeProject ? { activeProject } : {})}
               onRefresh={refreshAssets}
               busy={busy}
-            />
-          ) : null}
-
-          {tab === "expand" ? (
-            <ExpandView
-              client={client}
-              {...(activeProject ? { activeProject } : {})}
-              onRefresh={refreshAssets}
-              busy={busy}
-              {...(bridge && hostApp() === "AEFT"
-                ? {
-                    onSample: async (count: number) => {
-                      const sampled = await bridge.sampleRange({ count });
-                      return {
-                        paths: sampled.paths,
-                        width: sampled.width,
-                        height: sampled.height,
-                      };
-                    },
-                  }
-                : {})}
-              {...(bridge
-                ? {
-                    onAssemble: async (input) =>
-                      bridge.assemblePlateExpansion({
-                        path: (await client.assetPath(input.plate.id)).path,
-                        delivery: input.delivery,
-                        world: input.world,
-                        windows: input.windows,
-                        rect: input.rect,
-                      }),
-                  }
-                : {})}
-              {...(bridge
-                ? {
-                    onFill: async (input) => {
-                      /*
-                       * A provider that can hand this plate back at its own
-                       * size. The fill has to return at the plate's exact
-                       * dimensions or the comp lands off by the difference,
-                       * and providers only accept sizes they declare.
-                       */
-                      const wanted = `${input.size.width}x${input.size.height}`;
-                      const filler = providers.find(
-                        (candidate) =>
-                          candidate.operations.includes("image.edit") &&
-                          candidate.sizes.includes(wanted),
-                      );
-                      if (!filler) {
-                        throw new Error(
-                          `No provider offers ${wanted}, which is the size this plate has to come back at.`,
-                        );
-                      }
-
-                      let view = await client.startGeneration({
-                        providerId: filler.id,
-                        model: filler.models[0],
-                        operation: "image.edit",
-                        prompt: input.prompt,
-                        size: wanted,
-                        inputAssetIds: [input.plate.id],
-                        parentAssetId: input.plate.id,
-                        ...(activeProject ? { project: activeProject } : {}),
-                      });
-                      while (!SETTLED.includes(view.job.status)) {
-                        await new Promise((resolve) => setTimeout(resolve, 1500));
-                        view = await client.job(view.job.id);
-                      }
-                      const output = view.outputs[0];
-                      if (view.job.status !== "succeeded" || !output) {
-                        throw new Error(view.job.errorMessage ?? "the fill did not finish");
-                      }
-                      return output;
-                    },
-                  }
-                : {})}
             />
           ) : null}
 

@@ -51,21 +51,6 @@ export interface ProviderCapabilitiesDto {
 }
 
 /** One measurement and how much the frame supported it. */
-/** What an expansion recovered, and where the original sits inside it. */
-export interface ExpandCoverage {
-  canvas: { width: number; height: number };
-  source: { x: number; y: number; width: number; height: number };
-  newArea: number;
-  recovered: number;
-  /** recovered / newArea, 0..1 — the number the decision turns on. */
-  coverage: number;
-  /** Per edge, because a pan fills one side and leaves the other empty. */
-  edges: { left: number; right: number; top: number; bottom: number };
-  framesUsed: number;
-  framesRejected: number;
-  travel: { x: number; y: number };
-}
-
 export interface MeasuredDto {
   value: number;
   confidence: number;
@@ -283,44 +268,7 @@ export class SeedClient {
     return this.request("/v1/passes/relight", { method: "POST", body: input });
   }
 
-  /**
-   * How much of a wider frame the footage itself can pay for.
-   *
-   * Asked before the expensive question, and before any money is spent: a
-   * shot that pans has already photographed most of what a reframer would
-   * otherwise invent, and this says how much.
-   */
-  expandCoverage(input: {
-    framePaths?: string[];
-    frameAssetIds?: string[];
-    aspect: string | number;
-    sourceRect?: { x: number; y: number; width: number; height: number };
-  }): Promise<{ coverage: ExpandCoverage; verdict: string; suggestedPrompt: string }> {
-    return this.request("/v1/expand/coverage", { method: "POST", body: input });
-  }
-
-  /** The recovered plate, and a mask of what nobody ever photographed. */
-  expandRecover(input: {
-    framePaths?: string[];
-    frameAssetIds?: string[];
-    aspect: string | number;
-    sourceRect?: { x: number; y: number; width: number; height: number };
-    project?: string;
-  }): Promise<{
-    coverage: ExpandCoverage;
-    suggestedPrompt: string;
-    verdict: string;
-    plate: Asset;
-    residual: Asset;
-    /** The delivery size. The plate is wider — it holds the whole move. */
-    delivery: { width: number; height: number };
-    /** Where the delivery frame looks inside the plate, per sample. */
-    windows: Array<{ frame: number; x: number; y: number }>;
-  }> {
-    return this.request("/v1/expand/recover", { method: "POST", body: input });
-  }
-
-  /** What has already been derived from a shot. */
+    /** What has already been derived from a shot. */
   listPasses(sourceAssetId: string): Promise<{
     sourceAssetId: string;
     passes: Array<{

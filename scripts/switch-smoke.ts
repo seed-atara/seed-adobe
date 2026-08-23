@@ -1,11 +1,11 @@
 /**
- * End-to-end check for the two new features, against a *running* service.
+ * End-to-end check for `/v1/switch`, against a *running* service.
  *
- *   npx tsx --env-file=.env scripts/expand-switch-smoke.ts [baseUrl] [token]
+ *   npx tsx --env-file=.env scripts/switch-smoke.ts [baseUrl] [token]
  *
- * Synthesises a panning shot rather than needing footage, so it can be run on
- * any machine — the point is that the routes work end to end and register real
- * media, not that the picture is pretty.
+ * Synthesises its own frames rather than needing footage, so it can be run on
+ * any machine — the point is that the route works end to end and registers
+ * real media, not that the picture is pretty.
  */
 import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -89,11 +89,9 @@ function crop(s: RasterImage, x0: number, y0: number, w: number, h: number): Ras
 
 const W = 192;
 const H = 144;
-const FRAMES = 12;
-const STEP = 16;
 
-const dir = await mkdtemp(path.join(tmpdir(), "seed expand "));
-const world = scene(W + STEP * FRAMES + 60, H + 60);
+const dir = await mkdtemp(path.join(tmpdir(), "seed switch "));
+const world = scene(W + 60, H + 60);
 
 async function adopt(image: RasterImage, name: string): Promise<string> {
   const file = path.join(dir, name);
@@ -104,46 +102,6 @@ async function adopt(image: RasterImage, name: string): Promise<string> {
 
 console.log(`service ${baseUrl}`);
 console.log((await call("/health")).status === "ok" ? "health ok" : "health FAILED");
-
-console.log("\n--- registering a synthetic pan ---");
-const frameIds: string[] = [];
-for (let i = 0; i < FRAMES; i += 1) {
-  frameIds.push(await adopt(crop(world, 30 + i * STEP, 30, W, H), `pan_${String(i).padStart(3, "0")}.png`));
-}
-console.log(`${frameIds.length} frames registered`);
-
-console.log("\n--- /v1/expand/coverage (21:9) ---");
-const coverage = await call("/v1/expand/coverage", {
-  frameAssetIds: frameIds,
-  aspect: "21:9",
-});
-console.log(
-  `coverage=${(coverage.coverage.coverage * 100).toFixed(1)}%  ` +
-    `left=${(coverage.coverage.edges.left * 100).toFixed(0)}% right=${(coverage.coverage.edges.right * 100).toFixed(0)}%  ` +
-    `travel=(${coverage.coverage.travel.x},${coverage.coverage.travel.y})`,
-);
-console.log(`verdict: ${coverage.verdict}`);
-
-console.log("\n--- /v1/expand/coverage with the source pinned left ---");
-const pinned = await call("/v1/expand/coverage", {
-  frameAssetIds: frameIds,
-  aspect: "21:9",
-  sourceRect: { x: 0, y: 0, width: 0.5, height: 1 },
-});
-console.log(
-  `coverage=${(pinned.coverage.coverage * 100).toFixed(1)}%  (placement decides what the footage can pay for)`,
-);
-
-console.log("\n--- /v1/expand/recover ---");
-const recovered = await call("/v1/expand/recover", {
-  frameAssetIds: frameIds,
-  aspect: "21:9",
-  sourceRect: { x: 0, y: 0, width: 0.5, height: 1 },
-});
-console.log(
-  `plate=${recovered.plate.id} ${recovered.plate.width}x${recovered.plate.height}  ` +
-    `residual=${recovered.residual.id}  recovered=${(recovered.coverage.coverage * 100).toFixed(1)}%`,
-);
 
 console.log("\n--- /v1/switch (custom matte, no model) ---");
 const subject = crop(world, 30, 30, W, H);

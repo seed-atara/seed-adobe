@@ -1,10 +1,8 @@
-> **Half of this was wrong, and is reversed by ADR 0017 (2026-08-24).**
-> `ReframeProvider` is restored. Ours expands a *still* and asks a generator to
-> make a clip from it, so the invented margins carry the model's camera move
-> rather than yours and drift against the original once it is composited back.
-> Reframe is video-to-video: the source frames survive, so it matches by
-> construction. The comparison below is accurate and was measuring the wrong
-> axis. The SwitchX half of this ADR stands.
+> **Withdrawn in part (2026-08-24).** `ReframeProvider` is restored and is
+> again the only expansion route: SEED's own `/v1/expand/*` was removed after
+> it failed on real footage, and ADR 0018 records why. The SwitchX half of
+> this ADR stands — `/v1/switch` is still the product and `SwitchXProvider` is
+> still gone.
 
 # 0016 — SEED's own expansion and switch replace the bought ones
 
@@ -16,7 +14,8 @@ to register SwitchX alongside our own switch
 ## The decision
 
 Luma Reframe and Beeble SwitchX are no longer registered, and their adapters are
-deleted. `POST /v1/expand/*` and `POST /v1/switch` are the product.
+deleted. `POST /v1/expand/*` and `POST /v1/switch` are the product. (The
+expand half of that was reversed — see the banner and ADR 0018.)
 
 They were built to be measured against, and now they have been. Keeping a paid
 provider in the list once ours does the job means offering an artist a worse and

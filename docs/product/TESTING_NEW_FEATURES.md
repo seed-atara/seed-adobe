@@ -288,7 +288,7 @@ of a missing key, not a bug.
 Get it from fal.ai → Keys.
 
 **Luma Reframe and Beeble SwitchX were removed on 2026-08-23** (ADR 0016).
-SEED's own `/v1/expand/*` and `/v1/switch` do those jobs, free and locally, so
+SEED's own `/v1/switch` does the SwitchX job, free and locally, so
 `BEEBLE_API_KEY` and `FAL_REFRAME_MODEL` are no longer read.
 
 Check what actually registered, which is faster than hunting through the panel:
@@ -323,53 +323,22 @@ Handing it a backdrop and expecting the light to be matched to that backdrop is
 not what it does — that is the background-conditioned variant, which is not
 exposed. Use SEED's `/v1/switch` for reference-driven light.
 
-### Testing the two SEED features that need no key at all
+### Testing the SEED feature that needs no key at all
 
-Both are local, free and instant. The smoke script builds a synthetic panning
-shot, so it needs no footage:
-
-```
-npx tsx --env-file=.env scripts/expand-switch-smoke.ts
-```
-
-**Pass:** coverage reports about **50%** for a centred 21:9 expansion and
-**100%** with the source pinned left, `/v1/expand/recover` registers a plate and
-a residual mask, and `/v1/switch` registers a render and a matte.
-
-That 50/100 split is the feature working, not a shortfall: a camera panning
-right never sees what is off the left edge, so where the original sits in the
-new canvas decides how much the footage can pay for.
-
-On real footage, render a frame sequence out of After Effects, register the
-frames, and ask the cheap question first:
+`/v1/switch` is local, free and instant. The smoke script builds its own
+frames, so it needs no footage:
 
 ```
-npx tsx scripts/api.ts POST /v1/expand/coverage '{"frameAssetIds":["ast_...","ast_..."],"aspect":"21:9"}'
+npx tsx --env-file=.env scripts/switch-smoke.ts
 ```
 
-**A clip with black bars baked in.** A square or portrait shot delivered as HD
-is a genuine 16:9 file, so expanding it to 16:9 adds nothing and the honest
-answer is a useless "0%". The bars also break the track: they are static and can
-be most of the frame, so a matcher scoring the whole frame is rewarded for
-reporting no motion, and a pan reads as locked off.
-
-Both routes now find the picture inside the padding and crop to it first, and
-say so — the response carries `cropped` and `croppedNote` ("pillarbox removed
-(420px left, 420px right) — the picture is 1080x1080"). Nothing to do by hand;
-just check the note matches what you expect before trusting the coverage number.
+**Pass:** `/v1/switch` registers a render and a matte.
 
 **Fail modes worth recognising:**
 
-- `coverage: 0` with `newArea: 0` — the frames are already at the aspect asked
-  for, so nothing is being added. Usually means the shot was sampled from a comp
-  that is already the target shape with the footage sitting inside it.
-- `coverage: 0` with `travel: {x: 0, y: 0}` — the shot is locked off. Correct;
-  nothing is recoverable and a generator has to invent all of it.
-- a high `framesRejected` — the tracker refused those frames. Repeating texture
-  or a dissolve. It is designed to decline rather than guess a wrong offset.
-- `/v1/switch` reporting `expressible: false` — the reference needs a hard
-  shadow edge, which nine spherical harmonics cannot carry. The relight will be
-  soft where the reference is sharp.
+- `expressible: false` — the reference needs a hard shadow edge, which nine
+  spherical harmonics cannot carry. The relight will be soft where the
+  reference is sharp.
 - a `matteCoverage` near 0 or 1 in `auto` mode — the depth threshold went wrong.
   Pass `threshold`, or supply a matte with `alphaMode: "custom"`.
 
@@ -380,72 +349,3 @@ are in the history (`394d298`, `ff4dc18`). Reverting one is a small job, and
 worth doing if a shot turns up where ours is visibly worse — that is a thing
 worth knowing rather than arguing about.
 
-
-## 12. Expanding a plate with Seedance — the Expand tab
-
-Added 2026-08-23. This is the panel route, and it uses **Seedance** rather than
-Luma: the plate reaches it as a first frame, which is what sets the shape.
-
-### Why a first frame and not an aspect setting
-
-Ark decides the output shape from the input rather than from a field — "for
-first-frame or first-last-frame generation, the output ratio follows the
-first-frame image" — and a stated ratio beside a frame is refused outright. A
-reference clip behaves the same way.
-
-So the mosaic being *already* the target shape is not a workaround, it is the
-instruction. Nothing has to argue with the API about aspect, and the model is
-finishing a picture rather than being asked to make one wider.
-
-### The pass, step by step — 15 minutes, AE
-
-Restart After Effects first: this ships a new host script and a new tab.
-
-1. Open a comp with a shot that **moves** — a pan or a tilt. A locked-off shot
-   is a valid input and will honestly report 0% recoverable.
-2. Set the work area to the shot.
-3. **Expand** tab → **Sample work area**. Twelve stills is a good default;
-   more only helps if the move is fast.
-4. Pick the aspect and where the original sits, then **Measure coverage**.
-   Free, instant, and it decides whether the rest is worth doing.
-5. **Recover plate**. Two images come back: the plate, and a mask where white
-   is what nobody ever photographed.
-6. **Send plate to Generate**. It lands as a first frame with the aspect
-   already set. Write the prompt for the *whole wide shot*, then generate.
-7. When the clip is back, import it and build the comp with the original over
-   the top.
-
-**Pass:** the recovered plate shows real photographed detail out at the edges
-the camera swept into, and the residual mask is smaller than the whole margin.
-
-**Watch for:**
-
-- **Coverage differs a lot between placements.** Expected, and the point. A
-  camera panning right never sees what is off the left edge, so "pinned left"
-  can take an expansion from half-recoverable to entirely recoverable.
-- **A smeared subject in the plate.** The median outvotes anything that moved
-  through, but only if enough frames saw the background behind it. More
-  samples, or a shot where the subject actually clears frame.
-- **`framesRejected` above zero.** The tracker declined those matches rather
-  than guessing an offset — repeating texture, a dissolve, or a cut inside the
-  work area.
-- **The sampler refusing a short range.** It will not write more stills than
-  the range has frames: twenty samples across six frames would be the same
-  picture repeatedly, which reads as a locked-off shot.
-
-### The step that makes it safe
-
-A model asked to widen a shot re-renders all of it, the part that was already
-right included. So the assembly puts the generated clip underneath and nests
-the **original composition** over it at exactly the rectangle the mosaic was
-planned around. Only the invented margins reach the result.
-
-The performance in the middle of frame is then untouched by construction —
-not preserved by a model that was asked nicely. This is the part Luma, Runway
-and every browser reframer cannot do, because none of them has your plate as a
-layer.
-
-**Still unproven:** every host call here (`sampleRange`, `assembleExpansion`)
-runs only inside After Effects and nothing in the suite can execute it. The
-sampler's frame quantising, the depth guard over a long run, and the nesting
-maths are all first-run-in-Adobe.
