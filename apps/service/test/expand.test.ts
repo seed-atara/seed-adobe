@@ -189,3 +189,31 @@ describe("expanding a shot", () => {
     }
   });
 });
+
+describe("a shot already at the target aspect", () => {
+  /*
+   * The real report this came from: a square clip sitting pillarboxed in a
+   * 1920x1080 comp, sampled from the comp, asked to become 16:9. Coverage was
+   * "0%" — 0 of 0 pixels — and the verdict blamed the camera, which sent the
+   * artist looking for a problem in their footage that was not there.
+   */
+  it("says there is nothing to expand into, rather than blaming the camera", async () => {
+    const service = await startTestService();
+    try {
+      const ids = await shot(service, [0, 6, 12, 18]);
+      const body = await readJson(
+        await service.call("/v1/expand/coverage", {
+          method: "POST",
+          // The frames are 4:3 already; this is the shape they are.
+          body: JSON.stringify({ frameAssetIds: ids, aspect: "4:3" }),
+        }),
+      );
+
+      expect(body.coverage.newArea).toBe(0);
+      expect(body.verdict).toMatch(/already at this aspect/i);
+      expect(body.verdict).not.toMatch(/camera moved/i);
+    } finally {
+      await service.close();
+    }
+  }, 30_000);
+});

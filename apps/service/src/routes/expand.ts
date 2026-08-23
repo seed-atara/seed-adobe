@@ -82,7 +82,26 @@ async function loadFrames(deps: AppDeps, ids: string[]): Promise<RasterImage[]> 
 }
 
 /** Turns the numbers into the sentence an artist actually decides on. */
-function verdictFor(coverage: number, travelX: number, travelY: number): string {
+function verdictFor(
+  coverage: number,
+  travelX: number,
+  travelY: number,
+  newArea = 1,
+  source?: { width: number; height: number },
+): string {
+  /*
+   * Nothing is being added, so there is nothing to recover.
+   *
+   * Checked before anything else because "0%" here means "0 of 0 pixels", and
+   * the wording below would otherwise blame the camera for it. The way this
+   * happens in practice: the shot is sampled from a comp that is already the
+   * target aspect, with the real footage pillarboxed inside it — so the
+   * expander is handed a 16:9 frame with black edges and asked to make it 16:9.
+   */
+  if (newArea === 0) {
+    const shape = source ? `${source.width}x${source.height}` : "this shape";
+    return `The frames sampled are already at this aspect (${shape}), so there is no new area to fill. Sample the shot at its own shape — a square or portrait comp — and expand that; sampling a 16:9 comp with the footage letterboxed inside it gives the expander nothing to do.`;
+  }
   if (travelX === 0 && travelY === 0) {
     return "This shot never moves, so none of the new area was ever photographed. Expansion here is pure invention — send it straight to a generator.";
   }
@@ -122,7 +141,13 @@ export function expandCoverageRoute(deps: AppDeps) {
 
     return json({
       coverage,
-      verdict: verdictFor(coverage.coverage, coverage.travel.x, coverage.travel.y),
+      verdict: verdictFor(
+        coverage.coverage,
+        coverage.travel.x,
+        coverage.travel.y,
+        coverage.newArea,
+        { width: coverage.canvas.width, height: coverage.canvas.height },
+      ),
     });
   };
 }
@@ -177,6 +202,11 @@ export function expandRecoverRoute(deps: AppDeps) {
           result.coverage.coverage,
           result.coverage.travel.x,
           result.coverage.travel.y,
+          result.coverage.newArea,
+          {
+            width: result.coverage.canvas.width,
+            height: result.coverage.canvas.height,
+          },
         ),
         plate,
         residual,
