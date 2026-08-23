@@ -1,6 +1,6 @@
 # Status
 
-Last updated: 2026-08-23
+Last updated: 2026-08-24
 
 ## Current milestone
 
@@ -48,6 +48,39 @@ regression tests:
    `image/png`, so files were written as `.png` containing JPEG, with wrong
    mime metadata and silently skipped thumbnails. The ingestor now sniffs the
    bytes and treats any provider-declared type as a hint.
+
+## Shipped 2026-08-24 — expansion, end to end on a real clip
+
+The expand tab is now one flow: **Expand to 16:9 → Fill the margins → Build
+comp**, without leaving the tab. Recovery moved behind *Recover real pixels
+first (advanced)*, because most shots cannot be recovered and leading with the
+clever path was leading with the failure.
+
+Measured on the user's own clip (`Puffs_1x1_to 16.9_5.mp4`, a 1:1 picture
+pillarboxed inside 1920×1080, dolly down a supermarket aisle):
+
+- 24/24 frames decode — After Effects writes **16-bit PNG**, which the decoder
+  used to reject outright.
+- The picture is found at **1075×1080, offset (423,0)**; the baked-in bars are
+  cropped before anything measures motion.
+- **Planarity 0.33** — the dolly has parallax, so recovery correctly declines
+  and the route says to generate the margins instead.
+- Margin fill verified live: 1920×1080 plate → `seedream-4-0-250828`
+  `image.edit` → filled 1920×1080 in **13.7s**, aisle and shelves continuing
+  past both edges, nothing invented in the middle.
+
+Planar tracking went from **19.5s to 2.7s a frame pair** and now yields to the
+event loop between pairs, so the service stays answerable while a track runs.
+
+Nine bugs, their causes, and the process lessons behind them are written up in
+**[docs/HANDOVER_EXPANSION.md](HANDOVER_EXPANSION.md)** — read that before
+touching the mosaic, alignment or letterbox code. The short version: every one
+of those bugs passed a green suite, because the tests were synthetic and at
+resolutions too small for the resolution bugs to appear.
+
+**The one unverified link** is the assembled comp inside After Effects.
+`seedAssemblePlateExpansion` is wired and typechecks; nobody has scrubbed a
+finished comp yet.
 
 ## Shipped 2026-08-23 — two competitive features
 
@@ -668,14 +701,17 @@ explains it. Worth asking Adobe rather than reverse-engineering.
 
 ## Next engineering actions
 
-1. Exercise iterate-in-place in Premiere. It is built and has never replaced a
+1. Scrub an assembled expansion comp in After Effects — the last unverified
+   link in the expand flow. Then exposure-match frames before accumulating; the
+   median currently averages across a brightness step between frames.
+2. Exercise iterate-in-place in Premiere. It is built and has never replaced a
    real clip there; After Effects has.
-2. Decide whether video references should register as Ark assets rather than
+3. Decide whether video references should register as Ark assets rather than
    travel as links. Both work; the asset id is permanent and costs 10-30s of
    registration before the job starts, the link costs half a second and expires.
    Currently links, which is what a demo wants.
-3. Film look on video needs the GPU path — ADR 0008's open half. 3.4s a frame
+4. Film look on video needs the GPU path — ADR 0008's open half. 3.4s a frame
    on the CPU is fourteen minutes for ten seconds of footage.
-4. Milestone 5 continued: the direction agent plans but does not act. Tool use
+5. Milestone 5 continued: the direction agent plans but does not act. Tool use
    and an execution loop stay gated behind the rule in ADR 0007 — the agent
    proposes, the user approves anything destructive.
