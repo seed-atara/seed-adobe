@@ -5,6 +5,43 @@ generator is wiring that already exists
 **Date:** 2026-08-23
 **Extends:** ADR 0013, which built `ReframeProvider` and planned this half
 
+## Reordered 2026-08-24 — generating is the front door
+
+Recovery led the panel, and that was the wrong default. It is right for a
+locked-off pan and wrong for everything else: most shots do not travel far
+enough sideways for it to matter, and a shot with parallax — a dolly, most
+handheld — cannot be recovered at all, because the camera saw different
+geometry rather than the same scene shifted.
+
+Tested on a real dolly down a supermarket aisle, it reported 37% and produced a
+staircase-shaped plate. Both were honest. Neither was useful, and leading with
+them made the ordinary case slow and made a truthful low number look like a
+failure.
+
+So Expand now opens on **one button**: pick an aspect, press it, get a plate in
+the new canvas with a composed prompt, send it to Seedance. Recovery is behind
+"Recover real pixels first (advanced)", with the parallax limit stated where
+someone deciding will read it.
+
+Two things came out of that:
+
+- **The prompt is composed, not blank.** It names the margins in pixels, says
+  the existing picture must not change, and forbids new subjects — because a
+  model asked to "make this wider" re-imagines the whole frame, while one told
+  it is completing the margins of a picture it can see does the job wanted.
+- **The shape is drawn, not described.** Two boxes: what the frame is and what
+  it becomes, with the margins hatched. It replaces a paragraph of arithmetic
+  and gives the placement control meaning before anything is measured.
+
+### A thing that was tried and reverted
+
+Squaring the recovered area off into clean rectangles, since a staircase is an
+ugly plate and a jagged mask. Measured on a handheld pan with 22px of vertical
+drift: the staircase recovers **43.6%**, forcing clean rectangles recovers
+**0%** — with any vertical drift no column spans the full height, and the
+largest inscribed rectangle is nearly empty. The staircase is the maximal honest
+answer, so it stays.
+
 ## The claim
 
 Every reframing tool invents the new edges. On a shot that moves, most of those

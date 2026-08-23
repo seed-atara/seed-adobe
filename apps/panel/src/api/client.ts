@@ -295,7 +295,7 @@ export class SeedClient {
     frameAssetIds?: string[];
     aspect: string | number;
     sourceRect?: { x: number; y: number; width: number; height: number };
-  }): Promise<{ coverage: ExpandCoverage; verdict: string }> {
+  }): Promise<{ coverage: ExpandCoverage; verdict: string; suggestedPrompt: string }> {
     return this.request("/v1/expand/coverage", { method: "POST", body: input });
   }
 
@@ -308,6 +308,7 @@ export class SeedClient {
     project?: string;
   }): Promise<{
     coverage: ExpandCoverage;
+    suggestedPrompt: string;
     verdict: string;
     plate: Asset;
     residual: Asset;

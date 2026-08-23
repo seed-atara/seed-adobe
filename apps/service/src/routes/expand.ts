@@ -162,6 +162,46 @@ async function loadFrames(
   };
 }
 
+/**
+ * The prompt that goes with a plate.
+ *
+ * Composed rather than left to whoever is at the keyboard, because the useful
+ * instruction here is always the same shape and always specific: name the sides
+ * being added, and say plainly that the middle must not move. A model asked to
+ * "make this wider" re-imagines the whole frame; a model told it is completing
+ * the margins of a picture it can already see does the job that was wanted.
+ */
+function suggestedPrompt(
+  canvas: { width: number; height: number },
+  source: { x: number; y: number; width: number; height: number },
+): string {
+  const sides: string[] = [];
+  if (source.x > 0) sides.push(`${source.x}px to the left`);
+  const right = canvas.width - (source.x + source.width);
+  if (right > 0) sides.push(`${right}px to the right`);
+  if (source.y > 0) sides.push(`${source.y}px above`);
+  const bottom = canvas.height - (source.y + source.height);
+  if (bottom > 0) sides.push(`${bottom}px below`);
+
+  const where =
+    sides.length === 0
+      ? "the margins"
+      : sides.length === 1
+        ? sides[0]
+        : `${sides.slice(0, -1).join(", ")} and ${sides[sides.length - 1]}`;
+
+  return (
+    `Continue this scene outward into the empty margins — ${where} — to fill a ` +
+    `${canvas.width}x${canvas.height} frame. ` +
+    "The existing picture is correct and must not change: keep its framing, " +
+    "perspective, lighting direction, colour grade, depth of field and grain " +
+    "exactly as they are, and continue the same surfaces, shapes and spacing " +
+    "naturally past the current edges. Do not add new subjects, text or objects " +
+    "of interest; the new margins are a continuation of the background, not a " +
+    "new composition."
+  );
+}
+
 /** Turns the numbers into the sentence an artist actually decides on. */
 function verdictFor(
   coverage: number,
@@ -226,6 +266,7 @@ export function expandCoverageRoute(deps: AppDeps) {
 
     return json({
       coverage,
+      suggestedPrompt: suggestedPrompt(coverage.canvas, coverage.source),
       ...(cropped ? { cropped: cropped.bounds, croppedNote: cropped.note } : {}),
       verdict: verdictFor(
         coverage.coverage,
@@ -297,6 +338,7 @@ export function expandRecoverRoute(deps: AppDeps) {
     return json(
       {
         coverage: result.coverage,
+        suggestedPrompt: suggestedPrompt(result.coverage.canvas, result.coverage.source),
         ...(cropped ? { cropped: cropped.bounds, croppedNote: cropped.note } : {}),
         verdict: verdictFor(
           result.coverage.coverage,

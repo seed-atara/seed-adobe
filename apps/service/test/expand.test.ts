@@ -289,3 +289,27 @@ describe("a clip with bars baked into the delivery", () => {
     }
   }, 30_000);
 });
+
+describe("the prompt that goes with a plate", () => {
+  it("names the margins and forbids changing the middle", async () => {
+    const service = await startTestService();
+    try {
+      const ids = await shot(service, [0, 6]);
+      const body = await readJson(
+        await service.call("/v1/expand/coverage", {
+          method: "POST",
+          body: JSON.stringify({ frameAssetIds: ids, aspect: "21:9" }),
+        }),
+      );
+
+      // Specific about where, because "make this wider" re-imagines the frame.
+      expect(body.suggestedPrompt).toMatch(/to the left/);
+      expect(body.suggestedPrompt).toMatch(/to the right/);
+      expect(body.suggestedPrompt).toMatch(/must not change/i);
+      // And explicit that the margins are background, not a new composition.
+      expect(body.suggestedPrompt).toMatch(/not add new subjects/i);
+    } finally {
+      await service.close();
+    }
+  }, 30_000);
+});

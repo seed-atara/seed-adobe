@@ -1455,7 +1455,7 @@ export function App({ tabs }: AppProps = {}) {
                     },
                   }
                 : {})}
-              onSendToGenerate={(plate, aspect) => {
+              onSendToGenerate={(plate, aspect, prompt) => {
                 /*
                  * As a first frame, deliberately. Ark takes the output ratio
                  * from the first frame and refuses a stated one alongside it —
@@ -1469,6 +1469,8 @@ export function App({ tabs }: AppProps = {}) {
                   inputRoles: ["first"],
                   aspectRatio: aspect,
                   parentAssetId: plate.id,
+                  // Composed alongside the plate, and still editable in Generate.
+                  ...(prompt ? { prompt } : {}),
                 }));
                 setTab("generate");
               }}
