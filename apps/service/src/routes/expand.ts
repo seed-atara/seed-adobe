@@ -6,8 +6,13 @@ import {
   cropTo,
   describeBars,
   detectBars,
+  IDENTITY,
+  applyHomography,
+  estimatePlane,
   expandFromShot,
-  trackPlanes,
+  invert,
+  multiply,
+  type Homography,
   fullMatte,
   lightingFromEnvironment,
   matteCoverage,
@@ -203,6 +208,69 @@ function suggestedPrompt(
   );
 }
 
+/**
+ * Planar track, yielding to the event loop between frames.
+ *
+ * Tracking is CPU-bound and Node runs it on the only thread there is, so a
+ * synchronous pass makes the whole service unresponsive for its duration —
+ * `/health` times out and the panel cannot even poll. Measured at ~2.7s a frame
+ * pair on a 1080-square plate, so twelve samples is half a minute of silence.
+ *
+ * Handing control back between pairs does not make it finish sooner; it makes
+ * the service answer while it works, which is the difference between "busy"
+ * and "hung".
+ */
+async function trackPlanesYielding(
+  frames: RasterImage[],
+  minConfidence: number,
+): Promise<{
+  planes: Homography[];
+  offsets: Array<{ x: number; y: number; confidence: number }>;
+  travel: { x: number; y: number };
+  rejected: number;
+}> {
+  const planes: Homography[] = [IDENTITY];
+  const offsets = [{ x: 0, y: 0, confidence: 1 }];
+  let cumulative: Homography = IDENTITY;
+  let rejected = 0;
+
+  for (let i = 1; i < frames.length; i += 1) {
+    await new Promise((resolve) => setImmediate(resolve));
+
+    const step = estimatePlane(
+      frames[i - 1] as RasterImage,
+      frames[i] as RasterImage,
+      { minConfidence },
+    );
+    if (step.confidence < minConfidence) {
+      rejected += 1;
+      planes.push(cumulative);
+      const held = offsets[offsets.length - 1] as { x: number; y: number };
+      offsets.push({ x: held.x, y: held.y, confidence: step.confidence });
+      continue;
+    }
+
+    cumulative = multiply(step.matrix, cumulative);
+    planes.push(cumulative);
+    const back = invert(cumulative);
+    const corner = back ? applyHomography(back, 0, 0) : { x: 0, y: 0 };
+    offsets.push({
+      x: Math.round(corner.x),
+      y: Math.round(corner.y),
+      confidence: step.confidence,
+    });
+  }
+
+  const xs = offsets.map((o) => o.x);
+  const ys = offsets.map((o) => o.y);
+  return {
+    planes,
+    offsets,
+    rejected,
+    travel: { x: Math.max(...xs) - Math.min(...xs), y: Math.max(...ys) - Math.min(...ys) },
+  };
+}
+
 /** Turns the numbers into the sentence an artist actually decides on. */
 function verdictFor(
   coverage: number,
@@ -316,31 +384,30 @@ export function expandRecoverRoute(deps: AppDeps) {
      * what lets the background move with the camera instead of detaching from
      * the picture composited over it.
      */
+    /*
+     * Planar, because a real shot rolls and breathes and a translation cannot
+     * express either — which is what made frames get rejected and left the
+     * plate drifting. The plane track supplies both the warp and the frame
+     * positions, so the layout and the pixels agree.
+     */
+    const planar = await trackPlanesYielding(frames, request.minConfidence);
+
     const result = expandFromShot(
       frames,
       {
         aspect: aspectValue(request.aspect),
         ...(request.sourceRect ? { sourceRect: request.sourceRect } : {}),
       },
-      (() => {
-        /*
-         * Planar, because a real shot rolls and breathes and a translation
-         * cannot express either — which is what made frames get rejected and
-         * left the plate drifting. The plane track supplies both the warp and
-         * the frame positions, so the layout and the pixels agree.
-         */
-        const planar = trackPlanes(frames, { minConfidence: request.minConfidence });
-        return {
-          minConfidence: request.minConfidence,
-          padToTravel: true,
-          planes: planar.planes,
-          track: {
-            offsets: planar.offsets,
-            travel: planar.travel,
-            rejected: planar.rejected,
-          },
-        };
-      })(),
+      {
+        minConfidence: request.minConfidence,
+        padToTravel: true,
+        planes: planar.planes,
+        track: {
+          offsets: planar.offsets,
+          travel: planar.travel,
+          rejected: planar.rejected,
+        },
+      },
     );
 
     const plate = await keepImage(

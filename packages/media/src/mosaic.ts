@@ -51,6 +51,24 @@ export interface TrackOptions {
   workingHeight?: number;
   /** Frames below this confidence stop contributing. */
   minConfidence?: number;
+  /**
+   * A prior for where the answer is, in source pixels.
+   *
+   * The coarse search centres here instead of on zero, so a caller that already
+   * knows roughly what the camera did — a patch inside a frame whose global
+   * motion has been measured — pays for a small search rather than a whole-frame
+   * one. Combined with `maxShift` this is the difference between a planar track
+   * costing 20 seconds a pair and under a second.
+   */
+  seed?: { x: number; y: number };
+  /**
+   * Roughly how many pixels each comparison samples.
+   *
+   * Fewer is faster and noisier. A whole-frame match wants the default; a patch
+   * inside a seeded search does not, because the homography is fitted through
+   * two dozen of them and their individual noise averages out.
+   */
+  sampleTarget?: number;
 }
 
 /**
@@ -95,6 +113,7 @@ function trimmedError(
   height: number,
   dx: number,
   dy: number,
+  sampleTarget = 4096,
 ): { error: number; overlap: number } {
   const x0 = Math.max(0, -dx);
   const x1 = Math.min(width, width - dx);
@@ -103,7 +122,7 @@ function trimmedError(
   if (x1 <= x0 || y1 <= y0) return { error: Number.POSITIVE_INFINITY, overlap: 0 };
 
   // Sample rather than walk every pixel; the offset is a global property.
-  const step = Math.max(1, Math.floor(Math.sqrt(((x1 - x0) * (y1 - y0)) / 4096)));
+  const step = Math.max(1, Math.floor(Math.sqrt(((x1 - x0) * (y1 - y0)) / sampleTarget)));
   const samples: number[] = [];
   for (let y = y0; y < y1; y += step) {
     for (let x = x0; x < x1; x += step) {
@@ -204,19 +223,26 @@ export function estimateTranslation(
     b: luminance(level.b),
   }));
 
+  const sampleTarget = options.sampleTarget ?? 4096;
   const score = (level: number, dx: number, dy: number): number => {
     const l = luma[level] as { width: number; height: number; a: Float32Array; b: Float32Array };
-    const { error, overlap } = trimmedError(l.a, l.b, l.width, l.height, dx, dy);
+    const { error, overlap } = trimmedError(
+      l.a, l.b, l.width, l.height, dx, dy, sampleTarget,
+    );
     // An offset that barely overlaps can score well on almost nothing.
     return overlap < l.width * l.height * 0.3 ? Number.POSITIVE_INFINITY : error;
   };
 
   // 1. Search the coarsest level exhaustively and keep the whole field.
   const coarse = luma[0] as { width: number; height: number };
-  const span = Math.max(2, Math.round(limit * (levels[0]?.scale ?? 1)));
+  const coarseScale = levels[0]?.scale ?? 1;
+  const span = Math.max(2, Math.round(limit * coarseScale));
+  // A prior shifts where the search looks, not how wide it looks.
+  const seedX = options.seed ? Math.round(options.seed.x * scale * coarseScale) : 0;
+  const seedY = options.seed ? Math.round(options.seed.y * scale * coarseScale) : 0;
   const field: Array<{ dx: number; dy: number; error: number }> = [];
-  for (let dy = -span; dy <= span; dy += 1) {
-    for (let dx = -span; dx <= span; dx += 1) {
+  for (let dy = seedY - span; dy <= seedY + span; dy += 1) {
+    for (let dx = seedX - span; dx <= seedX + span; dx += 1) {
       const error = score(0, dx, dy);
       if (Number.isFinite(error)) field.push({ dx, dy, error });
     }
@@ -226,10 +252,16 @@ export function estimateTranslation(
 
   // 2. Keep the best few *separated* minima, not the best few pixels — adjacent
   //    offsets all score alike and would crowd out the genuine rival.
+  /*
+   * Several candidates exist to survive periodic texture aliasing. With a seed
+   * the caller has already said where the answer is, so there is nothing to
+   * disambiguate and refining five of them at full resolution is pure cost.
+   */
+  const keep = options.seed ? 1 : 5;
   const sorted = [...field].sort((p, q) => p.error - q.error);
   const candidates: Array<{ dx: number; dy: number; error: number }> = [];
   for (const entry of sorted) {
-    if (candidates.length >= 5) break;
+    if (candidates.length >= keep) break;
     const crowded = candidates.some(
       (kept) => Math.abs(kept.dx - entry.dx) <= 2 && Math.abs(kept.dy - entry.dy) <= 2,
     );

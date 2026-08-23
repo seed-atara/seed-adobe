@@ -230,6 +230,24 @@ export function gridCorrespondences(
   const ph = Math.floor(a.height / gy);
   if (pw < 24 || ph < 24) return [];
 
+  /*
+   * One global match first, used as the prior for every patch.
+   *
+   * Without it each patch searched the whole frame for itself: 24 full searches
+   * a pair, which measured at 19.5 seconds on a 1080-square frame and blocked
+   * the service for minutes. The camera's overall motion is the answer every
+   * patch is near, so measuring it once and letting each patch refine within a
+   * few pixels of it costs a fraction and finds the same planes.
+   */
+  const global = estimateTranslation(a, b, options);
+  const seed = global.confidence > 0 ? { x: global.x, y: global.y } : { x: 0, y: 0 };
+  const local: AlignOptions = {
+    ...options,
+    seed,
+    maxShift: options.maxShift ?? 24,
+    sampleTarget: options.sampleTarget ?? 1024,
+  };
+
   const found: Correspondence[] = [];
   for (let row = 0; row < gy; row += 1) {
     for (let col = 0; col < gx; col += 1) {
@@ -243,7 +261,7 @@ export function gridCorrespondences(
        */
       const patchA = cropPatch(a, x0, y0, pw, ph);
       const patchB = cropPatch(b, x0, y0, pw, ph);
-      const offset = estimateTranslation(patchA, patchB, options);
+      const offset = estimateTranslation(patchA, patchB, local);
       if (offset.confidence <= 0) continue;
       found.push({
         fromX: x0 + pw / 2,
