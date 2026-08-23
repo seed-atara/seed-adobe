@@ -71,6 +71,29 @@ genuinely different geometry and no 2D offset expresses parallax. Rotation and
 zoom are not modelled. None of these produce a wrong answer; they produce a low
 confidence and are excluded, and the report says how many frames were rejected.
 
+## Corrected 2026-08-23 — the staircase
+
+The mosaic came back with a diagonal staircase through it on real footage, and
+the tests were green throughout.
+
+The tracker searched a 180px-tall proxy and multiplied the winning offset back
+up, so on a 1080-tall plate **every answer was a multiple of six**. A 7px pan
+measured as 6, a 13px pan as 12, and the leftover error accumulated frame over
+frame — including vertically, which is why a purely horizontal move came out
+sheared.
+
+The finest pyramid level is now the picture itself, so offsets are exact. On a
+1080-square plate panning 17px a frame the track is now `0, 17, 34, 51, 68…`
+with zero drift, and the residual is two clean rectangles rather than a
+staircase.
+
+**Why the suite missed it.** Every test used frames shorter than 180px, so the
+proxy *was* the picture and no scaling happened. A resolution bug needs a test
+run at a resolution; there are now three, at 480x360.
+
+Cost: tracking a 1080-square shot is roughly 0.7s a frame pair. Worth it — the
+alternative was a plate nobody would use.
+
 ## Corrected 2026-08-23
 
 `measureCoverage` strode over frames, and on a shot static apart from one jolt

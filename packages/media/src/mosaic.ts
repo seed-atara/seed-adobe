@@ -132,10 +132,24 @@ export function estimateTranslation(
   b: RasterImage,
   options: TrackOptions = {},
 ): FrameOffset {
-  const workingHeight = options.workingHeight ?? 180;
   const maxShift = options.maxShift ?? 0;
 
-  const scale = Math.min(1, workingHeight / a.height);
+  /*
+   * The finest level is the picture itself.
+   *
+   * It used to be a 180px-tall proxy, with the winning offset multiplied back
+   * up — which quantised every answer to `1/scale` pixels. On a 1080-tall plate
+   * that is **six**, so a 7px pan measured as 6, a 13px pan as 12, and the
+   * leftover error accumulated frame over frame into a visible staircase in the
+   * mosaic. Refining all the way down to full resolution costs a few hundred
+   * comparisons on a small image and removes the quantisation entirely.
+   *
+   * `workingHeight` still caps the finest level for a caller that wants speed
+   * over precision, but it is no longer the default.
+   */
+  const workingHeight = options.workingHeight;
+  const scale =
+    workingHeight === undefined ? 1 : Math.min(1, workingHeight / a.height);
   const small = (image: RasterImage) =>
     scale === 1
       ? image
@@ -176,7 +190,7 @@ export function estimateTranslation(
     levels.unshift({ a: ca, b: cb, scale: levelScale });
     const nextW = Math.round(ca.width / 2);
     const nextH = Math.round(ca.height / 2);
-    if (nextW < 24 || nextH < 18 || levels.length >= 4) break;
+    if (nextW < 24 || nextH < 18 || levels.length >= 7) break;
     levelScale /= 2;
     ca = resize(ca, nextW, nextH);
     cb = resize(cb, nextW, nextH);

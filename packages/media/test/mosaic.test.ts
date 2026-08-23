@@ -349,3 +349,67 @@ describe("measureCoverage", () => {
     expect(locked.coverage).toBe(0);
   }, 30_000);
 });
+
+/*
+ * These run at a size where the *old* implementation quantised.
+ *
+ * That is the whole point. Every other test here uses frames shorter than the
+ * old 180px working height, so the proxy was the picture, no scaling happened,
+ * and the bug was invisible — the suite was green while real 1080-tall plates
+ * came back with a staircase through them. A regression test for a resolution
+ * bug has to be run at a resolution.
+ */
+describe("full-resolution accuracy", () => {
+  const TALL_W = 480;
+  const TALL_H = 360;
+
+  function tallPan(count: number, stepX: number, stepY: number): RasterImage[] {
+    const scene = world(TALL_W + stepX * count + 80, TALL_H + stepY * count + 80);
+    return Array.from({ length: count }, (_, i) =>
+      crop(scene, 40 + i * stepX, 40 + i * stepY, TALL_W, TALL_H),
+    );
+  }
+
+  it("measures an offset exactly, not rounded to the proxy's grid", () => {
+    const frames = tallPan(2, 7, 3);
+    const offset = estimateTranslation(
+      frames[0] as RasterImage,
+      frames[1] as RasterImage,
+    );
+    // Off-grid on purpose: the old code could only answer in steps of two here.
+    expect(offset.x).toBe(-7);
+    expect(offset.y).toBe(-3);
+  }, 30_000);
+
+  it("leaves no staircase: a horizontal pan fills every row identically", () => {
+    const frames = tallPan(8, 11, 0);
+    const { mosaic } = expandFromShot(frames, { aspect: 21 / 9 });
+
+    const filledPerRow: number[] = [];
+    for (let y = 0; y < mosaic.height; y += 1) {
+      let filled = 0;
+      for (let x = 0; x < mosaic.width; x += 1) {
+        if ((mosaic.rgba[(y * mosaic.width + x) * 4 + 3] as number) > 0) filled += 1;
+      }
+      filledPerRow.push(filled);
+    }
+
+    /*
+     * A camera that only moves sideways cannot fill one row more than another.
+     * Any spread is vertical drift, and drift is what a staircase is made of.
+     */
+    expect(Math.max(...filledPerRow) - Math.min(...filledPerRow)).toBe(0);
+  }, 30_000);
+
+  it("accumulates a pan without drifting off the line", () => {
+    const track = trackShot(tallPan(8, 11, 0));
+    expect(track.rejected).toBe(0);
+    expect(track.travel.y).toBe(0);
+    // Exactly 11px a frame, seven times over.
+    expect(track.travel.x).toBe(77);
+    for (const [index, offset] of track.offsets.entries()) {
+      expect(offset.x).toBe(index * 11);
+      expect(offset.y).toBe(0);
+    }
+  }, 30_000);
+});
