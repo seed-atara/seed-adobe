@@ -42,13 +42,18 @@ interface Props {
    */
   onSample?: (count: number) => Promise<SampledShot>;
   /** Hands the plate to the Generate tab as an anchoring first frame. */
-  onSendToGenerate?: (
-    plate: Asset,
-    aspect: string,
-    prompt: string,
-    /** The plate's own size, which the fill has to come back at. */
-    size: { width: number; height: number },
-  ) => void;
+  /**
+   * Fills the plate's empty margins and returns the finished frame.
+   *
+   * Runs here rather than handing the artist over to the Generate tab: the
+   * result has to come back to build the comp with, and a round trip through
+   * another view loses it.
+   */
+  onFill?: (input: {
+    plate: Asset;
+    prompt: string;
+    size: { width: number; height: number };
+  }) => Promise<Asset>;
   /**
    * Builds the comp: the plate animated along the shot's track, original over.
    *
@@ -180,7 +185,7 @@ export function ExpandView({
   activeProject,
   onRefresh,
   onSample,
-  onSendToGenerate,
+  onFill,
   onAssemble,
   busy,
 }: Props) {
@@ -209,6 +214,8 @@ export function ExpandView({
     { plate: Asset; residual: Asset; coverage: ExpandCoverage; prompt: string } | undefined
   >();
   const [showRecovery, setShowRecovery] = useState(false);
+  /** The plate with its margins filled — what the comp is actually built from. */
+  const [filled, setFilled] = useState<Asset>();
 
   const [note, setNote] = useState<string>();
   const [working, setWorking] = useState<string>();
@@ -282,6 +289,7 @@ export function ExpandView({
         },
       });
       setCoverage({ coverage: result.coverage, verdict: result.verdict });
+      setFilled(undefined);
       await onRefresh();
     });
 
@@ -337,8 +345,14 @@ export function ExpandView({
         <>
           <div style={{ display: "flex", gap: 8, margin: "8px 0" }}>
             <figure style={{ margin: 0 }}>
-              <AssetImage client={client} asset={plate.plate} variant="thumbnail" />
-              <figcaption className="hint">Plate — the model fills the margins</figcaption>
+              <AssetImage
+                client={client}
+                asset={filled ?? plate.plate}
+                variant="thumbnail"
+              />
+              <figcaption className="hint">
+                {filled ? "Filled — ready to comp" : "Plate — the model fills the margins"}
+              </figcaption>
             </figure>
           </div>
           <Field label="Prompt">
@@ -355,20 +369,33 @@ export function ExpandView({
             <button
               type="button"
               className="primary"
-              disabled={disabled || !onSendToGenerate}
+              disabled={disabled || !onFill || filled !== undefined}
               onClick={() =>
-                onSendToGenerate?.(plate.plate, aspect, plate.prompt, plate.world)
+                run("Filling", async () => {
+                  const result = await onFill?.({
+                    plate: plate.plate,
+                    prompt: plate.prompt,
+                    size: plate.world,
+                  });
+                  if (result) setFilled(result);
+                  await onRefresh();
+                })
               }
             >
-              Fill the margins
+              {working === "Filling"
+                ? "Filling…"
+                : filled
+                  ? "Margins filled"
+                  : "Fill the margins"}
             </button>
             <button
               type="button"
-              disabled={disabled || !onAssemble}
+              disabled={disabled || !onAssemble || !filled}
               onClick={() =>
                 run("Assembling", async () => {
                   const built = await onAssemble?.({
-                    plate: plate.plate,
+                    // The filled plate, not the one with holes in it.
+                    plate: filled as Asset,
                     delivery: plate.delivery,
                     world: plate.world,
                     windows: plate.windows,
@@ -382,9 +409,10 @@ export function ExpandView({
                 })
               }
             >
-              {working === "Assembling" ? "Building…" : "Build comp now"}
+              {working === "Assembling" ? "Building…" : "Build comp"}
             </button>
           </div>
+
           <p className="hint">
             The plate is {plate.world.width}×{plate.world.height} against a{" "}
             {plate.delivery.width}×{plate.delivery.height} delivery — wider, because it
@@ -534,15 +562,23 @@ export function ExpandView({
               </div>
               <button
                 type="button"
-                disabled={disabled || !onSendToGenerate}
+                disabled={disabled || !onFill}
                 onClick={() =>
-                  onSendToGenerate?.(recovered.plate, aspect, recovered.prompt, {
-                    width: recovered.coverage.canvas.width,
-                    height: recovered.coverage.canvas.height,
+                  run("Filling", async () => {
+                    const result = await onFill?.({
+                      plate: recovered.plate,
+                      prompt: recovered.prompt,
+                      size: {
+                        width: recovered.coverage.canvas.width,
+                        height: recovered.coverage.canvas.height,
+                      },
+                    });
+                    if (result) setFilled(result);
+                    await onRefresh();
                   })
                 }
               >
-                Send recovered plate to Generate
+                Fill the recovered plate
               </button>
             </>
           ) : null}

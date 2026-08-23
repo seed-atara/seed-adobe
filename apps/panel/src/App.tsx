@@ -1467,55 +1467,49 @@ export function App({ tabs }: AppProps = {}) {
                       }),
                   }
                 : {})}
-              onSendToGenerate={(plate, aspect, prompt, size) => {
-                /*
-                 * Pick a provider that can actually deliver this plate back.
-                 *
-                 * The fill has to return at the plate's exact size or the comp
-                 * lands off by however much it differs, and providers only
-                 * accept sizes from their own declared list. So the choice is
-                 * made here against what the plate needs, rather than left on
-                 * whatever the Generate tab happened to have selected.
-                 */
-                const wanted = `${size.width}x${size.height}`;
-                const filler = providers.find(
-                  (candidate) =>
-                    candidate.operations.includes("image.edit") &&
-                    candidate.sizes.includes(wanted),
-                );
-                /*
-                 * A still, not a clip.
-                 *
-                 * The plate is a *world* now — wider than the delivery, moved
-                 * along the shot's own track by the comp. Generating a clip
-                 * from it would hand back the model's invented camera move,
-                 * which is the drift this whole approach exists to avoid. What
-                 * is wanted is the plate's empty margins filled once, as an
-                 * image, and then panned.
-                 */
-                if (!filler) {
-                  setError(
-                    `No provider offers ${wanted}, which is the size this plate has ` +
-                      "to come back at. Pick a different aspect, or configure one that does.",
-                  );
-                  return;
-                }
+              {...(bridge
+                ? {
+                    onFill: async (input) => {
+                      /*
+                       * A provider that can hand this plate back at its own
+                       * size. The fill has to return at the plate's exact
+                       * dimensions or the comp lands off by the difference,
+                       * and providers only accept sizes they declare.
+                       */
+                      const wanted = `${input.size.width}x${input.size.height}`;
+                      const filler = providers.find(
+                        (candidate) =>
+                          candidate.operations.includes("image.edit") &&
+                          candidate.sizes.includes(wanted),
+                      );
+                      if (!filler) {
+                        throw new Error(
+                          `No provider offers ${wanted}, which is the size this plate has to come back at.`,
+                        );
+                      }
 
-                setForm((current) => ({
-                  ...current,
-                  providerId: filler.id,
-                  model: filler.models[0] ?? current.model,
-                  operation: "image.edit",
-                  size: wanted,
-                  inputAssetIds: [plate.id],
-                  inputRoles: [],
-                  aspectRatio: aspect,
-                  parentAssetId: plate.id,
-                  // Composed alongside the plate, and still editable in Generate.
-                  ...(prompt ? { prompt } : {}),
-                }));
-                setTab("generate");
-              }}
+                      let view = await client.startGeneration({
+                        providerId: filler.id,
+                        model: filler.models[0],
+                        operation: "image.edit",
+                        prompt: input.prompt,
+                        size: wanted,
+                        inputAssetIds: [input.plate.id],
+                        parentAssetId: input.plate.id,
+                        ...(activeProject ? { project: activeProject } : {}),
+                      });
+                      while (!SETTLED.includes(view.job.status)) {
+                        await new Promise((resolve) => setTimeout(resolve, 1500));
+                        view = await client.job(view.job.id);
+                      }
+                      const output = view.outputs[0];
+                      if (view.job.status !== "succeeded" || !output) {
+                        throw new Error(view.job.errorMessage ?? "the fill did not finish");
+                      }
+                      return output;
+                    },
+                  }
+                : {})}
             />
           ) : null}
 
