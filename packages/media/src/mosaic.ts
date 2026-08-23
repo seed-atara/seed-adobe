@@ -1,3 +1,4 @@
+import { applyHomography, type Homography } from "./align.js";
 import { fitWithin, resize } from "./resize.js";
 import type { RasterImage } from "./png.js";
 
@@ -385,6 +386,37 @@ export interface CoverageReport {
   travel: { x: number; y: number };
 }
 
+/**
+ * Where a warped frame lands in the plate.
+ *
+ * The four corners are mapped and the box around them walked, so a rotated
+ * frame costs its own area rather than the whole canvas.
+ */
+function warpedBounds(
+  plane: Homography,
+  sw: number,
+  sh: number,
+  originX: number,
+  originY: number,
+  canvas: { width: number; height: number },
+): { x0: number; y0: number; x1: number; y1: number } {
+  const corners = [
+    [0, 0],
+    [sw, 0],
+    [0, sh],
+    [sw, sh],
+  ].map(([x, y]) => applyHomography(plane, x as number, y as number));
+
+  const xs = corners.map((c) => c.x + originX);
+  const ys = corners.map((c) => c.y + originY);
+  return {
+    x0: Math.max(0, Math.floor(Math.min(...xs))),
+    y0: Math.max(0, Math.floor(Math.min(...ys))),
+    x1: Math.min(canvas.width, Math.ceil(Math.max(...xs))),
+    y1: Math.min(canvas.height, Math.ceil(Math.max(...ys))),
+  };
+}
+
 /** The canvas a target aspect implies, never smaller than the source. */
 export function canvasFor(
   width: number,
@@ -445,6 +477,15 @@ export interface MosaicOptions extends TrackOptions {
    * and `windows` says where to look at each moment.
    */
   padToTravel?: boolean;
+  /**
+   * Per-frame transforms into frame zero's space, from planar tracking.
+   *
+   * When present each frame is *warped* into the plate rather than offset into
+   * it, which is what lets a shot that rolls, breathes or tilts contribute
+   * correctly instead of being rejected. Absent, the translation track is used
+   * and frames are blitted — cheaper, and right for a locked-off pan.
+   */
+  planes?: Homography[];
 }
 
 /**
@@ -549,12 +590,34 @@ export function expandFromShot(
 
     const baseX = originX + offset.x;
     const baseY = originY + offset.y;
-    for (let y = 0; y < sh; y += 1) {
-      const cy = baseY + y;
+
+    /*
+     * With a plane, the frame is sampled through its inverse rather than
+     * copied. Walking the destination and pulling from the source is what keeps
+     * a warp free of holes — pushing pixels forward leaves gaps wherever the
+     * transform stretches.
+     */
+    const plane = options.planes?.[f];
+    const bounds = plane
+      ? warpedBounds(plane, sw, sh, originX, originY, canvas)
+      : { x0: 0, y0: 0, x1: sw, y1: sh };
+
+    for (let y = bounds.y0; y < bounds.y1; y += 1) {
+      const cy = plane ? y : baseY + y;
       if (cy < 0 || cy >= canvas.height) continue;
-      for (let x = 0; x < sw; x += 1) {
-        const cx = baseX + x;
+      for (let x = bounds.x0; x < bounds.x1; x += 1) {
+        const cx = plane ? x : baseX + x;
         if (cx < 0 || cx >= canvas.width) continue;
+
+        let sx = x;
+        let sy = y;
+        if (plane) {
+          const source = applyHomography(plane, cx - originX, cy - originY);
+          sx = Math.round(source.x);
+          sy = Math.round(source.y);
+          if (sx < 0 || sx >= sw || sy < 0 || sy >= sh) continue;
+        }
+
         const index = cy * canvas.width + cx;
         const seen = seenCount[index] as number;
         seenCount[index] = seen + 1;
@@ -572,7 +635,7 @@ export function expandFromShot(
           slot = mix(index, seen) % (seen + 1);
           if (slot >= maxSamples) continue;
         }
-        const from = (y * sw + x) * 4;
+        const from = ((plane ? sy : y) * sw + (plane ? sx : x)) * 4;
         const to = (index * maxSamples + slot) * 3;
         samples[to] = frame.rgba[from] as number;
         samples[to + 1] = frame.rgba[from + 1] as number;

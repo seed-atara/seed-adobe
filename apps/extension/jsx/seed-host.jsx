@@ -2738,4 +2738,129 @@ var seedAeft_fillPlaceholder = seedFillPlaceholder;
 var seedAeft_failPlaceholder = seedFailPlaceholder;
 var seedAeft_selectedMedia = seedSelectedMedia;
 var seedAeft_adoptPlaceholder = seedAdoptPlaceholder;
+
+/**
+ * Builds the expanded comp from a still world plate and its track.
+ *
+ * The difference from `seedAssembleExpansion`, and the whole point: the plate
+ * is a *still* that is wider than the delivery, and it is animated along the
+ * measured camera track. A generated clip carries whatever camera move the
+ * model invented, so its margins drift against the original the moment that is
+ * laid over the top. A still that is moved by the shot's own track cannot
+ * drift, and it cannot flicker either, because there is only one of it.
+ *
+ * `windows[i] = {frame, x, y, time}` — where the delivery frame is looking
+ * inside the plate at that moment, in plate pixels.
+ */
+function seedAssemblePlateExpansion(platePath, delivery, world, windows, rect, name) {
+    var undoing = false;
+    try {
+        var comp = seedActiveComp();
+        if (!comp) return seedFail("no active composition");
+
+        var dw = Math.round(Number(delivery && delivery.width));
+        var dh = Math.round(Number(delivery && delivery.height));
+        var ww = Math.round(Number(world && world.width));
+        var wh = Math.round(Number(world && world.height));
+        if (!dw || !dh || !ww || !wh) {
+            return seedFail("the delivery and plate sizes both have to be real");
+        }
+        if (ww < dw || wh < dh) {
+            return seedFail(
+                "the plate is smaller than the delivery (" + ww + "x" + wh +
+                    " against " + dw + "x" + dh + "), so there is nothing to pan across"
+            );
+        }
+
+        var keys = windows || [];
+        if (!keys.length) {
+            return seedFail("no track was supplied, so the plate cannot be animated");
+        }
+
+        var file = new File(seedNormalizePath(String(platePath)));
+        if (!file.exists) return seedFail("no file at " + platePath);
+
+        app.beginUndoGroup("SEED assemble expansion");
+        undoing = true;
+
+        var out = app.project.items.addComp(
+            String(name || (comp.name + " expanded")),
+            dw, dh, comp.pixelAspect, comp.duration, comp.frameRate
+        );
+        out.parentFolder = seedProjectFolder();
+
+        var imported = seedImportWhenReadable(file.fsName);
+        imported.parentFolder = seedProjectFolder();
+        var plate = out.layers.add(imported);
+        plate.name = "SEED plate (tracked)";
+        plate.property("Transform").property("Anchor Point").setValue([ww / 2, wh / 2]);
+
+        /*
+         * The plate is positioned so the window's top-left lands on the comp's
+         * origin. With the anchor at the plate's centre that is
+         * `world/2 - window`, and keying it at every sample makes the
+         * background travel exactly as far as the camera did.
+         */
+        var position = plate.property("Transform").property("Position");
+        var times = [];
+        var values = [];
+        for (var i = 0; i < keys.length; i++) {
+            var key = keys[i] || {};
+            var t = Number(key.time);
+            if (isNaN(t)) t = (Number(key.frame) || i) / comp.frameRate;
+            times.push(t);
+            values.push([ww / 2 - Number(key.x || 0), wh / 2 - Number(key.y || 0)]);
+        }
+        if (times.length === 1) {
+            position.setValue(values[0]);
+        } else {
+            position.setValuesAtTimes(times, values);
+            /*
+             * Linear between samples. The track is sampled rather than measured
+             * every frame, and a smooth spline would overshoot on a move that
+             * changes direction — a wrong plate position reads as the
+             * background sliding under the picture.
+             */
+            for (var k = 1; k <= position.numKeys; k++) {
+                position.setInterpolationTypeAtKey(
+                    k, KeyframeInterpolationType.LINEAR, KeyframeInterpolationType.LINEAR
+                );
+            }
+        }
+
+        // The original over the top, live, at the rectangle the plate planned for.
+        var box = rect || {};
+        var rx = isNaN(Number(box.x)) ? 0 : Number(box.x);
+        var ry = isNaN(Number(box.y)) ? 0 : Number(box.y);
+        var rw = Number(box.width) > 0 ? Number(box.width) : comp.width / dw;
+        var rh = Number(box.height) > 0 ? Number(box.height) : comp.height / dh;
+
+        var original = out.layers.add(comp);
+        original.name = "SEED original";
+        original.property("Transform").property("Position").setValue([
+            (rx + rw / 2) * dw,
+            (ry + rh / 2) * dh
+        ]);
+        original.property("Transform").property("Scale").setValue([
+            ((rw * dw) / comp.width) * 100,
+            ((rh * dh) / comp.height) * 100
+        ]);
+        original.moveToBeginning();
+
+        out.openInViewer();
+        return seedOk({
+            compName: out.name,
+            width: dw,
+            height: dh,
+            keyframes: position.numKeys,
+            plate: { width: ww, height: wh }
+        });
+    } catch (error) {
+        return seedFail(String(error));
+    } finally {
+        if (undoing) app.endUndoGroup();
+    }
+}
+
 var seedAeft_buildLookRig = seedBuildLookRig;
+var seedAeft_assemblePlateExpansion = seedAssemblePlateExpansion;

@@ -1455,6 +1455,18 @@ export function App({ tabs }: AppProps = {}) {
                     },
                   }
                 : {})}
+              {...(bridge
+                ? {
+                    onAssemble: async (input) =>
+                      bridge.assemblePlateExpansion({
+                        path: (await client.assetPath(input.plate.id)).path,
+                        delivery: input.delivery,
+                        world: input.world,
+                        windows: input.windows,
+                        rect: input.rect,
+                      }),
+                  }
+                : {})}
               onSendToGenerate={(plate, aspect, prompt) => {
                 /*
                  * As a first frame, deliberately. Ark takes the output ratio

@@ -312,6 +312,10 @@ export class SeedClient {
     verdict: string;
     plate: Asset;
     residual: Asset;
+    /** The delivery size. The plate is wider — it holds the whole move. */
+    delivery: { width: number; height: number };
+    /** Where the delivery frame looks inside the plate, per sample. */
+    windows: Array<{ frame: number; x: number; y: number }>;
   }> {
     return this.request("/v1/expand/recover", { method: "POST", body: input });
   }

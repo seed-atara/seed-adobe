@@ -7,6 +7,7 @@ import {
   describeBars,
   detectBars,
   expandFromShot,
+  trackPlanes,
   fullMatte,
   lightingFromEnvironment,
   matteCoverage,
@@ -321,7 +322,25 @@ export function expandRecoverRoute(deps: AppDeps) {
         aspect: aspectValue(request.aspect),
         ...(request.sourceRect ? { sourceRect: request.sourceRect } : {}),
       },
-      { minConfidence: request.minConfidence, padToTravel: true },
+      (() => {
+        /*
+         * Planar, because a real shot rolls and breathes and a translation
+         * cannot express either — which is what made frames get rejected and
+         * left the plate drifting. The plane track supplies both the warp and
+         * the frame positions, so the layout and the pixels agree.
+         */
+        const planar = trackPlanes(frames, { minConfidence: request.minConfidence });
+        return {
+          minConfidence: request.minConfidence,
+          padToTravel: true,
+          planes: planar.planes,
+          track: {
+            offsets: planar.offsets,
+            travel: planar.travel,
+            rejected: planar.rejected,
+          },
+        };
+      })(),
     );
 
     const plate = await keepImage(

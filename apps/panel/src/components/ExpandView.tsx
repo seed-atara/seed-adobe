@@ -6,6 +6,8 @@ import { AssetImage, Field, SectionLabel } from "./primitives.tsx";
 /** A sampled shot: scratch stills on disk, plus the shape they were taken at. */
 export interface SampledShot {
   paths: string[];
+  /** When each sample was taken, in seconds — the plate's keyframe times. */
+  times?: number[];
   width: number;
   height: number;
 }
@@ -41,6 +43,19 @@ interface Props {
   onSample?: (count: number) => Promise<SampledShot>;
   /** Hands the plate to the Generate tab as an anchoring first frame. */
   onSendToGenerate?: (plate: Asset, aspect: string, prompt: string) => void;
+  /**
+   * Builds the comp: the plate animated along the shot's track, original over.
+   *
+   * Absent outside After Effects. This is the step no browser tool can do, and
+   * the one that makes the expansion safe — only the invented margins survive.
+   */
+  onAssemble?: (input: {
+    plate: Asset;
+    delivery: { width: number; height: number };
+    world: { width: number; height: number };
+    windows: Array<{ frame: number; x: number; y: number; time?: number }>;
+    rect: { x: number; y: number; width: number; height: number };
+  }) => Promise<{ compName: string; keyframes: number }>;
   busy?: boolean;
 }
 
@@ -160,13 +175,23 @@ export function ExpandView({
   onRefresh,
   onSample,
   onSendToGenerate,
+  onAssemble,
   busy,
 }: Props) {
   const [aspect, setAspect] = useState("16:9");
   const [placement, setPlacement] = useState<Placement>("centre");
   const [shape, setShape] = useState<{ width: number; height: number }>();
   const [plate, setPlate] = useState<
-    { plate: Asset; residual: Asset; prompt: string } | undefined
+    | {
+        plate: Asset;
+        residual: Asset;
+        prompt: string;
+        delivery: { width: number; height: number };
+        world: { width: number; height: number };
+        windows: Array<{ frame: number; x: number; y: number; time?: number }>;
+        rect: { x: number; y: number; width: number; height: number };
+      }
+    | undefined
   >();
 
   const [count, setCount] = useState(12);
@@ -211,21 +236,46 @@ export function ExpandView({
    */
   const expandNow = () =>
     run("Expanding", async () => {
-      const sampled = await onSample?.(2);
+      /*
+       * The whole shot, not one frame of it. The plate has to hold everywhere
+       * the camera went, and the track is what lets the comp move it in step —
+       * a single still would have to be generated into a clip, and the model's
+       * invented camera move is exactly what drifts against the original.
+       */
+      const sampled = await onSample?.(count);
       if (!sampled) return;
+      setFrames(sampled);
       setShape({ width: sampled.width, height: sampled.height });
 
       const result = await client.expandRecover({
-        framePaths: sampled.paths.slice(0, 1),
+        framePaths: sampled.paths,
         aspect,
         ...(rect ? { sourceRect: rect } : {}),
         ...(activeProject ? { project: activeProject } : {}),
       });
+
+      const windows = result.windows.map((window) => ({
+        ...window,
+        ...(sampled.times?.[window.frame] !== undefined
+          ? { time: sampled.times[window.frame] as number }
+          : {}),
+      }));
+      const source = result.coverage.source;
       setPlate({
         plate: result.plate,
         residual: result.residual,
         prompt: result.suggestedPrompt,
+        delivery: result.delivery,
+        world: result.coverage.canvas,
+        windows,
+        rect: {
+          x: source.x / result.delivery.width,
+          y: source.y / result.delivery.height,
+          width: source.width / result.delivery.width,
+          height: source.height / result.delivery.height,
+        },
       });
+      setCoverage({ coverage: result.coverage, verdict: result.verdict });
       await onRefresh();
     });
 
@@ -295,14 +345,45 @@ export function ExpandView({
               disabled={disabled}
             />
           </Field>
-          <button
-            type="button"
-            className="primary"
-            disabled={disabled || !onSendToGenerate}
-            onClick={() => onSendToGenerate?.(plate.plate, aspect, plate.prompt)}
-          >
-            Send to Generate
-          </button>
+          <div className="row">
+            <button
+              type="button"
+              className="primary"
+              disabled={disabled || !onSendToGenerate}
+              onClick={() => onSendToGenerate?.(plate.plate, aspect, plate.prompt)}
+            >
+              Send to Generate
+            </button>
+            <button
+              type="button"
+              disabled={disabled || !onAssemble}
+              onClick={() =>
+                run("Assembling", async () => {
+                  const built = await onAssemble?.({
+                    plate: plate.plate,
+                    delivery: plate.delivery,
+                    world: plate.world,
+                    windows: plate.windows,
+                    rect: plate.rect,
+                  });
+                  if (built) {
+                    setNote(
+                      `Built "${built.compName}" — plate tracked over ${built.keyframes} keyframes.`,
+                    );
+                  }
+                })
+              }
+            >
+              {working === "Assembling" ? "Building…" : "Build comp now"}
+            </button>
+          </div>
+          <p className="hint">
+            The plate is {plate.world.width}×{plate.world.height} against a{" "}
+            {plate.delivery.width}×{plate.delivery.height} delivery — wider, because it
+            holds everywhere the camera went. <strong>Build comp now</strong> animates it
+            along the shot's own track with the original fixed over the top, so the
+            margins travel exactly as far as the picture does.
+          </p>
           <p className="hint">
             The plate goes as the shot's <strong>first frame</strong>, which is what
             sets the output shape. When the wide clip comes back, build the comp with

@@ -465,6 +465,8 @@ export class CepAeBridge {
   }): Promise<{
     /** Scratch file paths, not assets — see below. */
     paths: string[];
+    /** When each sample was taken, in seconds. Keys the plate's track. */
+    times: number[];
     width: number;
     height: number;
     frameRate: number;
@@ -500,6 +502,7 @@ export class CepAeBridge {
      */
     return {
       paths: sampled.frames.map((frame) => frame.path),
+      times: sampled.frames.map((frame) => frame.timeSeconds),
       width: sampled.width,
       height: sampled.height,
       frameRate: sampled.frameRate,
@@ -535,6 +538,39 @@ export class CepAeBridge {
       `${hostPrefix()}assembleExpansion(${quote(options.path)}, ${
         options.canvas.width
       }, ${options.canvas.height}, ${JSON.stringify(options.rect)}, ${
+        options.name ? quote(options.name) : "null"
+      })`,
+    );
+  }
+
+  /**
+   * Builds the comp from a still plate animated along the shot's own track.
+   *
+   * The plate is wider than the delivery and moves with the camera, so the
+   * invented margins travel exactly as far as the picture does. A generated
+   * *clip* would carry the model's camera move instead, and drift.
+   */
+  async assemblePlateExpansion(options: {
+    path: string;
+    delivery: { width: number; height: number };
+    world: { width: number; height: number };
+    windows: Array<{ frame: number; x: number; y: number; time?: number }>;
+    rect: { x: number; y: number; width: number; height: number };
+    name?: string;
+  }): Promise<{
+    compName: string;
+    width: number;
+    height: number;
+    keyframes: number;
+    plate: { width: number; height: number };
+  }> {
+    await this.ensureHost();
+    return evalHost(
+      `${hostPrefix()}assemblePlateExpansion(${quote(options.path)}, ${JSON.stringify(
+        options.delivery,
+      )}, ${JSON.stringify(options.world)}, ${JSON.stringify(
+        options.windows,
+      )}, ${JSON.stringify(options.rect)}, ${
         options.name ? quote(options.name) : "null"
       })`,
     );
