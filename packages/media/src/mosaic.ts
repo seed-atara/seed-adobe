@@ -398,6 +398,14 @@ export function canvasFor(
     : { width, height: Math.round(width / aspect) };
 }
 
+export interface DeliveryWindow {
+  /** Index of the frame this window belongs to. */
+  frame: number;
+  /** Top-left of the delivery frame inside the plate, in plate pixels. */
+  x: number;
+  y: number;
+}
+
 export interface MosaicResult {
   /** The expanded plate, with recovered pixels filled in. */
   mosaic: RasterImage;
@@ -410,6 +418,17 @@ export interface MosaicResult {
    */
   residual: RasterImage;
   coverage: CoverageReport;
+  /**
+   * Where the delivery frame sits inside the plate, per frame.
+   *
+   * Only meaningful with `padToTravel`. The plate is a *world* wider than the
+   * delivery, and this is the window that slides across it — which is what lets
+   * a comp animate the background in step with the camera instead of leaving it
+   * static behind a moving shot.
+   */
+  windows: DeliveryWindow[];
+  /** The delivery size, which is smaller than the plate when padded. */
+  delivery: { width: number; height: number };
 }
 
 export interface MosaicOptions extends TrackOptions {
@@ -417,6 +436,15 @@ export interface MosaicOptions extends TrackOptions {
   maxSamples?: number;
   /** Pre-computed track, when the motion has already been measured. */
   track?: MotionTrack;
+  /**
+   * Grow the plate to hold the whole camera move, not just the delivery frame.
+   *
+   * Without this the plate is exactly the delivery size, which is only correct
+   * for a shot that does not move: slide it to follow a pan and its own edge
+   * comes into frame. With it the plate is a *world* — delivery plus travel —
+   * and `windows` says where to look at each moment.
+   */
+  padToTravel?: boolean;
 }
 
 /**
@@ -435,17 +463,56 @@ export function expandFromShot(
   const first = frames[0] as RasterImage;
   const { width: sw, height: sh } = first;
 
-  const canvas = canvasFor(sw, sh, target.aspect);
+  const delivery = canvasFor(sw, sh, target.aspect);
   const rect = target.sourceRect ?? {
-    x: (canvas.width - sw) / 2 / canvas.width,
-    y: (canvas.height - sh) / 2 / canvas.height,
-    width: sw / canvas.width,
-    height: sh / canvas.height,
+    x: (delivery.width - sw) / 2 / delivery.width,
+    y: (delivery.height - sh) / 2 / delivery.height,
+    width: sw / delivery.width,
+    height: sh / delivery.height,
   };
-  const originX = Math.round(rect.x * canvas.width);
-  const originY = Math.round(rect.y * canvas.height);
 
   const track = options.track ?? trackShot(frames, options);
+
+  /*
+   * The plate is a world, not a frame.
+   *
+   * A delivery-sized plate is only right for a shot that does not move: slide
+   * it to follow a pan and its own edge walks into shot. Padding by the travel
+   * makes the plate hold everywhere the camera went, and `windows` says which
+   * part of it the delivery frame is looking at each moment — which is what
+   * lets a comp move the background in step with the original instead of
+   * leaving it static behind a moving picture.
+   */
+  const usable = track.offsets.filter(
+    (offset) => offset.confidence >= (options.minConfidence ?? 0.15),
+  );
+  const xs = usable.map((offset) => offset.x);
+  const ys = usable.map((offset) => offset.y);
+  const minX = xs.length ? Math.min(...xs) : 0;
+  const maxX = xs.length ? Math.max(...xs) : 0;
+  const minY = ys.length ? Math.min(...ys) : 0;
+  const maxY = ys.length ? Math.max(...ys) : 0;
+
+  const pad = options.padToTravel ?? false;
+  const canvas = pad
+    ? {
+        width: delivery.width + (maxX - minX),
+        height: delivery.height + (maxY - minY),
+      }
+    : delivery;
+
+  /*
+   * With padding, the frame that sits furthest back defines the origin, so
+   * every frame lands at a non-negative position inside the world.
+   */
+  const originX = Math.round(rect.x * delivery.width) - (pad ? minX : 0);
+  const originY = Math.round(rect.y * delivery.height) - (pad ? minY : 0);
+
+  const windows: DeliveryWindow[] = track.offsets.map((offset, frame) => ({
+    frame,
+    x: pad ? offset.x - minX : 0,
+    y: pad ? offset.y - minY : 0,
+  }));
   const minConfidence = options.minConfidence ?? 0.15;
   const maxSamples = Math.max(1, options.maxSamples ?? 5);
 
@@ -606,6 +673,8 @@ export function expandFromShot(
       framesRejected: track.rejected,
       travel: track.travel,
     },
+    windows,
+    delivery,
   };
 }
 

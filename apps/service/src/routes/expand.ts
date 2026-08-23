@@ -306,13 +306,22 @@ export function expandRecoverRoute(deps: AppDeps) {
         : path.basename(request.framePaths[0] as string)
     ).replace(/\.[^.]+$/, "");
 
+    /*
+     * Padded to the travel, because the plate is going into a comp.
+     *
+     * A delivery-sized plate is only right for a locked-off shot: slide it to
+     * follow a pan and its own edge walks into frame. The plate is a world, and
+     * `windows` says where the delivery frame looks at each sample — which is
+     * what lets the background move with the camera instead of detaching from
+     * the picture composited over it.
+     */
     const result = expandFromShot(
       frames,
       {
         aspect: aspectValue(request.aspect),
         ...(request.sourceRect ? { sourceRect: request.sourceRect } : {}),
       },
-      { minConfidence: request.minConfidence },
+      { minConfidence: request.minConfidence, padToTravel: true },
     );
 
     const plate = await keepImage(
@@ -339,6 +348,13 @@ export function expandRecoverRoute(deps: AppDeps) {
       {
         coverage: result.coverage,
         suggestedPrompt: suggestedPrompt(result.coverage.canvas, result.coverage.source),
+        /*
+         * The delivery size and the track, handed back rather than re-derived.
+         * A comp needs both: the plate is bigger than the frame, and the window
+         * is what makes the background follow the camera.
+         */
+        delivery: result.delivery,
+        windows: result.windows,
         ...(cropped ? { cropped: cropped.bounds, croppedNote: cropped.note } : {}),
         verdict: verdictFor(
           result.coverage.coverage,

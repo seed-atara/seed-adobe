@@ -413,3 +413,58 @@ describe("full-resolution accuracy", () => {
     }
   }, 30_000);
 });
+
+/*
+ * The plate has to be a world, not a delivery frame.
+ *
+ * A delivery-sized plate is right only for a locked-off shot. Slide it to
+ * follow a pan and its own edge walks into shot — which is the difference
+ * between a background that moves with the camera and one that visibly
+ * detaches from the picture sitting on top of it.
+ */
+describe("padToTravel", () => {
+  it("grows the plate by the travel and says where to look each frame", () => {
+    const frames = panFrames(8, 16);
+    const plain = expandFromShot(frames, { aspect: 21 / 9 });
+    const world = expandFromShot(frames, { aspect: 21 / 9 }, { padToTravel: true });
+
+    const travel = plain.coverage.travel.x;
+    expect(travel).toBeGreaterThan(0);
+
+    // Same delivery, bigger plate.
+    expect(world.delivery).toEqual(plain.coverage.canvas);
+    expect(world.coverage.canvas.width).toBe(plain.coverage.canvas.width + travel);
+    expect(world.coverage.canvas.height).toBe(plain.coverage.canvas.height);
+
+    /*
+     * The window walks across the world exactly as the camera walked across the
+     * scene, and never runs off either end — that is what keeps the plate's own
+     * edge out of frame.
+     */
+    expect(world.windows).toHaveLength(frames.length);
+    expect(world.windows[0]?.x).toBe(0);
+    expect(world.windows.at(-1)?.x).toBe(travel);
+    for (const window of world.windows) {
+      expect(window.x).toBeGreaterThanOrEqual(0);
+      expect(window.x + world.delivery.width).toBeLessThanOrEqual(
+        world.coverage.canvas.width,
+      );
+    }
+
+    // Monotonic for a one-way pan: no doubling back.
+    for (let i = 1; i < world.windows.length; i += 1) {
+      expect(world.windows[i]!.x).toBeGreaterThanOrEqual(world.windows[i - 1]!.x);
+    }
+  }, 30_000);
+
+  it("leaves a locked-off shot exactly the delivery size", () => {
+    const still = crop(world(400, 300), 20, 20, FRAME_W, FRAME_H);
+    const result = expandFromShot(
+      [still, still, still],
+      { aspect: 21 / 9 },
+      { padToTravel: true },
+    );
+    expect(result.coverage.canvas).toEqual(result.delivery);
+    for (const window of result.windows) expect(window.x).toBe(0);
+  }, 30_000);
+});
