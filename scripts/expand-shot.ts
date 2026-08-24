@@ -227,6 +227,43 @@ async function marginsFilled(plate: string): Promise<boolean> {
 }
 
 /**
+ * Crop off any bar the fill left behind, and stretch what is left to fit.
+ *
+ * The fill often gets almost all the way: on the 604px-wide portrait shot it
+ * extended the aisle convincingly in both directions and stopped about 110px
+ * short of each edge. Three such attempts in a row were thrown away by the
+ * margin check for that residue, which is a waste of three good generations.
+ *
+ * Scaling the covered area up to the full frame costs a few percent of
+ * resolution and salvages the picture. It does move the content relative to
+ * the source frame — which matters not at all in reference mode, where the
+ * plate is a statement about content and width rather than geometry.
+ */
+async function trimResidualBars(plate: string): Promise<void> {
+  const { stderr } = await run("ffmpeg", [
+    "-v", "info", "-i", plate,
+    "-vf", "cropdetect=limit=24:round=2:reset=0",
+    "-f", "null", "-",
+  ]).catch((error: { stderr?: string }) => ({ stderr: error.stderr ?? "" }));
+  const match = /crop=(\d+):(\d+):(\d+):(\d+)/.exec(stderr ?? "");
+  if (!match) return;
+  const [w, h, x, y] = match.slice(1).map(Number) as [number, number, number, number];
+  if (w >= source.width && h >= source.height) return;
+  // A fill that covered almost nothing is a failure, not something to stretch.
+  if (w < source.width * 0.6 || h < source.height * 0.6) return;
+  const trimmed = `${plate}.trimmed.png`;
+  await run("ffmpeg", [
+    "-v", "error", "-i", plate,
+    "-vf", `crop=${w}:${h}:${x}:${y},scale=${source.width}:${source.height}`,
+    "-frames:v", "1", trimmed, "-y",
+  ]);
+  await run("ffmpeg", ["-v", "error", "-i", trimmed, "-frames:v", "1", plate, "-y"]);
+  console.log(
+    `   trimmed a ${source.width - w}x${source.height - h}px bar the fill left and stretched to fit`,
+  );
+}
+
+/**
  * Fill the empty margins of one frame, and cache the result: a retry should
  * not pay twice for the same plate.
  */
@@ -293,6 +330,7 @@ async function fillMargins(frame: string, target: string) {
       process.exit(1);
     }
     await writeFile(raw, Buffer.from(await (await fetch(url)).arrayBuffer()));
+    await trimResidualBars(raw);
     if (await marginsFilled(raw)) {
       /*
        * The original rect goes back on, mechanically.
@@ -437,7 +475,34 @@ if (mode === "frames") {
   content.push({ type: "image_url", image_url: { url: last.url }, role: "last_frame" });
   body.duration = Math.max(4, Math.min(30, Math.round(source.duration)));
 } else {
-  console.log(`3. hosting the cropped clip and the plate ...`);
+  /*
+   * The reference stack, layered rather than single.
+   *
+   * Every earlier reference-mode run sent one still and the clip, and the model
+   * inferred a framing of its own from that one still. Multi-reference is
+   * Seedance 2.5's headline capability, so the stack now carries what the shot
+   * actually is as well as what it should look like widened: the two real end
+   * frames say what is in the scene and how it is lit, the plate says how far
+   * the frame extends, and the clip says how the camera moves.
+   *
+   * All three stills are cropped to the rect first. A reference carrying the
+   * delivery's black bars teaches the model the bars are part of the scene —
+   * measured on 2026-08-24, when the whole render came back pillarboxed.
+   */
+  const refFirst = out("ref_first.png");
+  const refLast = out("ref_last.png");
+  for (const [from, to] of [
+    [firstFrame, refFirst],
+    [lastFrame, refLast],
+  ] as const) {
+    await run("ffmpeg", [
+      "-v", "error", "-i", from,
+      "-vf", `crop=${rw}:${rh}:${rx}:${ry}`,
+      "-frames:v", "1", to, "-y",
+    ]);
+  }
+
+  console.log(`3. hosting the clip, the plate and both end frames ...`);
   const hostedClip = await publisher.publish({
     bytes: await readFile(refClip),
     filename: `${stem}_ref.mp4`,
@@ -446,6 +511,16 @@ if (mode === "frames") {
   const hostedPlate = await publisher.publish({
     bytes: await readFile(plateFirst),
     filename: `${stem}_plate.png`,
+    mimeType: "image/png",
+  });
+  const hostedFirst = await publisher.publish({
+    bytes: await readFile(refFirst),
+    filename: `${stem}_ref_first.png`,
+    mimeType: "image/png",
+  });
+  const hostedLast = await publisher.publish({
+    bytes: await readFile(refLast),
+    filename: `${stem}_ref_last.png`,
     mimeType: "image/png",
   });
   /*
@@ -458,16 +533,28 @@ if (mode === "frames") {
     type: "text",
     text:
       process.argv[5] ??
-      `A single continuous live-action wide shot, framed exactly as the still ` +
-        `reference — the same place, subjects, lighting, lens and depth of field, ` +
-        `filling the whole ${ratio} frame edge to edge. The camera glides steadily ` +
-        `and smoothly through the space in one unbroken take, no cuts.`,
+      `A single continuous live-action shot filling the whole ${ratio} frame edge ` +
+        `to edge, with picture right out to the left and right borders. The first ` +
+        `still shows how wide the frame is; the others show the same place close ` +
+        `up. Keep the place, the subjects, the lighting, the lens and the depth of ` +
+        `field identical to the stills throughout, and hold the same framing for ` +
+        `the whole take. The camera glides steadily and smoothly in one unbroken ` +
+        `take: no cuts, no zoom, no change of angle.`,
   });
-  content.push({
-    type: "image_url",
-    image_url: { url: hostedPlate.url },
-    role: "reference_image",
-  });
+  /*
+   * Order is deliberate: the widened plate first, because it is the one that
+   * says how much frame there is to fill, then the two real frames, then the
+   * clip. The API does not document a precedence, so this is a guess worth
+   * recording rather than a rule — if the framing still drifts, reordering is
+   * the first thing to try.
+   */
+  for (const reference of [hostedPlate, hostedFirst, hostedLast]) {
+    content.push({
+      type: "image_url",
+      image_url: { url: reference.url },
+      role: "reference_image",
+    });
+  }
   content.push({
     type: "video_url",
     video_url: { url: hostedClip.url },
@@ -599,8 +686,24 @@ function correlate(
  * the plate's and no correction is wanted. In reference mode the model chose
  * its own view and this is what puts it back where the shot is.
  */
+/*
+ * Off unless asked for, because correcting the framing costs coverage.
+ *
+ * The correction is a scale below one — the render shows a wider view, so
+ * matching it to the shot means shrinking it — and a 1920 frame scaled to
+ * 1690 cannot fill 1920. The uncovered strip comes back as black at the edge,
+ * which is worse than the mismatch it fixes.
+ *
+ * It stopped being needed anyway once the reference stack was layered: with
+ * the plate, both real end frames and the clip all sent together, the render
+ * came back at correlation 0.77 to the source and composites straight, with
+ * no black and no obvious join. Single-reference runs managed 0.69 and 0.37.
+ *
+ * Kept behind SEED_EXPAND_ALIGN=1 because it is the right tool the day a
+ * render is generated with genuine headroom to shrink into.
+ */
 let fit = { s: 1, dx: 0, dy: 0, r: 1 };
-if (mode === "reference") {
+if (mode === "reference" && process.env.SEED_EXPAND_ALIGN === "1") {
   const at = source.duration / 2;
   for (const [W, H, span, step] of [
     [192, 108, 0, 0],
