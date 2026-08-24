@@ -263,10 +263,12 @@ async function fillMargins(frame: string, target: string) {
     `photograph — no black, no border, no letterboxing anywhere in the result. ` +
     `Continue the existing scene straight out past its edges — the same place, the ` +
     `same moment, the same lens, the same lighting and depth of field. Match grain, ` +
-    `colour and exposure exactly across the join. Do not alter, redraw, reframe or ` +
-    `restyle anything inside the existing picture, and do not introduce new subjects; ` +
-    `only continue what is already there into the empty area.`;
+    `colour and exposure exactly across the join. Stay inside the same space: do not ` +
+    `add windows, doorways, daylight or any view into another location. Do not alter, ` +
+    `redraw, reframe or restyle anything inside the existing picture, and do not ` +
+    `introduce new subjects; only continue what is already there into the empty area.`;
 
+  const raw = `${target}.seedream.jpg`;
   for (let attempt = 1; attempt <= 3; attempt += 1) {
     const response = await fetch(`${base}/images/generations`, {
       method: "POST",
@@ -290,9 +292,39 @@ async function fillMargins(frame: string, target: string) {
       console.error(`   FAILED ${response.status} — ${payload?.error?.code}: ${message}`);
       process.exit(1);
     }
-    await writeFile(target, Buffer.from(await (await fetch(url)).arrayBuffer()));
-    if (await marginsFilled(target)) {
-      console.log(`   ${path.basename(target)}${attempt > 1 ? ` (attempt ${attempt})` : ""}`);
+    await writeFile(raw, Buffer.from(await (await fetch(url)).arrayBuffer()));
+    if (await marginsFilled(raw)) {
+      /*
+       * The original rect goes back on, mechanically.
+       *
+       * Seedream re-renders the whole frame, centre included — what comes back
+       * is a repaint of the shot, not the shot. Asking a prompt not to touch
+       * the middle does not work and cannot be verified; pasting the real
+       * pixels over it is exact and costs nothing. It matters twice over: this
+       * plate is what Seedance animates from, so the render starts from the
+       * true frame, and the delivered comp meets generated margins that were
+       * painted around the true frame rather than around a repaint of it.
+       *
+       * PNG, because writing the original pixels back through JPEG twice is a
+       * pointless generation loss on the one part that must not change.
+       */
+      await run("ffmpeg", [
+        "-v",
+        "error",
+        "-i",
+        raw,
+        "-i",
+        frame,
+        "-filter_complex",
+        `[1:v]crop=${rw}:${rh}:${rx}:${ry}[fg];[0:v][fg]overlay=${rx}:${ry}`,
+        "-frames:v",
+        "1",
+        target,
+        "-y",
+      ]);
+      console.log(
+        `   ${path.basename(target)}${attempt > 1 ? ` (attempt ${attempt})` : ""} — original rect pasted back`,
+      );
       return;
     }
     console.log(`   attempt ${attempt} came back with a margin still black — asking again`);
@@ -301,8 +333,8 @@ async function fillMargins(frame: string, target: string) {
   process.exit(1);
 }
 
-const plateFirst = out("plate_first.jpg");
-const plateLast = out("plate_last.jpg");
+const plateFirst = out("plate_first.png");
+const plateLast = out("plate_last.png");
 
 console.log(`2. filling margins with ${imageModel} at ${size} ...`);
 await fillMargins(firstFrame, plateFirst);
@@ -379,13 +411,13 @@ if (mode === "frames") {
   console.log(`3. hosting both plates ...`);
   const first = await publisher.publish({
     bytes: await readFile(plateFirst),
-    filename: `${stem}_first.jpg`,
-    mimeType: "image/jpeg",
+    filename: `${stem}_first.png`,
+    mimeType: "image/png",
   });
   const last = await publisher.publish({
     bytes: await readFile(plateLast),
-    filename: `${stem}_last.jpg`,
-    mimeType: "image/jpeg",
+    filename: `${stem}_last.png`,
+    mimeType: "image/png",
   });
   /*
    * No `ratio`: with a first frame the API refuses it — "For first-frame or
@@ -413,8 +445,8 @@ if (mode === "frames") {
   });
   const hostedPlate = await publisher.publish({
     bytes: await readFile(plateFirst),
-    filename: `${stem}_plate.jpg`,
-    mimeType: "image/jpeg",
+    filename: `${stem}_plate.png`,
+    mimeType: "image/png",
   });
   /*
    * Worded as a shot to make, not an edit to apply, and this is load-bearing.
@@ -441,7 +473,20 @@ if (mode === "frames") {
     video_url: { url: hostedClip.url },
     role: "reference_video",
   });
-  body.ratio = ratio;
+  /*
+   * Generated wider than the delivery, on purpose.
+   *
+   * Reference mode composes its own view rather than reproducing the still's
+   * framing, and the view it chose was wider than the source and shifted: a
+   * single scale-and-shift fitted it at scale 0.875, dx -448px, correlation
+   * 0.69 (measured 2026-08-24). Correcting that means scaling the render down
+   * to match the original, and a render made at the delivery ratio would then
+   * no longer reach the edges of the delivery.
+   *
+   * Asking for a wider ratio leaves room to scale down into. What is not
+   * needed gets cropped away after alignment.
+   */
+  body.ratio = process.env.SEED_EXPAND_GEN_RATIO ?? ratio;
   body.duration = -1;
 }
 body.content = content;
@@ -501,7 +546,109 @@ console.log(
   `   ${path.basename(wide)}  ${generated.width}x${generated.height}  ${generated.duration.toFixed(2)}s`,
 );
 
-/* ---------- 4. the original back on top ---------- */
+/* ---------- 4. line the render up with the shot, then put the original back ---------- */
+
+/** One frame of a file as raw 8-bit grey at the requested size. */
+async function grey(file: string, at: number, w: number, h: number): Promise<Uint8Array> {
+  const { stdout } = await run(
+    "ffmpeg",
+    [
+      "-v", "error", "-ss", at.toFixed(3), "-i", file,
+      "-vf", `scale=${w}:${h}`, "-frames:v", "1",
+      "-f", "rawvideo", "-pix_fmt", "gray", "-",
+    ],
+    { encoding: "buffer", maxBuffer: 1 << 28 },
+  );
+  return new Uint8Array(stdout as unknown as Buffer);
+}
+
+/**
+ * How well a candidate scale and shift lines the two frames up.
+ *
+ * A point (x,y) in the source is looked up at (x/s + dx, y/s + dy) in the
+ * render, and only the region the original picture occupies is scored — the
+ * margins are generated and have nothing to agree with.
+ */
+function correlate(
+  a: Uint8Array, b: Uint8Array, w: number, h: number,
+  s: number, dx: number, dy: number,
+  box: { x: number; y: number; w: number; h: number },
+): number {
+  let n = 0, sa = 0, sb = 0, saa = 0, sbb = 0, sab = 0;
+  for (let y = Math.max(0, box.y); y < Math.min(h, box.y + box.h); y += 2) {
+    const gy = Math.round(y / s + dy);
+    if (gy < 0 || gy >= h) continue;
+    for (let x = Math.max(0, box.x); x < Math.min(w, box.x + box.w); x += 2) {
+      const gx = Math.round(x / s + dx);
+      if (gx < 0 || gx >= w) continue;
+      const p = a[y * w + x]!;
+      const q = b[gy * w + gx]!;
+      n += 1; sa += p; sb += q; saa += p * p; sbb += q * q; sab += p * q;
+    }
+  }
+  if (n < (box.w * box.h) / 16) return -1;
+  const cov = sab / n - (sa / n) * (sb / n);
+  const va = saa / n - (sa / n) ** 2;
+  const vb = sbb / n - (sb / n) ** 2;
+  if (va <= 0 || vb <= 0) return -1;
+  return cov / Math.sqrt(va * vb);
+}
+
+/*
+ * In frames mode the render already starts from the plate, so its framing is
+ * the plate's and no correction is wanted. In reference mode the model chose
+ * its own view and this is what puts it back where the shot is.
+ */
+let fit = { s: 1, dx: 0, dy: 0, r: 1 };
+if (mode === "reference") {
+  const at = source.duration / 2;
+  for (const [W, H, span, step] of [
+    [192, 108, 0, 0],
+    [768, 432, 0, 0],
+  ] as const) {
+    void span;
+    void step;
+    const box = {
+      x: Math.round((rx * W) / source.width),
+      y: Math.round((ry * H) / source.height),
+      w: Math.round((rw * W) / source.width),
+      h: Math.round((rh * H) / source.height),
+    };
+    const a = await grey(clip, at, W, H);
+    const b = await grey(wide, (at / source.duration) * generated.duration, W, H);
+    if (W === 192) {
+      let best = { s: 1, dx: 0, dy: 0, r: -1 };
+      for (let s = 0.7; s <= 1.6; s += 0.02) {
+        for (let dx = -60; dx <= 60; dx += 2) {
+          for (let dy = -40; dy <= 40; dy += 2) {
+            const r = correlate(a, b, W, H, s, dx, dy, box);
+            if (r > best.r) best = { s, dx, dy, r };
+          }
+        }
+      }
+      fit = best;
+    } else {
+      const k = W / 192;
+      const c = { s: fit.s, dx: fit.dx * k, dy: fit.dy * k };
+      let best = { ...c, r: -1 };
+      for (let s = c.s - 0.04; s <= c.s + 0.04; s += 0.005) {
+        for (let dx = c.dx - 12; dx <= c.dx + 12; dx += 1) {
+          for (let dy = c.dy - 12; dy <= c.dy + 12; dy += 1) {
+            const r = correlate(a, b, W, H, s, dx, dy, box);
+            if (r > best.r) best = { s, dx, dy, r };
+          }
+        }
+      }
+      fit = { s: best.s, dx: (best.dx / k) * (source.width / 192), dy: (best.dy / k) * (source.height / 108), r: best.r };
+    }
+  }
+  console.log(
+    `4. render lines up at scale ${fit.s.toFixed(3)}, offset ${fit.dx.toFixed(0)},${fit.dy.toFixed(0)} (correlation ${fit.r.toFixed(2)})`,
+  );
+  if (fit.r < 0.5) {
+    console.log(`   weak — the render is not a reframing of this shot, so the margins will not sit right`);
+  }
+}
 
 /*
  * The generated clip is whatever size and length Ark chose. It is scaled to
@@ -510,6 +657,28 @@ console.log(
  * at the end, and a frame of drift is visible at the seam.
  */
 const stretch = source.duration / generated.duration;
+
+/*
+ * The join is feathered rather than cut.
+ *
+ * A hard edge announces itself even when both sides are correct, because the
+ * original is sharper and fractionally different in exposure from anything
+ * generated beside it — and the eye finds a straight vertical line instantly.
+ * A short ramp costs a few pixels of original at the very border and buys an
+ * edge that has to be looked for.
+ *
+ * SEED_EXPAND_FEATHER sets the width; 0 turns it off and cuts hard, which is
+ * the honest way to see how well the margins actually line up.
+ */
+const feather = Number(process.env.SEED_EXPAND_FEATHER ?? 12);
+const alpha =
+  feather > 0
+    ? `,format=rgba,geq=r='r(X,Y)':g='g(X,Y)':b='b(X,Y)':a='255*clip(min(min(X\\,W-1-X)\\,min(Y\\,H-1-Y))/${feather}\\,0\\,1)'`
+    : "";
+
+/* Room for the aligned crop to land in without running off the edge. */
+const PAD = 600;
+
 const final = out("final.mp4");
 await run("ffmpeg", [
   "-v",
@@ -519,9 +688,21 @@ await run("ffmpeg", [
   "-i",
   refClip,
   "-filter_complex",
-  `[0:v]scale=${source.width}:${source.height},setpts=${stretch.toFixed(6)}*PTS,fps=${source.fps.toFixed(6)},setsar=1[bg];` +
-    `[1:v]setsar=1[fg];` +
-    `[bg][fg]overlay=${rx}:${ry}:shortest=1[v]`,
+  /*
+   * The background: the render put back where the shot is.
+   *
+   * In frames mode the fit is the identity and this reduces to a plain scale
+   * to the delivery size. In reference mode the render is scaled by the fitted
+   * factor and cropped so the picture it contains sits exactly where the
+   * original sits. The generous pad is what makes that crop safe — asking for
+   * a wider generation ratio is what keeps the pad from being needed.
+   */
+  `[0:v]scale=${Math.round(source.width * fit.s)}:${Math.round(source.height * fit.s)},` +
+    `pad=iw+${2 * PAD}:ih+${2 * PAD}:${PAD}:${PAD}:black,` +
+    `crop=${source.width}:${source.height}:${Math.round(fit.dx * fit.s) + PAD}:${Math.round(fit.dy * fit.s) + PAD},` +
+    `setpts=${stretch.toFixed(6)}*PTS,fps=${source.fps.toFixed(6)},setsar=1[bg];` +
+    `[1:v]setsar=1${alpha}[fg];` +
+    `[bg][fg]overlay=${rx}:${ry}:shortest=1:format=auto[v]`,
   "-map",
   "[v]",
   "-c:v",
