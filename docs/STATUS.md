@@ -1,6 +1,6 @@
 # Status
 
-Last updated: 2026-08-24
+Last updated: 2026-08-25
 
 ## Current milestone
 
@@ -48,6 +48,63 @@ regression tests:
    `image/png`, so files were written as `.png` containing JPEG, with wrong
    mime metadata and silently skipped thumbnails. The ingestor now sniffs the
    bytes and treats any provider-declared type as a hint.
+
+## Expansion, rebuilt 2026-08-25 — `scripts/expand-shot.ts`
+
+Started again from Johannes's design and nothing else: the artist sets the rect
+saying where the original picture sits inside the full frame, Seedance widens
+the shot, and the original is composited back over its rect. No tracking, no
+mosaic, no coverage report, no bar detection.
+
+**What made it work is layering the reference stack.** Send the widened plate,
+the real first frame, the real last frame *and* the clip together, every still
+cropped to the rect so no delivery bars reach the model. Framing fidelity to
+the source, fitted as a scale and shift:
+
+| reference stack | correlation |
+| --- | --- |
+| plate only, 21:9 | 0.37 |
+| plate only, 16:9 | 0.69 |
+| **plate + both end frames + clip** | **0.77** |
+
+At 0.77 the render composites straight — no alignment step, no visible join.
+
+Verified on `Puffs_1x1_to_16.9_f00482_range.mp4`: a **604x1080 portrait inside
+1920x1080**, so **69% of the delivered frame is generated**. Out at 1920x1080
+with no black anywhere — the darkest edge band across the whole clip measures
+59.7, where a bar reads 2-5.
+
+**The limit that cost the most to find: Seedream re-renders the whole frame,
+centre included.** It is not an outpainting tool. There is no mask parameter,
+and `seededit-3-0-i2i` — the actual editing model — is WITHDRAWN on this
+account. Mean difference over the picture rect, where 0 would mean untouched:
+
+| model | centre delta |
+| --- | --- |
+| `seedream-4-0-250828` | 31 |
+| `dola-seedream-5-0-pro-260628` | 46 |
+
+Three phrasings all re-rendered; one returned a mirrored composition, another
+drew a black-bordered photo floating on a blurred background. No prompt
+substitutes for a mask, so the original rect is pasted back mechanically.
+
+**Aligning the render afterwards is a trap.** The fit is a scale below one —
+the render shows a wider view, so matching it means shrinking it — and a 1920
+frame scaled to 1690 cannot fill 1920. It puts black at the edges to fix a join
+that no longer shows. Kept behind `SEED_EXPAND_ALIGN=1` for the day a render
+has genuine headroom to shrink into.
+
+Measured Ark rules now encoded in the script: `ratio` must be a named ratio
+(`16:9`, not `1920:1080`); a reference video carries its letterboxing into the
+render, so it is cropped first; a prompt that reads as *editing* is refused
+with "`ratio` must be `adaptive`"; `first_frame` cannot mix with reference
+media and forces the output ratio, which is why frames mode pins framing but
+interpolates motion (`SEED_EXPAND_MODE=frames`).
+
+**Not yet in the panel or After Effects.** It is a script, deliberately: the
+agreement is to get the look right offline first. Two things remain unmeasured
+— margin motion is Seedance's reading of the move rather than a tracked match,
+and drift has not been checked frame by frame.
 
 ## Withdrawn 2026-08-24 — aspect expansion
 
@@ -651,9 +708,9 @@ explains it. Worth asking Adobe rather than reverse-engineering.
 
 ## Next engineering actions
 
-1. Aspect expansion, from nothing. The rule from ADR 0018: start from a shot in
-   After Effects, and do not report it as working until that shot is finished,
-   in the application, and looked at.
+1. Wire `scripts/expand-shot.ts` into the panel and After Effects, once the look
+   is signed off. The rule from ADR 0018 still stands: do not report it as
+   working until a shot is finished, in the application, and looked at.
 2. Exercise iterate-in-place in Premiere. It is built and has never replaced a
    real clip there; After Effects has.
 3. Decide whether video references should register as Ark assets rather than
