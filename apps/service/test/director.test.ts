@@ -1,7 +1,11 @@
 import { describe, expect, it } from "vitest";
 import type { Asset } from "@seed-ae/domain";
 import type { ProviderCapabilities } from "@seed-ae/providers";
-import { planFromDraft, type DraftPlan } from "../src/agent/director.js";
+import {
+  planFromDraft,
+  SYSTEM_PROMPT,
+  type DraftPlan,
+} from "../src/agent/director.js";
 
 const IMAGE_PROVIDER: ProviderCapabilities = {
   id: "seedream",
@@ -256,5 +260,53 @@ describe("planFromDraft", () => {
       [],
     );
     expect(plan.warnings).toContain("she is already facing camera");
+  });
+});
+
+describe("what the direction model is told", () => {
+  /*
+   * These are not style assertions. Each one is a rule that was measured
+   * against a real API or published by the model's own makers, and each was
+   * absent — or contradicted — before. A regression here is a silent quality
+   * loss: the prompts keep coming back, they are just worse.
+   */
+
+  it("asks for beats rather than a paragraph when the shot moves", () => {
+    // The prompt used to say "one paragraph" for everything. Seedance reads a
+    // shot as timecoded beats, so a paragraph gave it no order to follow.
+    expect(SYSTEM_PROMPT).toMatch(/do NOT write a paragraph/);
+    expect(SYSTEM_PROMPT).toMatch(/timecoded beats/);
+    // And still a paragraph for a still, which is right for an image model.
+    expect(SYSTEM_PROMPT).toMatch(/For a still: one paragraph/);
+  });
+
+  it("keeps one camera move per beat", () => {
+    expect(SYSTEM_PROMPT).toMatch(/One camera move per beat/);
+  });
+
+  it("teaches the markup that decides what gets spoken", () => {
+    // Unmarked quoted prose can be vocalised, so the fix is deliberate
+    // marking rather than avoiding quotes.
+    expect(SYSTEM_PROMPT).toMatch(/\{curly braces\}/);
+    expect(SYSTEM_PROMPT).toMatch(/<angle brackets>/);
+  });
+
+  it("warns about the words that silently flip a request into edit mode", () => {
+    // The root cause of most InvalidParameter.TaskTypeConstraint failures:
+    // a trigger word in the prose, not a field anyone set.
+    expect(SYSTEM_PROMPT).toMatch(/silently flip/);
+    for (const trigger of ["add", "remove", "replace"]) {
+      expect(SYSTEM_PROMPT).toContain(`"${trigger}"`);
+    }
+  });
+
+  it("keeps resolution out of the prompt", () => {
+    // Resolution is a request parameter. Writing "4K" into the prose asks the
+    // model for something it does not have.
+    expect(SYSTEM_PROMPT).toMatch(/never a resolution tag/);
+  });
+
+  it("asks for externalised emotion, which is directable", () => {
+    expect(SYSTEM_PROMPT).toMatch(/Externalise emotion/);
   });
 });
