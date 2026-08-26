@@ -35,6 +35,9 @@ Premiere Pro on Windows. See `docs/STATUS.md`.
 
 ## Install
 
+Full cross-platform instructions, including macOS and the dev loop, are in
+[`docs/INSTALL.md`](docs/INSTALL.md). The short version:
+
 ```bash
 git clone https://github.com/seed-atara/seed-adobe.git
 cd seed-adobe
@@ -51,14 +54,23 @@ full set of settings and what each one does.
 
 ## API keys
 
-Keys live in exactly one place: **`.env` in the project root.** The service
-reads them at startup and holds them; the panel never sees them, and neither
-does the Adobe project file. `.env` is git-ignored, and nothing else — not the
-database, not the generation metadata, not the logs — is allowed to contain a
-key.
+Two places, and a key never reaches the panel or the `.aep` file from either.
+Nothing else — not the database, not the generation metadata, not the logs — is
+allowed to contain one.
 
-Run `npm run setup` and it asks for each of these in turn. Editing `.env` by
-hand does the same job if you prefer; `.env.example` documents every setting.
+**From the panel.** Click the gear in the title bar. Twelve settings, each with
+a line saying what breaks without it; saving rebuilds the providers straight
+away and tells you what came online. Stored in `~/.seed-ae/credentials.json` at
+mode 0600, outside the project folder — a workspace gets zipped and handed to
+other people. This is the route for anyone who is not developing SEED.
+
+**From `.env`.** `npm run setup` asks for each key and writes a git-ignored
+`.env`; editing it by hand does the same job. `.env.example` documents every
+setting, including the tuning knobs the panel deliberately does not offer.
+
+A value set in the panel **overrides** `.env`, and the panel says which of the
+two each current value came from — so an edit to `.env` that appears to do
+nothing has a visible reason.
 
 | Variable | What it unlocks | Where it comes from | Needed? |
 | --- | --- | --- | --- |
