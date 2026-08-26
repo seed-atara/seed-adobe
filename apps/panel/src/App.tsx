@@ -24,6 +24,7 @@ import { LibraryView } from "./components/LibraryView.tsx";
 import { AssetDetail } from "./components/AssetDetail.tsx";
 import { LineageView } from "./components/LineageView.tsx";
 import { ItemsView } from "./components/ItemsView.tsx";
+import { SettingsView } from "./components/SettingsView.tsx";
 import { findMentions } from "./mentions.ts";
 import { bestQualitySize } from "./quality.ts";
 import {
@@ -171,6 +172,8 @@ export function App({ tabs }: AppProps = {}) {
   );
 
   const [tab, setTab] = useState<Tab>(visibleTabs[0] ?? "generate");
+  /** Credentials live behind the gear, not in a tab: set once, then forget. */
+  const [showSettings, setShowSettings] = useState(false);
   const [assets, setAssets] = useState<Asset[]>([]);
   /** Whether the library shows only the project this panel is docked in. */
   const [thisProjectOnly, setThisProjectOnly] = useState(true);
@@ -1301,6 +1304,14 @@ export function App({ tabs }: AppProps = {}) {
         <span className="icon">S</span>
         <span className="label">SEED / AE</span>
         <span className="controls">
+          <button
+            className="ctl"
+            title="Credentials and model ids"
+            aria-label="Settings"
+            onClick={() => setShowSettings(true)}
+          >
+            &#9881;
+          </button>
           <button className="ctl" tabIndex={-1} aria-hidden="true">
             _
           </button>
@@ -1462,6 +1473,23 @@ export function App({ tabs }: AppProps = {}) {
           </aside>
         ) : null}
       </div>
+
+      {showSettings ? (
+        <SettingsView
+          client={client}
+          onClose={() => setShowSettings(false)}
+          onProvidersChanged={() => {
+            // Re-read rather than trust the save's own list: the dropdowns are
+            // built from capabilities, which only the provider can report.
+            void client
+              .providers()
+              .then(({ providers: caps }) => setProviders(caps))
+              .catch(() => {
+                /* the dialog has already reported the failure */
+              });
+          }}
+        />
+      ) : null}
     </div>
   );
 }

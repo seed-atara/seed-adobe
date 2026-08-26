@@ -1488,3 +1488,108 @@ button.listRow:hover {
   background: #d0e0ff;
   border-bottom: 1px solid var(--title);
 }
+
+/* --- Settings dialog -------------------------------------------------- */
+/* Modal rather than a tab: credentials are a day-one job you then forget,
+   and a fifth tab would put them next to work you do every hour. */
+
+.settings-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: grid;
+  place-items: center;
+  padding: var(--gap-lg);
+  /* The desktop colour, so the dialog reads as sitting on the shell rather
+     than floating over a dimmed web page. */
+  background: rgba(0, 0, 0, 0.45);
+}
+
+.settings-dialog {
+  display: flex;
+  flex-direction: column;
+  width: min(560px, 100%);
+  max-height: 100%;
+  background: var(--face);
+  border: 2px solid;
+  border-color: var(--white) var(--black) var(--black) var(--white);
+  box-shadow: inset -1px -1px 0 var(--shadow), inset 1px 1px 0 var(--face-light);
+}
+
+.settings-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: var(--gap-lg);
+}
+
+.settings-intro {
+  margin: 0 0 var(--gap-lg);
+  font-size: 11px;
+  color: var(--text);
+}
+
+.settings-intro code {
+  font-family: var(--mono);
+  word-break: break-all;
+}
+
+.settings-group {
+  margin-bottom: var(--gap-xl);
+}
+
+.settings-blurb {
+  margin: 0 0 var(--gap) 0;
+  font-size: 11px;
+  color: var(--text-disabled);
+}
+
+.settings-row > span:first-child {
+  display: flex;
+  align-items: center;
+  gap: var(--gap-sm);
+  justify-content: space-between;
+}
+
+.settings-source {
+  font-weight: normal;
+  text-transform: none;
+}
+
+/* Set here beats .env, and the colours say which is which at a glance. */
+.settings-source.panel {
+  background: var(--title);
+  color: var(--white);
+}
+
+.settings-source.env {
+  background: var(--shadow);
+  color: var(--white);
+}
+
+.settings-source.unset {
+  background: var(--face-light);
+  color: var(--text-disabled);
+}
+
+.settings-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--gap);
+  padding: var(--gap-lg);
+  border-top: 1px solid var(--shadow);
+  flex: none;
+}
+
+/* A button that reads as prose, for a destructive action that should not
+   look as inviting as Save. */
+button.linkish {
+  padding: 0;
+  border: 0;
+  background: none;
+  box-shadow: none;
+  font: inherit;
+  color: var(--title);
+  text-decoration: underline;
+  cursor: pointer;
+  width: auto;
+}

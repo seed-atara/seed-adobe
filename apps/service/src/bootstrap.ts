@@ -25,6 +25,7 @@ import {
 import { PromptDirector } from "./agent/director.js";
 import { ItemDescriber } from "./agent/describer.js";
 import type { AppDepsInput } from "./app.js";
+import { loadConfig } from "./config.js";
 import type { ProviderConfig, ServiceConfig } from "./config.js";
 import { GenerationService } from "./generation/generationService.js";
 import { InputMaterializer } from "./generation/inputMaterializer.js";
@@ -200,6 +201,28 @@ export async function bootstrap({
     items,
     jobs,
     registry: providerRegistry,
+    /**
+     * Only when we built the registry ourselves. An injected one belongs to
+     * whoever injected it, and silently replacing its contents from a settings
+     * save would make a test's fixed provider set quietly disappear.
+     *
+     * The rebuild refills the existing registry rather than making a new one:
+     * `GenerationService` captured this exact object at construction.
+     */
+    ...(registry
+      ? {}
+      : {
+          reloadProviders: (env: NodeJS.ProcessEnv) => {
+            const next = loadConfig(env);
+            const nextPublisher = createPublisher(next.providers, activeLogger);
+            const rebuilt = buildRegistry(next.providers, activeLogger, nextPublisher);
+            providerRegistry.replaceAll(rebuilt.list());
+            activeLogger.info("settings.providers_reloaded", {
+              providers: providerRegistry.ids(),
+            });
+            return { providers: providerRegistry.ids() };
+          },
+        }),
     generation,
     ingestor,
     aeHost: aeHost ?? new MockAeHostAdapter({ outputDir: workspace.originalsDir }),

@@ -51,6 +51,23 @@ export interface ProviderCapabilitiesDto {
 }
 
 /** One measurement and how much the frame supported it. */
+/**
+ * One credential row as the service describes it. Mirrors `SettingState` in
+ * apps/service/src/settings.ts — there is no value field, by design.
+ */
+export interface SettingState {
+  key: string;
+  label: string;
+  help: string;
+  group: "Generating" | "References" | "Direction" | "Hosting";
+  secret: boolean;
+  placeholder?: string;
+  /** Where the effective value came from, so the panel can say which won. */
+  source: "panel" | "env" | "unset";
+  /** Last four characters of a secret, or the full value of a non-secret. */
+  hint?: string;
+}
+
 export interface MeasuredDto {
   value: number;
   confidence: number;
@@ -130,6 +147,35 @@ export class SeedClient {
 
   providers(): Promise<{ providers: ProviderCapabilitiesDto[] }> {
     return this.request("/v1/providers");
+  }
+
+  /**
+   * The credential settings, as shape only.
+   *
+   * There is deliberately no route that returns a key. `hint` is the last four
+   * characters of a secret — enough to tell two keys apart, useless to anyone
+   * reading the screen — or the whole value where it is not a secret, like a
+   * model id.
+   */
+  settings(): Promise<{
+    settings: SettingState[];
+    storedAt: string;
+    reloadable: boolean;
+  }> {
+    return this.request("/v1/settings");
+  }
+
+  /**
+   * Saves a patch. A key set to "" is cleared; a key left out is untouched.
+   * The service rebuilds its providers before answering, so the returned list
+   * is what is available *now* — no restart, and nothing to take on trust.
+   */
+  saveSettings(values: Record<string, string | null>): Promise<{
+    settings: SettingState[];
+    providers: string[];
+    changed: string[];
+  }> {
+    return this.request("/v1/settings", { method: "POST", body: { values } });
   }
 
   /**

@@ -86,6 +86,7 @@ import {
 import { switchRoute } from "./routes/switch.js";
 import { exportPackRoute, importPackRoute } from "./routes/packs.js";
 import { healthRoute } from "./routes/health.js";
+import { getSettingsRoute, saveSettingsRoute } from "./routes/settings.js";
 
 export interface AppDeps {
   config: ServiceConfig;
@@ -105,6 +106,13 @@ export interface AppDeps {
   describer?: ItemDescriber;
   logger: Logger;
   startedAt: number;
+  /**
+   * Rebuilds the provider set from a fresh environment, in place, and reports
+   * what is now available. Present when the service owns its own registry;
+   * absent when a test injects one, because a test that handed in a fixed set
+   * of providers does not want a settings save replacing them.
+   */
+  reloadProviders?: (env: NodeJS.ProcessEnv) => { providers: string[] };
 }
 
 export interface AppDepsInput extends Omit<AppDeps, "logger" | "startedAt"> {
@@ -134,6 +142,8 @@ export function buildRouter(deps: AppDeps): Router {
     .get("/v1/assets/:id/lineage", lineageRoute(deps))
     .get("/v1/assets/:id/recipe", recipeRoute(deps))
     .post("/v1/look/lut", lookLutRoute(deps))
+    .get("/v1/settings", getSettingsRoute(deps))
+    .post("/v1/settings", saveSettingsRoute(deps))
     .get("/v1/workspace", workspaceRoute(deps))
     .get("/v1/placeholder", placeholderRoute(deps))
     .get("/v1/providers", listProvidersRoute(deps))

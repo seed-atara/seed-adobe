@@ -14,6 +14,21 @@ export class ProviderRegistry {
     return this;
   }
 
+  /**
+   * Swaps the whole set in place, keeping this object's identity.
+   *
+   * Identity is the point. `GenerationService` captures the registry once at
+   * construction, so handing the app a *new* registry would leave every
+   * in-flight and future generation still resolving providers from the old
+   * one — a key typed into the panel would appear to take effect everywhere
+   * except where generations actually happen.
+   */
+  replaceAll(providers: readonly GenerationProvider[]): this {
+    this.providers.clear();
+    for (const provider of providers) this.providers.set(provider.id, provider);
+    return this;
+  }
+
   has(id: string): boolean {
     return this.providers.has(id);
   }

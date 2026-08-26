@@ -79,21 +79,64 @@ cpSync(source, target, { recursive: true, dereference: true });
 console.log(`\nInstalled to ${target}`);
 
 /** Read-only check; we report rather than change it. */
+const CSXS_VERSIONS = [9, 10, 11, 12];
+
 function playerDebugModeEnabled() {
-  if (process.platform !== "win32") return undefined;
-  for (const version of [9, 10, 11, 12]) {
-    try {
-      const out = execFileSync(
-        "reg",
-        ["query", `HKCU\\Software\\Adobe\\CSXS.${version}`, "/v", "PlayerDebugMode"],
-        { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] },
-      );
-      if (/PlayerDebugMode\s+REG_SZ\s+1/i.test(out)) return true;
-    } catch {
-      // key or value absent for this version; keep looking
+  if (process.platform === "win32") {
+    for (const version of CSXS_VERSIONS) {
+      try {
+        const out = execFileSync(
+          "reg",
+          ["query", `HKCU\\Software\\Adobe\\CSXS.${version}`, "/v", "PlayerDebugMode"],
+          { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] },
+        );
+        if (/PlayerDebugMode\s+REG_SZ\s+1/i.test(out)) return true;
+      } catch {
+        // key or value absent for this version; keep looking
+      }
     }
+    return false;
   }
-  return false;
+
+  // macOS keeps the same flag in a preferences domain rather than a registry.
+  // Without this branch the script simply said nothing on a Mac, which is the
+  // one platform where the panel silently fails to appear and gives no clue.
+  if (process.platform === "darwin") {
+    for (const version of CSXS_VERSIONS) {
+      try {
+        const out = execFileSync(
+          "defaults",
+          ["read", `com.adobe.CSXS.${version}`, "PlayerDebugMode"],
+          { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] },
+        );
+        // `defaults` prints 1 for the string "1" and for boolean true alike.
+        if (out.trim() === "1") return true;
+      } catch {
+        // domain or key absent for this version; keep looking
+      }
+    }
+    return false;
+  }
+
+  return undefined;
+}
+
+/** The exact commands to enable it, for the platform we are actually on. */
+function enableDebugModeHelp() {
+  if (process.platform === "darwin") {
+    return (
+      CSXS_VERSIONS.map(
+        (v) => `  defaults write com.adobe.CSXS.${v} PlayerDebugMode 1`,
+      ).join("\n") +
+      // Without this the preferences daemon can keep serving After Effects the
+      // old value, which reads exactly like the flag not having worked.
+      "\n  killall cfprefsd\n"
+    );
+  }
+  return (
+    '  reg add "HKCU\\Software\\Adobe\\CSXS.11" /v PlayerDebugMode /t REG_SZ /d 1 /f\n' +
+    '  reg add "HKCU\\Software\\Adobe\\CSXS.12" /v PlayerDebugMode /t REG_SZ /d 1 /f\n'
+  );
 }
 
 const debugMode = playerDebugModeEnabled();
@@ -102,8 +145,7 @@ if (debugMode === false) {
     "\nThis bundle is unsigned, so After Effects will not load it until CEP's\n" +
       "PlayerDebugMode is enabled. Run this yourself if you are happy to allow\n" +
       "unsigned extensions:\n\n" +
-      '  reg add "HKCU\\Software\\Adobe\\CSXS.11" /v PlayerDebugMode /t REG_SZ /d 1 /f\n' +
-      '  reg add "HKCU\\Software\\Adobe\\CSXS.12" /v PlayerDebugMode /t REG_SZ /d 1 /f\n',
+      enableDebugModeHelp(),
   );
 } else if (debugMode === true) {
   console.log("PlayerDebugMode is already enabled - nothing to change.");

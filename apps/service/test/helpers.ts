@@ -40,7 +40,17 @@ export function testRegistry(): ProviderRegistry {
 }
 
 export async function startTestService(
-  options: { registry?: ProviderRegistry } = {},
+  options: {
+    registry?: ProviderRegistry;
+    /**
+     * Let bootstrap build the registry from config instead of injecting one.
+     * Only the settings tests want this: `reloadProviders` is deliberately
+     * absent when a registry is handed in, so a save cannot replace a set of
+     * providers a test chose on purpose.
+     */
+    ownRegistry?: boolean;
+    env?: Record<string, string>;
+  } = {},
 ): Promise<TestService> {
   // Temp root with a space, mirroring a real "Client Work" project folder.
   const workspaceRoot = await mkdtemp(path.join(tmpdir(), "seed ae svc "));
@@ -49,12 +59,16 @@ export async function startTestService(
     SEED_AE_SESSION_TOKEN: "test-token-abc",
     SEED_AE_POLL_INTERVAL_MS: "0",
     SEED_AE_MOCK_LATENCY_MS: "0",
+    ...options.env,
   } as NodeJS.ProcessEnv);
 
+  const injected = options.ownRegistry
+    ? undefined
+    : (options.registry ?? testRegistry());
   const deps = await bootstrap({
     config,
     logger: silentLogger,
-    registry: options.registry ?? testRegistry(),
+    ...(injected ? { registry: injected } : {}),
   });
   const { server, deps: appDeps } = createApp(deps);
 

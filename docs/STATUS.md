@@ -106,6 +106,28 @@ agreement is to get the look right offline first. Two things remain unmeasured
 — margin motion is Seedance's reading of the move rather than a tracked match,
 and drift has not been checked frame by frame.
 
+## Added 2026-08-27 — credentials from the panel
+
+`GET/POST /v1/settings`, and a gear in the title bar. Twelve settings — the
+ones a fresh install needs, not the whole of `.env.example` — are settable
+without a text editor.
+
+Three properties worth keeping:
+
+- **No route returns a key.** `GET` answers with whether a setting is set,
+  where it came from, and the last four characters of a secret. A test asserts
+  the stored value appears nowhere in the response body.
+- **A save takes effect immediately.** The provider registry is refilled in
+  place (`ProviderRegistry.replaceAll`) rather than swapped, because
+  `GenerationService` captured that object at construction — a new registry
+  would leave generations resolving against the old set. The test proves
+  Seedream comes online after a save with no restart.
+- **Panel beats `.env`, and says so.** The alternative makes a key typed into
+  the UI silently do nothing.
+
+Stored in `~/.seed-ae/credentials.json`, mode 0600, deliberately outside the
+workspace: a workspace gets zipped and handed to other people.
+
 ## Unmounted 2026-08-27 — the ROO tab
 
 **ROO is no longer a tab in the panel.** Nothing behind it was deleted:
