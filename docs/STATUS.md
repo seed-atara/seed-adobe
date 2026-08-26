@@ -106,6 +106,21 @@ agreement is to get the look right offline first. Two things remain unmeasured
 — margin motion is Seedance's reading of the move rather than a tracked match,
 and drift has not been checked frame by frame.
 
+## Unmounted 2026-08-27 — the ROO tab
+
+**ROO is no longer a tab in the panel.** Nothing behind it was deleted:
+`RooView.tsx` is whole, `/v1/switch` and the passes routes still answer, and
+their tests still run. Only the four lines in `App.tsx` that mounted it are
+gone, so the panel now shows *generate, items, library, lineage*.
+
+The reason is scope, not failure — the feature is parked while the panel stays
+narrow. Restoring it is putting `"roo"` back in the `Tab` union, in the default
+`visibleTabs`, and re-adding the render block. `docs/product/ROO_TEST.md`
+describes the tab as it will be again, not as it is today.
+
+Expansion needed no removal: it left the panel on 2026-08-24 and now exists
+only as `scripts/expand-shot.ts`.
+
 ## Withdrawn 2026-08-24 — aspect expansion
 
 **Everything SEED built for aspect expansion is deleted** — `/v1/expand/*`, the

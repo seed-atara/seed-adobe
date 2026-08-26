@@ -6,6 +6,11 @@ import { AssetImage, Field, SectionLabel } from "./primitives.tsx";
 /**
  * ROO — switcharoo. Taking a shot apart, and putting it back together.
  *
+ * NOT MOUNTED. The tab was withdrawn from the panel while the feature is
+ * parked; nothing renders this today. It is kept whole rather than deleted
+ * because the service side (`/v1/switch`, the passes routes) is still there
+ * and still tested — restoring the tab is putting "roo" back in App.tsx.
+ *
  * The whole loop lives here, in the order it is used:
  *
  *   1. **Measure** depth and normals. Free, instant, offline, derived.

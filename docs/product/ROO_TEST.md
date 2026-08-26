@@ -1,5 +1,10 @@
 # Testing ROO
 
+> **The ROO tab is not currently mounted in the panel** (2026-08-27).
+> The service routes and `RooView.tsx` are intact and tested; only the
+> tab was withdrawn. This guide applies once `"roo"` is restored in
+> `apps/panel/src/App.tsx`. See `docs/STATUS.md`.
+
 The whole loop, in the order the tab uses it. Roughly twenty minutes, and only
 one step costs money.
 
