@@ -8,7 +8,7 @@
     "build": "node scripts/build.mjs",
     "start": "npm run build && electron .",
     "dist:win": "npm run build && electron-builder --config electron-builder.yml --win nsis",
-    "dist:mac": "npm run build && CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --config electron-builder.yml --mac dmg"
+    "dist:mac": "npm run build && CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --config electron-builder.yml --mac dmg --arm64 --x64"
   },
   "devDependencies": {
     "electron": "42.9.3",

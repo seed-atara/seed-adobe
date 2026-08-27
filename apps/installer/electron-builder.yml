@@ -48,6 +48,11 @@ extraResources:
 npmRebuild: false
 
 mac:
+  # The architectures are ALSO named on the dist:mac command line, and that is
+  # not redundant: `electron-builder --mac dmg` overrides this list and falls
+  # back to the runner's own architecture. v0.1.0 shipped an arm64 DMG only,
+  # which does not run on an Intel Mac at all — it is not a slow build, it is a
+  # refused one.
   target:
     - target: dmg
       arch:
