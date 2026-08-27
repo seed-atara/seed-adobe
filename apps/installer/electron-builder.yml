@@ -1,0 +1,99 @@
+# Packaging for the SEED companion.
+#
+# Much smaller than the equivalent in harness-workbench, and the reason is
+# worth writing down: SEED's service has no native dependency at all. It stores
+# in `node:sqlite`, which is part of Node itself, and Electron 42 carries Node
+# 24.18.1 — measured, not assumed. So there is no vendored binding, no
+# `asarUnpack` for a .node file, no npmRebuild, and no ABI to keep in step.
+#
+# Signing: AD-HOC on macOS, via `identity: '-'`. A genuinely unsigned build is
+# the wrong stand-in — Apple Silicon refuses to execute arm64 code carrying no
+# signature at all, and electron-builder invalidates Electron's own signature
+# the moment it injects app.asar. The result launches with "the application is
+# damaged", which reads as a corrupt download rather than a missing
+# certificate. Ad-hoc signing lets it run once Gatekeeper is cleared, while
+# staying unsigned in the sense that matters: no Developer ID, no notarization.
+#
+# hardenedRuntime stays off deliberately: ad-hoc signing *with* it needs the
+# com.apple.security.cs.disable-library-validation entitlement or the app fails
+# library validation at launch.
+appId: ai.seedstudios.seedae.companion
+productName: SEED
+copyright: Copyright (c) 2026 SEED Studios
+
+directories:
+  output: release
+  buildResources: build
+
+# The esbuild output and package.json (Electron reads its own metadata from
+# it). Every workspace package is already inlined into dist/main/index.js, so
+# there is no node_modules to carry.
+files:
+  - dist/**/*
+  - build/**/*
+  - package.json
+
+# What the companion installs *into* After Effects, and the service it runs.
+# Both are read from disk at runtime rather than imported, so they cannot ride
+# inside the asar — src/main/index.ts resolves them through
+# process.resourcesPath once packaged.
+extraResources:
+  - from: resources/extension
+    to: extension
+    filter: ['**/*']
+  - from: resources/service
+    to: service
+    filter: ['**/*']
+
+npmRebuild: false
+
+mac:
+  target:
+    - target: dmg
+      arch:
+        - arm64
+        - x64
+  category: public.app-category.graphics-design
+  icon: build/icon.png
+  identity: '-'
+  hardenedRuntime: false
+  gatekeeperAssess: false
+  # The companion lives in the menu bar and is opened from there. It still has
+  # a window, so it is not a pure agent — LSUIElement stays off, or the first
+  # launch would show nothing at all and read as a failed install.
+
+dmg:
+  title: SEED
+
+win:
+  target:
+    - target: nsis
+      arch:
+        - x64
+  # No .ico is checked in: electron-builder derives the multi-resolution icon
+  # from the PNG at package time, which keeps icon generation off macOS-only
+  # tooling and lets the Windows artifact build on a Windows runner.
+  icon: build/icon.png
+
+nsis:
+  # perMachine: false installs under %LOCALAPPDATA% for the current user.
+  # Load-bearing rather than a preference: a Program Files install would make
+  # every silent update need elevation, and an unattended updater cannot answer
+  # a UAC prompt. It also matches where the panel goes — per-user, no admin.
+  perMachine: false
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+
+# The update feed. `generic` rather than `github`: a github provider would need
+# a read-scoped token embedded in the shipped app, extractable by anyone with
+# the installer. A plain HTTPS feed needs no credential in the client.
+#
+# Left unset until the bucket path is decided — publishing without it produces
+# the installers and no feed, which is the right default for a build nobody has
+# verified on macOS yet.
+# publish:
+#   provider: generic
+#   url: https://<bucket>.r2.dev/seed-ae
+#   channel: latest

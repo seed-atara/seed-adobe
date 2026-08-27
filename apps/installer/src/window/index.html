@@ -1,0 +1,225 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline';"
+    />
+    <title>SEED</title>
+    <style>
+      /*
+        Deliberately plain. This window is read at a glance when something is
+        wrong; it is not a place anyone spends time, and dressing it up would
+        only make the state harder to find.
+      */
+      :root {
+        --ground: #f4f5f7;
+        --surface: #ffffff;
+        --line: #d8dce3;
+        --ink: #14181f;
+        --muted: #666f7d;
+        --ok: #0b7a3b;
+        --wait: #8a6100;
+        --bad: #a32020;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --ground: #14171d;
+          --surface: #1b1f27;
+          --line: #2c323c;
+          --ink: #e8ebf0;
+          --muted: #97a0ae;
+          --ok: #4cc47c;
+          --wait: #e0b246;
+          --bad: #ef6b6b;
+        }
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        padding: 22px;
+        background: var(--ground);
+        color: var(--ink);
+        font: 14px/1.55 system-ui, -apple-system, "Segoe UI", sans-serif;
+      }
+      h1 { font-size: 17px; margin: 0 0 2px; }
+      .version { color: var(--muted); font-size: 12px; margin-bottom: 18px; }
+
+      .state {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        background: var(--surface);
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        padding: 14px 16px;
+        margin-bottom: 12px;
+      }
+      .dot { width: 11px; height: 11px; border-radius: 50%; flex: none; background: var(--muted); }
+      .dot.running { background: var(--ok); }
+      .dot.starting { background: var(--wait); }
+      .dot.failed, .dot.stopped { background: var(--bad); }
+      .state strong { font-weight: 600; }
+      .state .sub { color: var(--muted); font-size: 12.5px; display: block; }
+
+      .rows {
+        background: var(--surface);
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        margin-bottom: 16px;
+      }
+      .row {
+        display: flex;
+        justify-content: space-between;
+        gap: 14px;
+        padding: 11px 16px;
+        border-bottom: 1px solid var(--line);
+      }
+      .row:last-child { border-bottom: 0; }
+      .row .k { color: var(--muted); flex: none; }
+      .row .v { text-align: right; word-break: break-all; font-size: 13px; }
+      .v.good { color: var(--ok); }
+      .v.bad { color: var(--bad); }
+
+      .next {
+        background: var(--surface);
+        border: 1px solid var(--line);
+        border-left: 3px solid var(--ok);
+        border-radius: 0 6px 6px 0;
+        padding: 12px 16px;
+        margin-bottom: 16px;
+        font-size: 13px;
+      }
+      .next b { display: block; margin-bottom: 4px; }
+      .next ol { margin: 0; padding-left: 18px; color: var(--muted); }
+
+      .problem {
+        background: var(--surface);
+        border: 1px solid var(--line);
+        border-left: 3px solid var(--bad);
+        border-radius: 0 6px 6px 0;
+        padding: 12px 16px;
+        margin-bottom: 16px;
+        font-size: 13px;
+        color: var(--bad);
+      }
+      .problem[hidden] { display: none; }
+
+      .actions { display: flex; gap: 8px; flex-wrap: wrap; }
+      button {
+        font: inherit;
+        padding: 7px 13px;
+        border-radius: 5px;
+        border: 1px solid var(--line);
+        background: var(--surface);
+        color: var(--ink);
+        cursor: pointer;
+      }
+      button:hover { border-color: var(--muted); }
+      button:focus-visible { outline: 2px solid var(--ok); outline-offset: 2px; }
+
+      details { margin-top: 16px; }
+      summary { cursor: pointer; color: var(--muted); font-size: 13px; }
+      pre {
+        margin: 8px 0 0;
+        padding: 10px 12px;
+        background: var(--surface);
+        border: 1px solid var(--line);
+        border-radius: 5px;
+        max-height: 190px;
+        overflow: auto;
+        font: 11.5px/1.5 ui-monospace, Consolas, monospace;
+        color: var(--muted);
+        white-space: pre-wrap;
+        word-break: break-all;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>SEED</h1>
+    <div class="version" id="version"></div>
+
+    <div class="state">
+      <span class="dot" id="dot"></span>
+      <span>
+        <strong id="stateText">Checking…</strong>
+        <span class="sub" id="stateSub"></span>
+      </span>
+    </div>
+
+    <div class="problem" id="problem" hidden></div>
+
+    <div class="rows">
+      <div class="row"><span class="k">Panel installed</span><span class="v" id="panel"></span></div>
+      <div class="row"><span class="k">After Effects permission</span><span class="v" id="perm"></span></div>
+      <div class="row"><span class="k">Panel location</span><span class="v" id="where"></span></div>
+    </div>
+
+    <div class="next">
+      <b>To use it</b>
+      <ol>
+        <li>Start (or restart) After Effects</li>
+        <li>Window → Extensions → SEED / AE</li>
+        <li>Add your API keys with the gear in the panel</li>
+      </ol>
+    </div>
+
+    <div class="actions">
+      <button id="restart">Restart the service</button>
+      <button id="reinstall">Reinstall the panel</button>
+      <button id="reveal">Show panel folder</button>
+      <button id="quit">Quit SEED</button>
+    </div>
+
+    <details>
+      <summary>Service log</summary>
+      <pre id="log"></pre>
+    </details>
+
+    <script>
+      const $ = (id) => document.getElementById(id);
+
+      const WORDS = {
+        running: ["SEED is running", "The panel can reach it."],
+        starting: ["Starting…", "This takes a moment on first run."],
+        stopped: ["Not running", "Press Restart the service."],
+        failed: ["The service stopped", "The log below usually says why."],
+      };
+
+      function render(s) {
+        $("version").textContent = "Version " + s.version + " · " + s.baseUrl;
+
+        const [text, sub] = WORDS[s.service] || WORDS.stopped;
+        $("dot").className = "dot " + s.service;
+        $("stateText").textContent = text;
+        $("stateSub").textContent = s.detail || sub;
+
+        $("panel").textContent = s.panelInstalled ? "Yes" : "No";
+        $("panel").className = "v " + (s.panelInstalled ? "good" : "bad");
+
+        const perm =
+          s.debugMode === "on" ? "Allowed" : s.debugMode === "off" ? "Not allowed" : "Not applicable";
+        $("perm").textContent = perm;
+        $("perm").className = "v " + (s.debugMode === "on" ? "good" : s.debugMode === "off" ? "bad" : "");
+
+        $("where").textContent = s.panelTarget;
+
+        // Only shown when it says something the rows do not already say.
+        const problem = s.service === "failed" || !s.panelInstalled || s.debugMode === "off";
+        $("problem").hidden = !problem || !s.detail;
+        $("problem").textContent = s.detail;
+
+        $("log").textContent = s.log.length ? s.log.join("\n") : "(nothing yet)";
+      }
+
+      $("restart").addEventListener("click", async () => render(await window.seed.restart()));
+      $("reinstall").addEventListener("click", async () => render(await window.seed.reinstallPanel()));
+      $("reveal").addEventListener("click", () => window.seed.revealPanel());
+      $("quit").addEventListener("click", () => window.seed.quit());
+
+      window.seed.onStatus(render);
+      window.seed.status().then(render);
+    </script>
+  </body>
+</html>

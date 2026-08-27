@@ -18,28 +18,37 @@ routinely the actual cause.
 
 ## Before you start
 
-- Install per [`docs/INSTALL.md`](../INSTALL.md).
-- Have the service terminal **visible in the recording** if you can fit it. Its
-  log lines are timestamped and are half the diagnosis.
+- Install with the **SEED installer** — one download, no terminal. See
+  [`docs/INSTALL.md`](../INSTALL.md). If you were given a repo and a list of
+  commands instead, you have the developer path; ask for the installer.
+- Keep the **SEED window** reachable. If something goes wrong, open *Service
+  log* at the bottom of it and record what it says — those lines are half the
+  diagnosis.
 - Use a real project, not a blank comp: a comp with several layers, a camera
   move, and a folder name **with a space in it**. Path handling with spaces is
   a recurring source of bugs and a blank comp will not find them.
 - Say what you are about to do out loud before you do it. Thirty seconds of
   narration saves an hour of guessing.
 
-Write down at the top: **OS, After Effects version, Node version, and today's
-commit** (`git rev-parse --short HEAD`).
+Write down at the top: **your OS, your After Effects version, and the version
+number shown in the SEED window.**
 
 ---
 
 ## A. It is alive
 
-### 1. The panel opens
+### 1. The installer does its job
 
-Window → Extensions → SEED / AE.
+Run the installer, answer **Allow** to the one question, then start After
+Effects and go to Window → Extensions → SEED / AE.
 
-**Pass:** it appears and the status light goes green after you paste the token.
-**Record:** the Window menu itself, so we can see whether it was listed.
+**Pass:** the SEED window says *SEED is running*, *Panel installed: Yes*,
+*permission: Allowed* — and the panel's light in After Effects is **green with
+nothing typed**. There is no token to paste; the installer handed the panel
+one.
+**Record:** the SEED window, the Window → Extensions menu, and the panel's
+first moment on screen.
+**This whole chain is new.** On macOS nobody has ever seen it work.
 
 ### 2. It knows what you have open
 
@@ -161,13 +170,14 @@ Do not report these — they are known and deliberate:
 - **No native plugins on macOS.** `seed-film-look` and
   `seed-frequency-detailer` are Windows-only C++ builds. The film-look
   *provider* in step 11 is separate and does work.
-- **The service is not a background app.** You start it in a terminal and leave
-  it there.
+- **SEED does not start at login.** Open it like any other app, then open After
+  Effects. It also does not update itself yet — a new version is a new
+  download.
 
 ## Reporting
 
 For each failure: **step number, what you expected, what happened, timestamp in
-the recording.** Attach the service terminal output for that window of time.
+the recording.** Open *Service log* in the SEED window and copy what it says.
 
 The single most valuable thing you can send back is a numbered failure with a
 timestamp. The second most valuable is a confirmed pass on macOS, which nobody

@@ -56,6 +56,26 @@ export interface AppProps {
 
 const TOKEN_KEY = "seed-ae.session-token";
 
+/**
+ * A token the SEED companion left next to the panel when it installed it.
+ *
+ * This is what makes an installed SEED usable by someone who has never seen a
+ * terminal: the companion generates one token, starts the service with it, and
+ * writes it here, so the panel is already connected the first time it opens.
+ *
+ * A token the artist typed themselves wins, because they only type one to
+ * override something — pointing the panel at a service they started by hand.
+ */
+function provisionedToken(): string {
+  const value = (window as { __SEED_TOKEN__?: unknown }).__SEED_TOKEN__;
+  return typeof value === "string" ? value.trim() : "";
+}
+
+/** Stored first, then whatever the companion provisioned. */
+function initialToken(): string {
+  return localStorage.getItem(TOKEN_KEY) ?? provisionedToken();
+}
+
 /** Job statuses that will not change again. */
 const SETTLED = ["succeeded", "failed", "cancelled"];
 
@@ -145,15 +165,13 @@ export function App({ tabs }: AppProps = {}) {
     "library",
     "lineage",
   ];
-  const [token, setToken] = useState(
-    () => localStorage.getItem(TOKEN_KEY) ?? "",
-  );
+  const [token, setToken] = useState(initialToken);
   // Derived from the stored token on the first render, not in an effect: with
   // no token there is nothing the shell could usefully do, and defaulting to
   // "connecting" made it flash a dead UI before redirecting.
   const [connection, setConnection] = useState<
     "connecting" | "live" | "unauthorized" | "down"
-  >(() => (localStorage.getItem(TOKEN_KEY) ? "connecting" : "unauthorized"));
+  >(() => (initialToken() ? "connecting" : "unauthorized"));
   const [connectionMessage, setConnectionMessage] = useState("");
 
   const client = useMemo(

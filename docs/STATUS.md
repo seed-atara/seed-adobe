@@ -106,6 +106,37 @@ agreement is to get the look right offline first. Two things remain unmeasured
 — margin motion is Seedance's reading of the move rather than a tracked match,
 and drift has not been checked frame by frame.
 
+## Added 2026-08-27 — an installer, so an artist never opens a terminal
+
+`apps/installer` is an Electron companion called **SEED**. It installs the CEP
+panel, asks once for permission to load an unsigned extension, runs the service,
+and shows whether it is up. Everything an artist does still happens in the panel.
+
+**Verified on Windows, end to end, including from the packaged build:** a real
+NSIS installer (94 MB) builds; the packaged app installs the panel into Adobe's
+folder, writes a token into it, starts the bundled service, and the token
+authenticates (200 with it, 401 without). **Nothing has been verified on macOS.**
+
+What made it simple, and it is worth writing down: **Electron 42 carries Node
+24.18.1, and `node:sqlite` with it** — measured on this machine, not assumed. So
+the service runs on the binary already present. No vendored runtime, no native
+module, no ABI to keep in step, and none of the `asarUnpack` or `extraResources`
+machinery harness-workbench needed. The bundled service is 1.4 MB.
+
+Two traps avoided by reading harness-workbench first:
+
+- **The app name is pinned** (`app.setName("SEED")`). Electron derives its data
+  directory from the name and resolves it differently packaged versus from
+  source, which presents as every asset having vanished. Confirmed here: it read
+  `@seed-ae/installer` before the pin and `SEED` after.
+- **The macOS build is ad-hoc signed** (`identity: '-'`), not unsigned. Apple
+  Silicon refuses to run arm64 code with no signature at all, and the failure
+  reads as "the application is damaged".
+
+Also new: `.github/workflows/ci.yml` — the first CI this repo has ever had. It
+typechecks, tests and builds the companion on **both** Windows and macOS, and
+boots the bundled service to prove it answers `/health` on each.
+
 ## Added 2026-08-27 — credentials from the panel
 
 `GET/POST /v1/settings`, and a gear in the title bar. Twelve settings — the

@@ -9,6 +9,81 @@ write down.
 
 ---
 
+## Two ways in
+
+**If you just want to use SEED**, you want the installer — one download, no
+terminal, no Node, no keys in a text file. Jump to
+[Installing from the installer](#installing-from-the-installer).
+
+**If you are working on SEED**, carry on reading. Everything below is the
+from-source path, and it is still how the companion itself gets built.
+
+---
+
+## Installing from the installer
+
+The companion is a small application called **SEED**. It puts the panel where
+After Effects looks for it, keeps the service running, and shows a light
+saying whether it is up. It does not replace the panel — everything you
+actually do, including entering your API keys, happens in the panel inside
+After Effects.
+
+### Windows
+
+1. Download **SEED Setup *x.y.z*.exe**.
+2. Run it. It is unsigned, so Windows warns once: **More info → Run anyway**.
+3. SEED opens and asks one question — whether After Effects may load the
+   panel. Say **Allow**; without it the panel will not appear.
+4. Start After Effects, then **Window → Extensions → SEED / AE**.
+
+The panel is already connected. There is no token to paste.
+
+### macOS
+
+**Not yet verified by anyone — see the note at the top of this file.**
+
+1. Download **SEED-*x.y.z*-arm64.dmg** (or the x64 build on an Intel Mac).
+2. Drag SEED to Applications.
+3. Clear the quarantine flag — needed **once per version**, because the build
+   is ad-hoc signed but not notarized:
+
+   ```sh
+   xattr -dr com.apple.quarantine /Applications/SEED.app
+   ```
+
+   Without it macOS blocks the first launch with *"Apple could not verify…"*,
+   offering only **Done** and **Move to Bin**. There is no "Open Anyway" in
+   that dialog, and Control-click → Open no longer works — Apple removed that
+   bypass in Sequoia. The alternative is System Settings → Privacy & Security →
+   **Open Anyway**, which only appears after a launch has been blocked.
+
+4. Open SEED, say **Allow**, then start After Effects.
+
+That one terminal command is the only one, and it goes away entirely with an
+Apple Developer ID certificate.
+
+### What the SEED window tells you
+
+| Row | What it means |
+| --- | --- |
+| **SEED is running** | The service answered. The panel can reach it. |
+| **Panel installed** | The panel is in Adobe's folder. |
+| **After Effects permission** | Whether unsigned extensions are allowed. |
+
+Three buttons cover almost every problem: **Restart the service**, **Reinstall
+the panel**, and **Show panel folder**. Closing the window leaves SEED running
+in the tray or menu bar; **Quit** stops the service.
+
+### What the installer does not do yet
+
+- **It does not start at login.** You open SEED like any other app, then open
+  After Effects.
+- **It does not update itself.** New versions are a new download.
+- **On macOS it carries no native plugins.** `seed-film-look` and
+  `seed-frequency-detailer` are Windows-only C++ builds.
+
+---
+
 ## What SEED actually is
 
 Two pieces, and knowing which is which makes every problem below diagnosable:
@@ -218,6 +293,20 @@ import, insert at playhead) fall back to the service's mock host adapter, so
 everything except the Adobe bridge itself behaves normally.
 
 To remove the extension: `npm run uninstall:extension`.
+
+### Building the companion
+
+```sh
+npm run companion       # panel + service bundle + shell, no installer
+npm run companion:win   # a real NSIS installer, in apps/installer/release
+npm run companion:mac   # a DMG — macOS only; electron-builder cannot cross-build it
+```
+
+`npm run companion` is the fast one and is what CI runs on both platforms: it
+catches a Windows-only path or a bundler failure without spending five minutes
+packaging. The service is bundled to a single 1.4 MB file with esbuild and runs
+on Electron's own Node — measured at 24.18.1, with `node:sqlite` — so there is
+no vendored runtime and no native module anywhere in the companion.
 
 ---
 

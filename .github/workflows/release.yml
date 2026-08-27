@@ -1,0 +1,62 @@
+# Builds the installers for both platforms from one commit.
+#
+# Why CI rather than someone's laptop: electron-builder cannot cross-build a
+# macOS DMG from Windows — it needs macOS's own packaging and signing tooling —
+# and the NSIS target is likewise happiest on Windows. Whoever is at the
+# keyboard has one of those machines, so this is the only place both artifacts
+# come from the same commit.
+#
+# Nothing is published. The artifacts are attached to the run for download,
+# because the macOS build has never been opened by anyone and a feed is not the
+# place to find that out.
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            name: windows
+            script: companion:win
+            artifacts: |
+              apps/installer/release/*.exe
+              apps/installer/release/*.blockmap
+          - os: macos-14
+            name: macos
+            script: companion:mac
+            artifacts: |
+              apps/installer/release/*.dmg
+              apps/installer/release/*.blockmap
+    name: build (${{ matrix.name }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - run: npm ci
+
+      - name: Typecheck and test
+        run: npm run typecheck && npm test
+
+      - name: Package
+        run: npm run ${{ matrix.script }}
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: seed-companion-${{ matrix.name }}
+          path: ${{ matrix.artifacts }}
+          if-no-files-found: error
+          retention-days: 30

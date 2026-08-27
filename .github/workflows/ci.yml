@@ -1,0 +1,81 @@
+# Typecheck, tests, and a companion build — on both platforms.
+#
+# This repository has never built on anything but one Windows machine. That is
+# the gap this closes, and macOS is the half that matters: the panel, the
+# service and the installer are all written to be cross-platform and none of it
+# has ever been compiled, let alone run, on a Mac.
+#
+# It deliberately does NOT produce a release. Pushing should be free.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  check:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            name: windows
+          - os: macos-14
+            name: macos
+    name: check (${{ matrix.name }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          # The service needs `node:sqlite`, which is why the floor is 22.13.
+          # 24 is what development happens on.
+          node-version: 24
+          cache: npm
+
+      # `npm ci` rather than `npm install`: the lockfile carries the darwin
+      # arm64/x64 binaries for esbuild, rollup and sharp, and an install that
+      # silently re-resolved them would stop testing what we ship.
+      - run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Tests
+        run: npm test
+
+      # Builds the panel, bundles the service, and compiles the companion —
+      # without packaging an installer. This is the step that would have caught
+      # a Windows-only path or a bundler failure on macOS.
+      - name: Build the companion
+        run: npm run companion
+
+      # Proves the bundled service actually starts and answers on this
+      # platform. A bundle that builds and then cannot boot is exactly the
+      # class of failure a typecheck cannot see.
+      - name: The bundled service starts and answers
+        shell: bash
+        run: |
+          node apps/installer/resources/service/index.js &
+          SERVICE=$!
+          for _ in $(seq 1 30); do
+            if curl -fsS -m 2 http://127.0.0.1:47831/health > /dev/null 2>&1; then
+              echo "the service answered /health"
+              curl -fsS -m 2 http://127.0.0.1:47831/health
+              kill $SERVICE
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "the bundled service never answered /health"
+          kill $SERVICE 2>/dev/null || true
+          exit 1
+        env:
+          SEED_AE_SESSION_TOKEN: ci-smoke-token
+          SEED_AE_WORKSPACE: ${{ runner.temp }}/seed workspace
+          SEED_AE_CREDENTIALS: ${{ runner.temp }}/seed-credentials.json

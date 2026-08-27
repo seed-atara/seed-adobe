@@ -7,6 +7,16 @@
   </head>
   <body>
     <div id="root"></div>
+    <!--
+      Written by the SEED companion at install time; absent in a dev
+      build, where the browser simply logs a missing file and carries on.
+      It sets window.__SEED_TOKEN__ so an artist never types a token.
+
+      A plain script rather than a file read: ExtendScript's File object
+      caches the filesystem, and CEP's file:// fetch is unreliable. A
+      script tag is the one mechanism with no such caveat.
+    -->
+    <script src="./seed-token.js"></script>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

@@ -1,0 +1,18 @@
+{
+  "name": "@seed-ae/installer",
+  "private": true,
+  "version": "0.1.0",
+  "description": "SEED companion: installs the After Effects panel and keeps the local service running.",
+  "main": "dist/main/index.js",
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "start": "npm run build && electron .",
+    "dist:win": "npm run build && electron-builder --config electron-builder.yml --win nsis",
+    "dist:mac": "npm run build && CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --config electron-builder.yml --mac dmg"
+  },
+  "devDependencies": {
+    "electron": "42.9.3",
+    "electron-builder": "^26.15.3",
+    "esbuild": "^0.25.0"
+  }
+}
