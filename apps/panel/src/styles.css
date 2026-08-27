@@ -1499,6 +1499,10 @@ button.listRow:hover {
   z-index: 40;
   display: grid;
   place-items: center;
+  /* The row must not grow past the backdrop. `place-items: center` alone sizes
+     the track to its content, which is why `max-height: 100%` on the dialog
+     constrained nothing — 100% of a row that had already grown to fit. */
+  grid-template-rows: minmax(0, 1fr);
   padding: var(--gap-lg);
   /* The desktop colour, so the dialog reads as sitting on the shell rather
      than floating over a dimmed web page. */
@@ -1509,7 +1513,10 @@ button.listRow:hover {
   display: flex;
   flex-direction: column;
   width: min(560px, 100%);
-  max-height: 100%;
+  /* Viewport units rather than a percentage: unambiguous whatever the grid
+     does, and in a CEP panel 100vh *is* the panel. Without a real ceiling the
+     dialog grew past the bottom edge and took Save with it. */
+  max-height: calc(100vh - 2 * var(--gap-lg));
   background: var(--face);
   border: 2px solid;
   border-color: var(--white) var(--black) var(--black) var(--white);
@@ -1518,6 +1525,12 @@ button.listRow:hover {
 
 .settings-body {
   flex: 1;
+  /* Without this the dialog cannot shrink below its content and Save falls off
+     the bottom edge — a flex item defaults to `min-height: auto`, so
+     `overflow-y: auto` here does nothing on its own. It matters most exactly
+     where it is hardest to notice: a docked AE panel is a fraction of the
+     height of a browser window. */
+  min-height: 0;
   overflow-y: auto;
   padding: var(--gap-lg);
 }
@@ -1533,7 +1546,17 @@ button.listRow:hover {
   word-break: break-all;
 }
 
+/* A 95 group box, exactly like the rest of the panel.
+   `SectionLabel` is absolutely positioned so it can sit *on* the groove — it
+   needs a positioned, bordered parent or it lands somewhere behind the dialog
+   and the group headings simply never appear. That is what happened: the
+   blurbs rendered and "Generating", "References", "Direction" and "Hosting"
+   did not. */
 .settings-group {
+  position: relative;
+  border: 1px solid;
+  border-color: var(--shadow) var(--white) var(--white) var(--shadow);
+  padding: var(--gap-lg);
   margin-bottom: var(--gap-xl);
 }
 
@@ -1592,4 +1615,31 @@ button.linkish {
   text-decoration: underline;
   cursor: pointer;
   width: auto;
+}
+
+/* --- Keys, and the reason you cannot generate ------------------------- */
+
+/* Pushed to the far end of the status bar so it never collides with the
+   context strip, which grows with the comp name. */
+.statusbar-keys {
+  margin-left: auto;
+  flex: none;
+  width: auto;
+  padding: 1px 8px;
+  font-size: 11px;
+}
+
+/* The one notice an install with no key must not be able to miss. */
+.notice.needs-key {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--gap);
+  border-left: 3px solid var(--title);
+}
+
+.notice.needs-key button {
+  width: auto;
+  flex: none;
+  margin-left: auto;
 }

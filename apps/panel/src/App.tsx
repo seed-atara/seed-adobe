@@ -252,6 +252,17 @@ export function App({ tabs }: AppProps = {}) {
    * provider: nothing in the UI may offer a capability that was not declared.
    */
   const lookProvider = providers.find((provider) => provider.id === "film-look");
+  /**
+   * Whether anything here can make a *new* picture or clip.
+   *
+   * Not `providers.length`: the film look needs no credential, so an install
+   * with no key at all still reports one provider. It can only treat a frame
+   * that already exists, which is exactly why an empty-looking dropdown was
+   * never the symptom an artist saw.
+   */
+  const canGenerate = providers.some(
+    (provider) => provider.textToImage || provider.textToVideo,
+  );
 
   const report = useCallback((cause: unknown) => {
     const message =
@@ -1322,14 +1333,6 @@ export function App({ tabs }: AppProps = {}) {
         <span className="icon">S</span>
         <span className="label">SEED / AE</span>
         <span className="controls">
-          <button
-            className="ctl"
-            title="Credentials and model ids"
-            aria-label="Settings"
-            onClick={() => setShowSettings(true)}
-          >
-            &#9881;
-          </button>
           <button className="ctl" tabIndex={-1} aria-hidden="true">
             _
           </button>
@@ -1345,6 +1348,21 @@ export function App({ tabs }: AppProps = {}) {
       <div className="statusbar">
         <span className={`led ${connection === "live" ? "live" : ""}`} />
         <ContextStrip context={aeContext} host={hostId} loadedHost={loadedHost} />
+        {/*
+          A word, not a glyph. This was a ⚙ at 9px among the three fake window
+          controls, and on macOS it was invisible — none of the faces in the UI
+          font stack exist there, so U+2699 fell back to something the size of a
+          full stop, in the one corner of the panel that reads as decoration.
+          The single most important control for a new install cannot be a
+          symbol that depends on a font nobody has.
+        */}
+        <button
+          className="statusbar-keys"
+          onClick={() => setShowSettings(true)}
+          title="API keys and model ids"
+        >
+          Keys
+        </button>
       </div>
 
       <nav className="tabs" role="tablist">
@@ -1368,6 +1386,23 @@ export function App({ tabs }: AppProps = {}) {
         <main className="column">
           {error ? <div className="notice error">{error}</div> : null}
           {notice ? <div className="notice">{notice}</div> : null}
+
+          {/*
+            With no key the dropdown is not empty — it holds Film Look, which
+            can only treat an existing frame. So "why can I not generate" had
+            no answer anywhere on screen. It does now, in the tab where the
+            question gets asked.
+          */}
+          {tab === "generate" && connection === "live" && !canGenerate ? (
+            <div className="notice needs-key">
+              <strong>No API key yet.</strong> SEED can capture frames and build
+              a library, but it cannot generate until an Ark key and a Seedream
+              model id are set.
+              <button className="primary" onClick={() => setShowSettings(true)}>
+                Add your API key
+              </button>
+            </div>
+          ) : null}
 
           {tab === "generate" ? (
             <GenerateView
