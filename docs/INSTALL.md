@@ -22,6 +22,17 @@ from-source path, and it is still how the companion itself gets built.
 
 ## Installing from the installer
 
+**Download:** <https://github.com/seed-atara/seed-adobe/releases/latest>
+
+Take `SEED Setup <version>.exe` on Windows, the `-arm64` DMG on an Apple
+Silicon Mac, or the plain `.dmg` on an Intel one. If you are not sure which Mac
+you have:  → About This Mac. An arm64 build on an Intel Mac does not run
+slowly, it does not run.
+
+The version in the filename matches the release tag. When it does not, the
+release was cut without bumping `apps/installer/package.json` — bump it first,
+then tag.
+
 The companion is a small application called **SEED**. It puts the panel where
 After Effects looks for it, keeps the service running, and shows a light
 saying whether it is up. It does not replace the panel — everything you
