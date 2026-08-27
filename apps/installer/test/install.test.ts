@@ -27,13 +27,20 @@ afterEach(async () => {
 
 describe("where the panel goes", () => {
   it("uses Adobe's per-user folder on both platforms", () => {
-    // Never the machine-wide location: that needs elevation, and asking an
-    // artist for an admin password to place an HTML folder is a smell.
-    const win = cepExtensionsDir("win32");
+    // Both branches are exercised from whichever platform is running, by
+    // handing in the environment. Reading it ambiently made the Windows branch
+    // throw on a macOS runner — which is to say, made it uncheckable exactly
+    // where it most needed checking. CI found that on its first ever run.
+    const win = cepExtensionsDir("win32", { APPDATA: String.raw`C:\Users\a\AppData\Roaming` });
     expect(win).toMatch(/Adobe[\\/]CEP[\\/]extensions$/);
 
-    const mac = cepExtensionsDir("darwin");
+    const mac = cepExtensionsDir("darwin", { HOME: "/Users/a" });
     expect(mac).toMatch(/Library[\\/]Application Support[\\/]Adobe[\\/]CEP[\\/]extensions$/);
+
+    // Never the machine-wide location: that needs elevation, and asking an
+    // artist for an admin password to place an HTML folder is a smell.
+    expect(win).not.toMatch(/Program Files/i);
+    expect(mac.startsWith("/Library")).toBe(false);
   });
 });
 

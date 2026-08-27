@@ -25,19 +25,31 @@ export const BUNDLE_ID = "ai.seedstudios.seedae";
  * machine-wide ones: those need elevation, and an installer that asks an
  * artist for an admin password to place an HTML folder has failed a smell test.
  */
-export function cepExtensionsDir(platform: NodeJS.Platform = process.platform): string {
+export function cepExtensionsDir(
+  platform: NodeJS.Platform = process.platform,
+  env: NodeJS.ProcessEnv = process.env,
+): string {
   if (platform === "win32") {
-    const appData = process.env.APPDATA;
+    // Taken as an argument rather than read from ambient state so the Windows
+    // path can be asked for from anywhere. CI found this the hard way: a test
+    // calling cepExtensionsDir("win32") on a macOS runner threw, because
+    // APPDATA only exists on Windows. A function whose Windows branch cannot
+    // be exercised on a Mac is a function nobody will check on a Mac.
+    const appData = env.APPDATA;
     if (!appData) throw new Error("APPDATA is not set, so the CEP folder cannot be located");
     return path.join(appData, "Adobe", "CEP", "extensions");
   }
   // macOS. Linux has no After Effects, so anything else is a configuration
   // error rather than a platform to support.
-  return path.join(os.homedir(), "Library", "Application Support", "Adobe", "CEP", "extensions");
+  const home = env.HOME || os.homedir();
+  return path.join(home, "Library", "Application Support", "Adobe", "CEP", "extensions");
 }
 
-export function panelTargetDir(platform: NodeJS.Platform = process.platform): string {
-  return path.join(cepExtensionsDir(platform), BUNDLE_ID);
+export function panelTargetDir(
+  platform: NodeJS.Platform = process.platform,
+  env: NodeJS.ProcessEnv = process.env,
+): string {
+  return path.join(cepExtensionsDir(platform, env), BUNDLE_ID);
 }
 
 /** A marker so we can tell which build of the panel is currently installed. */
