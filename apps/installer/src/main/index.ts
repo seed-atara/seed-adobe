@@ -21,6 +21,7 @@ import { existsSync } from "node:fs";
 import { installPanel, panelTargetDir, removePanel } from "./cep.js";
 import { enableDebugMode, readDebugMode, type DebugModeState } from "./debugMode.js";
 import { ServiceSupervisor, type ServiceState } from "./service.js";
+import { effectsState, installEffects, type EffectFile, type EffectsState } from "./effects.js";
 import { ensureToken, provisionPanel } from "./token.js";
 import { isDefaultWorkspace, readWorkspace, writeWorkspace } from "./workspace.js";
 
@@ -51,6 +52,8 @@ interface Paths {
   serviceEntry: string;
   /** The ffmpeg we carry, for browser-playable proxies of 4:4:4 masters. */
   ffmpeg: string;
+  /** The native .aex effects, on Windows builds. */
+  effects: EffectFile[];
 }
 
 function resolvePaths(): Paths {
@@ -61,6 +64,10 @@ function resolvePaths(): Paths {
     panelSource: path.join(base, "extension"),
     serviceEntry: path.join(base, "service", "index.js"),
     ffmpeg: path.join(base, "ffmpeg", process.platform === "win32" ? "ffmpeg.exe" : "ffmpeg"),
+    effects: ["SEED Film Look.aex", "SEED Frequency Detailer.aex"].map((name) => ({
+      name,
+      source: path.join(base, "effects", name),
+    })),
   };
 }
 
@@ -68,6 +75,7 @@ interface Status {
   service: ServiceState;
   workspace: string;
   workspaceIsDefault: boolean;
+  effects: EffectsState;
   detail: string;
   debugMode: DebugModeState;
   panelTarget: string;
@@ -91,6 +99,7 @@ function status(): Status {
     service: supervisor?.currentState ?? "stopped",
     workspace,
     workspaceIsDefault: isDefaultWorkspace(stateDir, workspace),
+    effects: effectsState(resolvePaths().effects),
     detail: lastError || (supervisor?.lastDetail ?? ""),
     debugMode,
     panelTarget: panelTargetDir(),
@@ -321,6 +330,26 @@ void app.whenReady().then(async () => {
   ipcMain.handle("seed:reveal-workspace", () =>
     shell.openPath(readWorkspace(app.getPath("userData"))),
   );
+  ipcMain.handle("seed:install-effects", async () => {
+    const result = await installEffects(
+      resolvePaths().effects,
+      app.getPath("userData"),
+    );
+    // Reported rather than thrown: declining the elevation prompt is a
+    // decision, and the window should say so plainly instead of showing an
+    // error as though something broke.
+    lastError = result.ok ? "" : result.message;
+    if (result.ok) {
+      await dialog.showMessageBox({
+        type: "info",
+        title: "Effects installed",
+        message: "The SEED effects are installed.",
+        detail: result.message,
+      });
+    }
+    broadcast();
+    return status();
+  });
   ipcMain.handle("seed:reveal-panel", () => shell.showItemInFolder(panelTargetDir()));
   ipcMain.handle("seed:quit", () => void shutdown());
 

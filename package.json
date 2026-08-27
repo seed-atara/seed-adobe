@@ -31,7 +31,8 @@
     "detailer:install": "node scripts/plugin-cmd.mjs seed-frequency-detailer install.cmd",
     "companion": "npm run build --workspace @seed-ae/installer",
     "companion:win": "npm run dist:win --workspace @seed-ae/installer",
-    "companion:mac": "npm run dist:mac --workspace @seed-ae/installer"
+    "companion:mac": "npm run dist:mac --workspace @seed-ae/installer",
+    "seed": "npm run start --workspace @seed-ae/installer"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",

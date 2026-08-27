@@ -158,6 +158,10 @@
         <span class="k">Generated media</span>
         <span class="v" id="workspace"></span>
       </div>
+      <div class="row" id="effectsRow">
+        <span class="k">After Effects plugins</span>
+        <span class="v" id="effects"></span>
+      </div>
     </div>
 
     <div class="next">
@@ -172,6 +176,7 @@
     <div class="actions">
       <button id="restart">Restart the service</button>
       <button id="reinstall">Reinstall the panel</button>
+      <button id="installEffects" hidden>Install effects…</button>
       <button id="chooseWorkspace">Change media folder…</button>
       <button id="revealWorkspace">Show media folder</button>
       <button id="reveal">Show panel folder</button>
@@ -232,6 +237,19 @@
       $("reinstall").addEventListener("click", async () => render(await window.seed.reinstallPanel()));
       $("reveal").addEventListener("click", () => window.seed.revealPanel());
       $("revealWorkspace").addEventListener("click", () => window.seed.revealWorkspace());
+      $("installEffects").addEventListener("click", async () => {
+        // Windows raises a UAC prompt here, so the wait is however long the
+        // person takes to answer it.
+        const button = $("installEffects");
+        button.disabled = true;
+        button.textContent = "Waiting for permission…";
+        try {
+          render(await window.seed.installEffects());
+        } finally {
+          button.disabled = false;
+          button.textContent = "Install effects…";
+        }
+      });
       $("chooseWorkspace").addEventListener("click", async () => {
         // Restarting the service is part of the move, so this can take a
         // second; say so rather than looking frozen.

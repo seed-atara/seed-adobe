@@ -82,6 +82,14 @@ win:
     - target: nsis
       arch:
         - x64
+  # The native .aex effects, carried only here: they are Windows builds and a
+  # DMG has no use for them. Installed on demand from SEED's window, because
+  # Adobe's shared plugin folder needs administrator rights and this installer
+  # deliberately never asks for a password.
+  extraResources:
+    - from: resources/effects
+      to: effects
+      filter: ['**/*']
   # No .ico is checked in: electron-builder derives the multi-resolution icon
   # from the PNG at package time, which keeps icon generation off macOS-only
   # tooling and lets the Windows artifact build on a Windows runner.

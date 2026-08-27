@@ -331,6 +331,37 @@ everything except the Adobe bridge itself behaves normally.
 
 To remove the extension: `npm run uninstall:extension`.
 
+### Running SEED from a checkout
+
+```sh
+npm run seed
+```
+
+Builds the panel, the service, the shell, and stages ffmpeg and the effects,
+then opens the companion — the same application the installer produces, run
+from source. This is the fastest way to use SEED on the machine you develop on.
+
+### The native After Effects effects
+
+**Windows only.** `SEED Film Look` and `SEED Frequency Detailer` are C++ `.aex`
+plugins built against the Windows SDK; there is no Xcode project, so a macOS
+install has no effects and the row is hidden.
+
+The companion carries them and installs them on request: **SEED window →
+Install effects…**, which raises one administrator prompt. It needs one because
+Adobe's shared plugin folder is under Program Files, and everything else about
+this installer is deliberately per-user and password-free.
+
+They go to `Adobe\Common\Plug-ins.0\MediaCore` and **only** there. After
+Effects reads MediaCore, Premiere reads MediaCore, and a second copy in AE's own
+Effects folder is not redundancy — it is a duplicate, and After Effects says so
+at every launch. Installing also clears any duplicate an older `install.cmd`
+left behind.
+
+Not to be confused with the **film look provider** in the service, which is a
+different thing entirely, needs no plugin, works on both platforms, and is the
+*Treat* button in the panel.
+
 ### Building the companion
 
 ```sh

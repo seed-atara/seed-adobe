@@ -8,6 +8,7 @@
  *   2. the extension    apps/extension -> resources/extension  (panel + jsx + manifest)
  *   3. the service      esbuild, one file -> resources/service/index.js
  *   3b. ffmpeg          this platform's binary -> resources/ffmpeg
+ *   3c. the effects     the built .aex plugins -> resources/effects
  *   4. the shell        esbuild -> dist/main, dist/preload, dist/window
  *
  * The service is bundled rather than shipped as sources with a TypeScript
@@ -110,6 +111,29 @@ cpSync(ffmpegSource, ffmpegTarget);
 // cpSync does not carry the executable bit on every platform.
 chmodSync(ffmpegTarget, 0o755);
 console.log(`  ${ffmpegTarget}`);
+
+/* 3c — the native effects -------------------------------------------------- */
+// Windows-only: these are built by .cmd scripts against the Windows SDK and
+// there is no Xcode project. Staged on every platform anyway so the packaged
+// file list is identical; electron-builder ships them under `win:` only.
+step("Staging the effects");
+const effectsDir = path.join(resources, "effects");
+mkdirSync(effectsDir, { recursive: true });
+const aex = [
+  "seed-film-look/build/SEED Film Look.aex",
+  "seed-frequency-detailer/build/SEED Frequency Detailer.aex",
+];
+for (const relative of aex) {
+  const from = path.join(repoRoot, "plugins", relative);
+  if (!existsSync(from)) {
+    // Not fatal: a checkout that has never built the plugins should still
+    // produce an installer, and the window says the effects are unavailable.
+    console.log(`  (missing, skipped) ${relative}`);
+    continue;
+  }
+  cpSync(from, path.join(effectsDir, path.basename(from)));
+  console.log(`  ${path.basename(from)}`);
+}
 
 /* 4 — the shell ---------------------------------------------------------- */
 step("Building the companion");
