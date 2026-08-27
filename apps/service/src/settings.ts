@@ -91,7 +91,7 @@ export const SETTINGS: readonly SettingDefinition[] = [
   {
     key: "SEEDANCE_OUTPUT_FORMAT",
     label: "Video container",
-    help: "mov is 4:4:4 and the better master, but no browser previews it. mp4 is 4:2:0 and plays in the panel. Same resolution, same price.",
+    help: "mov is 4:4:4 and the better master — the panel previews it from a proxy. mp4 is 4:2:0. Same resolution, same price; leave it on mov.",
     group: "Generating",
     secret: false,
     placeholder: "mov",

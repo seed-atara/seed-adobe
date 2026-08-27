@@ -22,6 +22,7 @@ import {
   type ColourStats,
 } from "@seed-ae/media";
 import { resolveStorageUri, toStorageUri } from "@seed-ae/storage";
+import { hasProxy, proxyPath } from "../media/proxy.js";
 import { z } from "zod";
 import { MAX_OUTPUT_BYTES } from "../generation/mediaIngestor.js";
 import { ensurePlaceholder } from "../placeholder.js";
@@ -600,13 +601,30 @@ export function getAssetFileRoute(deps: AppDeps) {
 
     // A grid of full-resolution renders is the difference between a snappy
     // panel and a stalled one, so the thumbnail is served when asked for.
-    const wantsThumbnail =
-      url.searchParams.get("variant") === "thumbnail" && asset.thumbnailUri;
+    const variant = url.searchParams.get("variant");
+    const wantsThumbnail = variant === "thumbnail" && asset.thumbnailUri;
+
+    /*
+     * `preview` means "whatever this panel can play". For a 4:4:4 master that
+     * is the proxy written at ingest; for anything already browser-safe, and
+     * for a clip whose proxy could not be made, it is the original. The panel
+     * therefore needs no fallback logic and no knowledge of codecs — it asks
+     * for a preview and gets the best available answer.
+     */
+    const proxy =
+      variant === "preview" && hasProxy(deps.workspace, asset.id)
+        ? proxyPath(deps.workspace, asset.id)
+        : undefined;
+
     const storageUri = wantsThumbnail
       ? (asset.thumbnailUri as string)
       : asset.storageUri;
-    const contentType = wantsThumbnail ? "image/png" : asset.mimeType;
-    const absolutePath = resolveStorageUri(deps.workspace, storageUri);
+    const contentType = wantsThumbnail
+      ? "image/png"
+      : proxy
+        ? "video/mp4"
+        : asset.mimeType;
+    const absolutePath = proxy ?? resolveStorageUri(deps.workspace, storageUri);
 
     const stats = await stat(absolutePath).catch(() => undefined);
     if (!stats?.isFile()) {

@@ -1,7 +1,7 @@
 {
   "name": "@seed-ae/installer",
   "private": true,
-  "version": "0.1.4",
+  "version": "0.2.0",
   "description": "SEED companion: installs the After Effects panel and keeps the local service running.",
   "main": "dist/main/index.js",
   "scripts": {
@@ -13,6 +13,7 @@
   "devDependencies": {
     "electron": "42.9.3",
     "electron-builder": "^26.15.3",
-    "esbuild": "^0.25.0"
+    "esbuild": "^0.25.0",
+    "ffmpeg-static": "^5.3.0"
   }
 }

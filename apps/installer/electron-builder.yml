@@ -44,6 +44,13 @@ extraResources:
   - from: resources/service
     to: service
     filter: ['**/*']
+  # ffmpeg, purely to write browser-playable proxies of 4:4:4 masters. An
+  # artist has no ffmpeg on PATH and should not have to acquire one; without it
+  # a generated clip shows a still poster and cannot be scrubbed. Copied by
+  # scripts/build.mjs from whichever platform's binary npm installed.
+  - from: resources/ffmpeg
+    to: ffmpeg
+    filter: ['**/*']
 
 npmRebuild: false
 

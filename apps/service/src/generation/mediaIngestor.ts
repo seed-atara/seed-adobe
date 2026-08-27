@@ -16,6 +16,7 @@ import {
   readMp4Size,
 } from "@seed-ae/media";
 import type { ProviderOutput } from "@seed-ae/providers";
+import { ensureProxy } from "../media/proxy.js";
 import {
   resolveStorageUri,
   toStorageUri,
@@ -142,6 +143,18 @@ export class MediaIngestor {
      * Seedance answers `return_last_frame` with a JPEG, which is a real frame
      * of this clip rather than a transcode or a borrowed neighbour.
      */
+    /*
+     * A browser-playable companion for the panel, written beside the master
+     * rather than instead of it. Awaited rather than fired off: a card that
+     * shows a poster and silently becomes scrubbable some seconds later is
+     * harder to trust than one that is simply right when it appears.
+     *
+     * It cannot fail the ingest — `ensureProxy` swallows a missing ffmpeg, an
+     * unreadable codec and a timeout alike, because none of those are reasons
+     * to lose a clip that is already generated and paid for.
+     */
+    await ensureProxy(this.workspace, asset, target);
+
     if (output.posterUrl) {
       const written = await this.thumbnailFromUrl(
         output.posterUrl,

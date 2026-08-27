@@ -125,9 +125,20 @@ export class SeedClient {
    * token in the URL would leak it into logs and history — so images are
    * fetched here and handed to the DOM as object URLs.
    */
-  async assetBlob(asset: Asset, variant?: "thumbnail"): Promise<Blob> {
+  async assetBlob(
+    asset: Asset,
+    variant?: "thumbnail" | "preview",
+  ): Promise<Blob> {
     const useThumbnail = variant === "thumbnail" && asset.thumbnailUri;
-    const path = `/v1/assets/${asset.id}/file${useThumbnail ? "?variant=thumbnail" : ""}`;
+    // `preview` asks the service for whatever this panel can play: the proxy
+    // for a 4:4:4 master, the original for anything already browser-safe. The
+    // decision is the service's, because it is the side that knows.
+    const query = useThumbnail
+      ? "?variant=thumbnail"
+      : variant === "preview"
+        ? "?variant=preview"
+        : "";
+    const path = `/v1/assets/${asset.id}/file${query}`;
     const response = await fetch(`${this.baseUrl}${path}`, {
       headers: { authorization: `Bearer ${this.token}` },
     });

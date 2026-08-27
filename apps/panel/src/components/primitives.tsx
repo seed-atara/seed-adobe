@@ -182,10 +182,13 @@ export function AssetVideo({
    *
    * Distinct from `failed`, which is a download that did not happen. Seedance
    * 2.5's default `mov` is 4:4:4 — H.264 High 4:4:4 Predictive below 1080p,
-   * HEVC Rext yuv444p10le at 1080p — and no browser opens either. The clip is
-   * not broken; it is the higher-quality deliverable, and After Effects plays
-   * it fine. Showing an empty transparent box and a dead scrub bar said
-   * "broken" when the truth is "not previewable here".
+   * HEVC Rext yuv444p10le at 1080p — and no browser opens either.
+   *
+   * The service normally answers `?variant=preview` with a 4:2:0 proxy it
+   * wrote at ingest, so this should be rare. It still happens where no ffmpeg
+   * was available to make one, and the clip is not broken — it is the
+   * higher-quality deliverable and After Effects plays it fine. An empty
+   * transparent box and a dead scrub bar said "broken" instead.
    */
   const [undecodable, setUndecodable] = useState(false);
   const [progress, setProgress] = useState(0);
@@ -200,7 +203,9 @@ export function AssetVideo({
     setUndecodable(false);
 
     client
-      .assetBlob(asset)
+      // The playable one. A 4:4:4 master stays the master; this is the proxy
+      // written beside it at ingest, and the service decides which is which.
+      .assetBlob(asset, "preview")
       .then((blob) => {
         if (cancelled) return;
         objectUrl = URL.createObjectURL(blob);
@@ -290,7 +295,7 @@ export function AssetVideo({
       <div className="scrub undecodable">
         <AssetImage client={client} asset={asset} variant="thumbnail" />
         <span className="scrub-note">
-          Plays in After Effects, not here — this clip is 4:4:4
+          No preview — plays in After Effects
         </span>
       </div>
     );

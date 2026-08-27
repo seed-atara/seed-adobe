@@ -106,6 +106,30 @@ agreement is to get the look right offline first. Two things remain unmeasured
 — margin motion is Seedance's reading of the move rather than a tracked match,
 and drift has not been checked frame by frame.
 
+## Added 2026-08-27 — keep the 4:4:4 master, preview a proxy
+
+`mov` stays the default and stays the deliverable. At ingest the service now
+writes a small 4:2:0 H.264 companion beside it in `proxiesDir` — a folder that
+had been declared in the workspace layout since the beginning and never used —
+and the panel asks for `?variant=preview`, which the service answers with the
+proxy for a 4:4:4 master and the original for anything already browser-safe.
+The panel needs no knowledge of codecs.
+
+The proxy is disposable by design: derived, never an asset, absent from
+lineage, and deleting the folder costs one re-encode.
+
+**ffmpeg ships with the companion** (~79 MB, so the installer is now ~170 MB).
+An artist has no ffmpeg on PATH and should not have to acquire one. Resolution
+order is `SEED_FFMPEG` (what the companion sets) then PATH, and every failure —
+no binary, an unreadable codec, a timeout — returns nothing rather than
+throwing. A missing preview must never fail an ingest for a clip that is
+already generated and paid for; the card falls back to the poster.
+
+Tested against a real master rather than a stand-in: a generated H.264 High
+4:4:4 Predictive `yuv444p10le` file, with `ffprobe` asserting the proxy comes
+out `yuv420p`. An ordinary mp4 would have proved nothing, because an ordinary
+mp4 already plays.
+
 ## Confirmed 2026-08-27 — the panel runs on macOS
 
 Reported from a Mac: the panel loads, the service runs, **Capture, Import and

@@ -26,6 +26,8 @@ export interface ServiceOptions {
   port: number;
   /** Where panel-set credentials are read from and written to. */
   credentialsPath: string;
+  /** The bundled ffmpeg, when this build carries one. */
+  ffmpeg?: string;
 }
 
 export declare interface ServiceSupervisor {
@@ -78,6 +80,7 @@ export class ServiceSupervisor extends EventEmitter {
         SEED_AE_SESSION_TOKEN: this.options.token,
         SEED_AE_WORKSPACE: this.options.workspace,
         SEED_AE_CREDENTIALS: this.options.credentialsPath,
+        ...(this.options.ffmpeg ? { SEED_FFMPEG: this.options.ffmpeg } : {}),
       },
       stdio: ["ignore", "pipe", "pipe"],
       windowsHide: true,

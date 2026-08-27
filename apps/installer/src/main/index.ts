@@ -49,6 +49,8 @@ interface Paths {
   panelSource: string;
   /** The bundled service entry point. */
   serviceEntry: string;
+  /** The ffmpeg we carry, for browser-playable proxies of 4:4:4 masters. */
+  ffmpeg: string;
 }
 
 function resolvePaths(): Paths {
@@ -58,6 +60,7 @@ function resolvePaths(): Paths {
   return {
     panelSource: path.join(base, "extension"),
     serviceEntry: path.join(base, "service", "index.js"),
+    ffmpeg: path.join(base, "ffmpeg", process.platform === "win32" ? "ffmpeg.exe" : "ffmpeg"),
   };
 }
 
@@ -234,6 +237,9 @@ async function setUp(): Promise<void> {
     entry: paths.serviceEntry,
     workspace: readWorkspace(stateDir),
     credentialsPath: path.join(app.getPath("home"), ".seed-ae", "credentials.json"),
+    // Passed as a path rather than left to PATH: an artist has no ffmpeg
+    // installed, and the service degrades to a still poster without one.
+    ...(existsSync(paths.ffmpeg) ? { ffmpeg: paths.ffmpeg } : {}),
     token,
     port: PORT,
   });

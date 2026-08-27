@@ -7,6 +7,7 @@
  *   1. the panel        vite -> apps/extension/panel
  *   2. the extension    apps/extension -> resources/extension  (panel + jsx + manifest)
  *   3. the service      esbuild, one file -> resources/service/index.js
+ *   3b. ffmpeg          this platform's binary -> resources/ffmpeg
  *   4. the shell        esbuild -> dist/main, dist/preload, dist/window
  *
  * The service is bundled rather than shipped as sources with a TypeScript
@@ -17,7 +18,7 @@
  *   node scripts/build.mjs
  */
 import { build } from "esbuild";
-import { cpSync, existsSync, mkdirSync, rmSync } from "node:fs";
+import { chmodSync, cpSync, existsSync, mkdirSync, rmSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -91,6 +92,24 @@ await build({
   ],
   logLevel: "info",
 });
+
+/* 3b — ffmpeg ------------------------------------------------------------- */
+// npm installs only this platform's binary, which is exactly what this build
+// should carry. Staged into resources/ so electron-builder ships it outside the
+// asar — an executable cannot be spawned from inside one.
+step("Staging ffmpeg");
+const ffmpegSource = (await import("ffmpeg-static")).default;
+if (!ffmpegSource || !existsSync(ffmpegSource)) {
+  console.error("ffmpeg-static did not provide a binary; run `npm install`.");
+  process.exit(1);
+}
+const ffmpegDir = path.join(resources, "ffmpeg");
+mkdirSync(ffmpegDir, { recursive: true });
+const ffmpegTarget = path.join(ffmpegDir, path.basename(ffmpegSource));
+cpSync(ffmpegSource, ffmpegTarget);
+// cpSync does not carry the executable bit on every platform.
+chmodSync(ffmpegTarget, 0o755);
+console.log(`  ${ffmpegTarget}`);
 
 /* 4 — the shell ---------------------------------------------------------- */
 step("Building the companion");
