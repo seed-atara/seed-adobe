@@ -1530,6 +1530,7 @@ export function App({ tabs }: AppProps = {}) {
       {showSettings ? (
         <SettingsView
           client={client}
+          {...(bridge ? { bridge } : {})}
           onClose={() => setShowSettings(false)}
           onProvidersChanged={() => {
             // Re-read rather than trust the save's own list: the dropdowns are

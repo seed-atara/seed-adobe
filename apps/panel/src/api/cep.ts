@@ -509,6 +509,21 @@ export class CepAeBridge {
    * The path comes from the host's open dialog, because a panel is a browser
    * and a browser only ever learns bytes. Returns nothing if they cancel.
    */
+  /**
+   * Asks the host to open a file dialog and returns what was chosen.
+   *
+   * Used for settings that are a file rather than a value — a Premiere preset,
+   * say. On an installed copy there is no `.env` to paste a path into, and
+   * transcribing one by hand is how a working preset becomes a typo.
+   */
+  async pickPath(prompt: string, filter: string): Promise<string | undefined> {
+    await this.ensureHost();
+    const { path } = await evalHost<{ path: string | null }>(
+      `${hostPrefix()}pickFile(${quote(prompt)}, ${quote(filter)})`,
+    );
+    return path ?? undefined;
+  }
+
   async addFileFromDisk(): Promise<Asset | undefined> {
     await this.ensureHost();
     const { path } = await evalHost<{ path: string | null }>(

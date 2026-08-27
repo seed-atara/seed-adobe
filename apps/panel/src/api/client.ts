@@ -59,9 +59,12 @@ export interface SettingState {
   key: string;
   label: string;
   help: string;
-  group: "Generating" | "References" | "Direction" | "Hosting";
+  group: "Generating" | "References" | "Direction" | "Hosting" | "Premiere";
   secret: boolean;
   placeholder?: string;
+  /** A file on disk: the panel offers the host's own picker for these. */
+  kind?: "path";
+  filter?: string;
   /** Where the effective value came from, so the panel can say which won. */
   source: "panel" | "env" | "unset";
   /** Last four characters of a secret, or the full value of a non-secret. */

@@ -1661,3 +1661,11 @@ button.linkish {
   line-height: 1.3;
   text-align: center;
 }
+
+/* For a setting that is a file: the host's own dialog beats typing a path. */
+button.settings-browse {
+  width: auto;
+  margin-top: var(--gap-xs);
+  padding: 1px 8px;
+  font-size: 11px;
+}

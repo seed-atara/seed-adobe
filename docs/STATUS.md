@@ -106,6 +106,29 @@ agreement is to get the look right offline first. Two things remain unmeasured
 — margin motion is Seedance's reading of the move rather than a tracked match,
 and drift has not been checked frame by frame.
 
+## Added 2026-08-27 — Premiere presets, settable from the panel
+
+Premiere's export presets are per-install `.epr` files: Premiere makes them on
+your machine and none can be shipped. `SEED_PPRO_VIDEO_PRESET` gates clip
+capture entirely — without it the button is hidden — and on an installed copy
+there is no `.env` to put one in, so the feature was unreachable.
+
+All three (`STILL`, `VIDEO`, `QUALITY`) are now in the panel under a **Premiere**
+group, as file settings rather than text: the row offers **Choose a file…**,
+which opens the host's own dialog through `pickFile` — a function both host
+scripts already had. Transcribing a path by hand is how a working preset
+becomes a typo.
+
+**Correcting an earlier claim in this file's history:** "Premiere works" was
+asserted from reading the manifest. Measured properly, 16 of the 22 host
+operations the panel calls exist in `seed-host-ppro.jsx`, including the whole
+core loop — context, capture frame, capture range, pick-up, import, insert at
+playhead, and the placeholder flow. The 6 missing are regions and look rigs,
+which are nested-comp concepts Premiere does not have, and the panel already
+hides that section outside After Effects.
+
+**Nobody has run the panel in Premiere.** Same status macOS had this morning.
+
 ## Added 2026-08-27 — keep the 4:4:4 master, preview a proxy
 
 `mov` stays the default and stays the deliverable. At ingest the service now

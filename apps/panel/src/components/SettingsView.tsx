@@ -23,21 +23,31 @@ import { SectionLabel } from "./primitives.tsx";
  *     difference between "the override is working" and "my edit did nothing".
  */
 
-const GROUP_ORDER = ["Generating", "References", "Direction", "Hosting"] as const;
+const GROUP_ORDER = [
+  "Generating",
+  "References",
+  "Direction",
+  "Premiere",
+  "Hosting",
+] as const;
 
 const GROUP_BLURB: Record<(typeof GROUP_ORDER)[number], string> = {
   Generating: "The minimum for the panel to make anything at all.",
   References: "Optional. Lets a reference be sent by id rather than inline.",
   Direction: "Optional. Each one adds a button; without it nothing is offered.",
+  Premiere: "Export presets. Premiere cannot ship these — they are made on your machine.",
   Hosting: "Needed only for video references — Ark refuses an inline clip.",
 };
 
 export function SettingsView({
   client,
+  bridge,
   onClose,
   onProvidersChanged,
 }: {
   client: SeedClient;
+  /** Absent in a browser, where there is no host to open a file dialog. */
+  bridge?: { pickPath(prompt: string, filter: string): Promise<string | undefined> };
   onClose: () => void;
   /** So the rest of the panel can re-read what is now available. */
   onProvidersChanged: () => void;
@@ -78,6 +88,17 @@ export function SettingsView({
 
   const dirty = Object.keys(edits).length > 0;
 
+  function onChangeRow(key: string, next: string): void {
+    setEdits((current) => {
+      const copy = { ...current };
+      // Typing and then clearing the box is not the same as asking to delete
+      // the key — it is a cancelled edit.
+      if (next === "") delete copy[key];
+      else copy[key] = next;
+      return copy;
+    });
+  }
+
   async function save() {
     setBusy(true);
     setError("");
@@ -103,7 +124,7 @@ export function SettingsView({
     <div className="settings-backdrop" role="dialog" aria-label="Settings">
       <div className="settings-dialog">
         <div className="titlebar">
-          <span className="label">Settings — credentials</span>
+          <span className="label">Settings — keys and presets</span>
           <span className="controls">
             <button className="ctl" onClick={onClose} aria-label="Close">
               &times;
@@ -136,20 +157,22 @@ export function SettingsView({
                   key={row.key}
                   setting={row}
                   value={edits[row.key]}
-                  onChange={(next) =>
-                    setEdits((current) => {
-                      const copy = { ...current };
-                      // Typing and then clearing the box is not the same as
-                      // asking to delete the key — it is a cancelled edit.
-                      if (next === "") delete copy[row.key];
-                      else copy[row.key] = next;
-                      return copy;
-                    })
-                  }
+                  onChange={(next) => onChangeRow(row.key, next)}
                   onClear={() =>
                     setEdits((current) => ({ ...current, [row.key]: "" }))
                   }
                   clearing={edits[row.key] === ""}
+                  {...(bridge && row.kind === "path"
+                    ? {
+                        onBrowse: async () => {
+                          const picked = await bridge.pickPath(
+                            `Choose the ${row.label.toLowerCase()}`,
+                            row.filter ?? "All files:*.*",
+                          );
+                          if (picked) onChangeRow(row.key, picked);
+                        },
+                      }
+                    : {})}
                 />
               ))}
             </section>
@@ -173,12 +196,15 @@ function SettingRow({
   onChange,
   onClear,
   clearing,
+  onBrowse,
 }: {
   setting: SettingState;
   value: string | undefined;
   onChange: (next: string) => void;
   onClear: () => void;
   clearing: boolean;
+  /** Present only for file settings, and only inside a host. */
+  onBrowse?: () => void | Promise<void>;
 }) {
   const set = setting.source !== "unset";
   return (
@@ -210,6 +236,16 @@ function SettingRow({
         }
         onChange={(event) => onChange(event.target.value)}
       />
+
+      {onBrowse ? (
+        <button
+          type="button"
+          className="settings-browse"
+          onClick={() => void onBrowse()}
+        >
+          Choose a file…
+        </button>
+      ) : null}
 
       <span className="hint">
         {setting.help}

@@ -38,7 +38,7 @@ export interface SettingDefinition {
   /** One line: what breaks without it. */
   help: string;
   /** Grouping for the panel, in display order. */
-  group: "Generating" | "References" | "Direction" | "Hosting";
+  group: "Generating" | "References" | "Direction" | "Hosting" | "Premiere";
   /**
    * A secret is never sent to the client — only whether it is set, and a hint.
    * A model id or a base URL is not a secret and is far easier to correct when
@@ -47,6 +47,16 @@ export interface SettingDefinition {
   secret: boolean;
   /** Shown as the field's placeholder when nothing is set. */
   placeholder?: string;
+  /**
+   * A file on disk rather than a value to type.
+   *
+   * The panel offers a picker for these through the host's own file dialog —
+   * nobody should be transcribing a path to a preset by hand, and on an
+   * installed copy there is no `.env` to paste one into either.
+   */
+  kind?: "path";
+  /** Host file-dialog filter, in Adobe's "Label:*.ext" form. */
+  filter?: string;
 }
 
 /**
@@ -125,6 +135,33 @@ export const SETTINGS: readonly SettingDefinition[] = [
     secret: true,
   },
   {
+    key: "SEED_PPRO_STILL_PRESET",
+    label: "Premiere still preset",
+    help: "A PNG preset exported from Premiere's Export Settings. Without it frame capture falls back to an undocumented exporter that some builds refuse.",
+    group: "Premiere",
+    secret: false,
+    kind: "path",
+    filter: "Premiere preset:*.epr,All files:*.*",
+  },
+  {
+    key: "SEED_PPRO_VIDEO_PRESET",
+    label: "Premiere clip preset",
+    help: "Required for capturing a range as a clip — without it the button is hidden. Must stay in a codec Ark accepts: a ProRes reference is a refused one.",
+    group: "Premiere",
+    secret: false,
+    kind: "path",
+    filter: "Premiere preset:*.epr,All files:*.*",
+  },
+  {
+    key: "SEED_PPRO_QUALITY_PRESET",
+    label: "Premiere archival preset",
+    help: "Optional. A ProRes preset for clips that stay local. Deliberately separate from the one above, which must remain sendable.",
+    group: "Premiere",
+    secret: false,
+    kind: "path",
+    filter: "Premiere preset:*.epr,All files:*.*",
+  },
+  {
     key: "SEED_R2_ENDPOINT",
     label: "R2 endpoint",
     help: "Video references must be fetchable by URL — Ark refuses an inline clip.",
@@ -166,6 +203,8 @@ export interface SettingState {
   group: SettingDefinition["group"];
   secret: boolean;
   placeholder?: string;
+  kind?: "path";
+  filter?: string;
   source: SettingSource;
   /**
    * For a secret, the last four characters and nothing else — enough to tell
@@ -286,6 +325,8 @@ export function describeSettings(
       group: definition.group,
       secret: definition.secret,
       ...(definition.placeholder ? { placeholder: definition.placeholder } : {}),
+      ...(definition.kind ? { kind: definition.kind } : {}),
+      ...(definition.filter ? { filter: definition.filter } : {}),
       source,
       ...(value
         ? { hint: definition.secret ? hintFor(value) : value }
