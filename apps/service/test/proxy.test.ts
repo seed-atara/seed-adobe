@@ -1,6 +1,5 @@
 import { execFile } from "node:child_process";
 import { mkdtemp, rm } from "node:fs/promises";
-import { existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
@@ -48,20 +47,39 @@ afterAll(async () => {
   await rm(root, { recursive: true, force: true });
 });
 
-/** What ffprobe says a file actually is. */
-async function probe(file: string): Promise<Record<string, string>> {
-  const probeBin = ffmpeg.replace(/ffmpeg(\.exe)?$/, (m) =>
-    m.startsWith("ffmpeg.exe") ? "ffprobe.exe" : "ffprobe",
-  );
-  const bin = existsSync(probeBin) ? probeBin : "ffprobe";
-  const { stdout } = await run(bin, [
-    "-v", "error", "-select_streams", "v:0",
-    "-show_entries", "stream=codec_name,pix_fmt,width",
-    "-of", "default=nw=1", file,
-  ]);
-  return Object.fromEntries(
-    stdout.trim().split(/\r?\n/).map((line) => line.split("=") as [string, string]),
-  );
+/**
+ * What a file actually is, read from ffmpeg itself.
+ *
+ * Not ffprobe: `ffmpeg-static` ships only the one binary, and CI's macOS
+ * runner has no ffprobe on PATH — which is exactly how this test passed here
+ * and failed there. Asking the transcoder we already bundle keeps the check
+ * honest on every machine.
+ *
+ * `ffmpeg -i` with no output writes the stream summary to stderr and exits
+ * non-zero, so the rejection is the expected path rather than a failure.
+ */
+async function probe(file: string): Promise<{
+  codec: string;
+  pixelFormat: string;
+  width: number;
+}> {
+  let stderr = "";
+  try {
+    stderr = (await run(ffmpeg, ["-hide_banner", "-i", file])).stderr;
+  } catch (error) {
+    stderr = (error as { stderr?: string }).stderr ?? "";
+  }
+
+  const line = stderr
+    .split(/\r?\n/)
+    .find((candidate) => /Stream #\d+:\d+.*Video:/.test(candidate));
+  if (!line) throw new Error(`no video stream reported for ${file}:\n${stderr}`);
+
+  return {
+    codec: /Video:\s+([a-z0-9]+)/i.exec(line)?.[1] ?? "",
+    pixelFormat: /\b(yuv[a-z0-9]+|gbr[a-z0-9]*|rgb[a-z0-9]*)\b/i.exec(line)?.[1] ?? "",
+    width: Number(/\b(\d{2,5})x\d{2,5}\b/.exec(line)?.[1] ?? 0),
+  };
 }
 
 describe("which clips need a proxy", () => {
@@ -88,7 +106,7 @@ describe("making the proxy", () => {
     const asset = { id: "asset-444", kind: "video" as const, mimeType: "video/quicktime" };
 
     const before = await probe(master);
-    expect(before.pix_fmt).toBe("yuv444p10le");
+    expect(before.pixelFormat).toBe("yuv444p10le");
 
     const result = await ensureProxy(workspace, asset, master, {
       env: { SEED_FFMPEG: ffmpeg },
@@ -99,20 +117,27 @@ describe("making the proxy", () => {
 
     const after = await probe(result!.path);
     // The whole point: 4:2:0 is what Chromium can decode.
-    expect(after.pix_fmt).toBe("yuv420p");
-    expect(after.codec_name).toBe("h264");
+    expect(after.pixelFormat).toBe("yuv420p");
+    expect(after.codec).toBe("h264");
     // Capped, never upscaled — a panel card never shows more than this.
-    expect(Number(after.width)).toBeLessThanOrEqual(1280);
+    expect(after.width).toBeLessThanOrEqual(1280);
   }, 120_000);
 
   it("reuses a proxy that is already there rather than re-encoding", async () => {
-    const asset = { id: "asset-444", kind: "video" as const, mimeType: "video/quicktime" };
+    // Makes its own proxy rather than leaning on the test above: an ordering
+    // dependency turns one failure into two and hides which was the real one.
+    const asset = { id: "asset-reuse", kind: "video" as const, mimeType: "video/quicktime" };
+    const first = await ensureProxy(workspace, asset, master, {
+      env: { SEED_FFMPEG: ffmpeg },
+    });
+    expect(first?.encoded).toBe(true);
+
     const again = await ensureProxy(workspace, asset, master, {
       env: { SEED_FFMPEG: ffmpeg },
     });
     expect(again?.encoded).toBe(false);
     expect(again?.path).toBe(proxyPath(workspace, asset.id));
-  });
+  }, 120_000);
 
   it("returns nothing rather than throwing when ffmpeg is absent", async () => {
     // A missing transcoder must never fail an ingest: the clip is already
