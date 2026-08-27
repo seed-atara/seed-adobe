@@ -6,15 +6,29 @@
 # keyboard has one of those machines, so this is the only place both artifacts
 # come from the same commit.
 #
-# Nothing is published. The artifacts are attached to the run for download,
-# because the macOS build has never been opened by anyone and a feed is not the
-# place to find that out.
+# Where it goes: a **GitHub Release** on this repository. The repo is public, so
+# a release asset is a plain HTTPS link anyone can click — no login, no CI
+# account, no zip-wrapped Actions artifact. That is the difference between a
+# build that exists and a build a teammate can actually install.
+#
+# The tag is the consent gate. Pushing to main builds nothing here; cutting
+# `v0.1.0` is the deliberate act of saying this is worth other people receiving.
+#
+# If this repository is ever made private, release assets stop being public
+# links and need a token — which is exactly why harness-workbench publishes to
+# an R2 bucket instead. Swap the release step for an R2 upload at that point;
+# the build half of this file does not change.
 name: Release
 
 on:
   push:
     tags: ['v*']
   workflow_dispatch:
+
+# Creating a release needs write access to repository contents; the default
+# token is read-only.
+permissions:
+  contents: write
 
 jobs:
   build:
@@ -54,9 +68,37 @@ jobs:
       - name: Package
         run: npm run ${{ matrix.script }}
 
+      # Kept as well as the release: a workflow_dispatch run has no tag to
+      # attach to, and that is the mode used to check a build before releasing
+      # it.
       - uses: actions/upload-artifact@v4
         with:
           name: seed-companion-${{ matrix.name }}
           path: ${{ matrix.artifacts }}
           if-no-files-found: error
           retention-days: 30
+
+      - name: Attach to the release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ matrix.artifacts }}
+          # Both jobs target the same release; whichever finishes first creates
+          # it and the other adds its files.
+          fail_on_unmatched_files: true
+          body: |
+            **Install:** download the file for your platform and see
+            [docs/INSTALL.md](https://github.com/seed-atara/seed-adobe/blob/main/docs/INSTALL.md).
+
+            - **Windows** — `SEED Setup <version>.exe`. Unsigned, so Windows warns
+              once: More info → Run anyway.
+            - **macOS** — the `arm64` DMG on Apple Silicon, `x64` on Intel. Ad-hoc
+              signed but not notarized, so clear the quarantine flag once:
+              `xattr -dr com.apple.quarantine /Applications/SEED.app`
+
+            Then open SEED, answer **Allow**, and start After Effects:
+            Window → Extensions → SEED / AE. API keys go in the gear in the
+            panel's title bar — there is no token to paste.
+
+            Test pass to run and record:
+            [docs/product/TEAM_TEST_PLAN.md](https://github.com/seed-atara/seed-adobe/blob/main/docs/product/TEAM_TEST_PLAN.md)
