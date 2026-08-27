@@ -22,6 +22,7 @@ import { installPanel, panelTargetDir, removePanel } from "./cep.js";
 import { enableDebugMode, readDebugMode, type DebugModeState } from "./debugMode.js";
 import { ServiceSupervisor, type ServiceState } from "./service.js";
 import { ensureToken, provisionPanel } from "./token.js";
+import { isDefaultWorkspace, readWorkspace, writeWorkspace } from "./workspace.js";
 
 /**
  * Pin the name before anything asks for a path.
@@ -62,6 +63,8 @@ function resolvePaths(): Paths {
 
 interface Status {
   service: ServiceState;
+  workspace: string;
+  workspaceIsDefault: boolean;
   detail: string;
   debugMode: DebugModeState;
   panelTarget: string;
@@ -79,8 +82,12 @@ let panelInstalled = false;
 let lastError = "";
 
 function status(): Status {
+  const stateDir = app.getPath("userData");
+  const workspace = readWorkspace(stateDir);
   return {
     service: supervisor?.currentState ?? "stopped",
+    workspace,
+    workspaceIsDefault: isDefaultWorkspace(stateDir, workspace),
     detail: lastError || (supervisor?.lastDetail ?? ""),
     debugMode,
     panelTarget: panelTargetDir(),
@@ -225,9 +232,7 @@ async function setUp(): Promise<void> {
 
   supervisor = new ServiceSupervisor({
     entry: paths.serviceEntry,
-    // Beside the catalogue rather than in the user's Documents: this folder is
-    // the app's, and an artist should never have to know it exists.
-    workspace: path.join(stateDir, "workspace"),
+    workspace: readWorkspace(stateDir),
     credentialsPath: path.join(app.getPath("home"), ".seed-ae", "credentials.json"),
     token,
     port: PORT,
@@ -287,6 +292,29 @@ void app.whenReady().then(async () => {
     broadcast();
     return status();
   });
+  ipcMain.handle("seed:choose-workspace", async () => {
+    const stateDir = app.getPath("userData");
+    const { canceled, filePaths } = await dialog.showOpenDialog({
+      title: "Where should SEED keep generated media?",
+      defaultPath: readWorkspace(stateDir),
+      // `createDirectory` so a new job folder can be made here rather than in
+      // Finder first, which is how an artist actually thinks about this.
+      properties: ["openDirectory", "createDirectory"],
+      buttonLabel: "Use this folder",
+    });
+    const chosen = filePaths[0];
+    if (canceled || !chosen) return status();
+
+    writeWorkspace(stateDir, chosen);
+    // The service reads its workspace once, at startup. Restarting is the
+    // honest way to move it, and it takes about a second.
+    await supervisor?.restart();
+    broadcast();
+    return status();
+  });
+  ipcMain.handle("seed:reveal-workspace", () =>
+    shell.openPath(readWorkspace(app.getPath("userData"))),
+  );
   ipcMain.handle("seed:reveal-panel", () => shell.showItemInFolder(panelTargetDir()));
   ipcMain.handle("seed:quit", () => void shutdown());
 

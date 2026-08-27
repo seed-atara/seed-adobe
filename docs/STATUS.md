@@ -106,6 +106,40 @@ agreement is to get the look right offline first. Two things remain unmeasured
 — margin motion is Seedance's reading of the move rather than a tracked match,
 and drift has not been checked frame by frame.
 
+## Confirmed 2026-08-27 — the panel runs on macOS
+
+Reported from a Mac: the panel loads, the service runs, **Capture, Import and
+Insert at playhead all work**. That is the host bridge confirmed on the platform
+nobody had ever run it on, and it retires the largest unknown in the project.
+
+Three defects came with it, all of them Windows-blind:
+
+- **The settings gear was invisible.** `&#9881;` at 9px in a font stack of MS
+  Sans Serif / Tahoma / Segoe UI — none of which exist on macOS. It was the only
+  way to enter an API key. Now a **Keys** button, in words.
+- **Nothing said why Generate did nothing.** The obvious guess, an empty
+  provider list, was wrong: the film look needs no credential, so a keyless
+  install reports one provider that can only *treat* a frame. The tab now says
+  so, with the button that fixes it.
+- **The settings dialog had two layout bugs** — group headings that never
+  rendered (`SectionLabel` is absolutely positioned and had no positioned
+  parent) and a Save button off the bottom edge (`min-height: auto` on a flex
+  item, and `place-items: center` sizing the grid row to its content so
+  `max-height: 100%` constrained nothing).
+
+Also from that session:
+
+- **Video previews no longer show an empty box.** Seedance's default `mov` is
+  4:4:4 and no browser opens it; the card now falls back to the clip's own
+  poster and says "Plays in After Effects, not here". `SEEDANCE_OUTPUT_FORMAT`
+  is settable from the panel for anyone who wants an mp4 that previews.
+- **Generated media has a home you choose.** The companion's workspace was
+  hardcoded inside its own data folder. It now has a folder picker, remembers
+  the choice, falls back if the drive is gone, and is verified against a path
+  with spaces in it.
+- **Premiere needed no work.** The manifest already declares `AEFT` and `PPRO`,
+  and the CEP folder is shared, so one install serves both.
+
 ## Added 2026-08-27 — an installer, so an artist never opens a terminal
 
 `apps/installer` is an Electron companion called **SEED**. It installs the CEP

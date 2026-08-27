@@ -177,6 +177,17 @@ export function AssetVideo({
 }) {
   const [url, setUrl] = useState<string | undefined>();
   const [failed, setFailed] = useState(false);
+  /**
+   * The bytes arrived and the browser will not play them.
+   *
+   * Distinct from `failed`, which is a download that did not happen. Seedance
+   * 2.5's default `mov` is 4:4:4 — H.264 High 4:4:4 Predictive below 1080p,
+   * HEVC Rext yuv444p10le at 1080p — and no browser opens either. The clip is
+   * not broken; it is the higher-quality deliverable, and After Effects plays
+   * it fine. Showing an empty transparent box and a dead scrub bar said
+   * "broken" when the truth is "not previewable here".
+   */
+  const [undecodable, setUndecodable] = useState(false);
   const [progress, setProgress] = useState(0);
   const videoRef = useRef<HTMLVideoElement>(null);
   const scrubbing = useRef<{ x: number; until: number } | undefined>(undefined);
@@ -186,6 +197,7 @@ export function AssetVideo({
     let objectUrl: string | undefined;
     setUrl(undefined);
     setFailed(false);
+    setUndecodable(false);
 
     client
       .assetBlob(asset)
@@ -271,6 +283,19 @@ export function AssetVideo({
   if (failed) return <span className="placeholder">could not load video</span>;
   if (!url) return <span className="placeholder">loading video...</span>;
 
+  if (undecodable) {
+    // The poster is a real frame of this clip — Seedance returns one with the
+    // result — so the card still shows what was made, rather than a gap.
+    return (
+      <div className="scrub undecodable">
+        <AssetImage client={client} asset={asset} variant="thumbnail" />
+        <span className="scrub-note">
+          Plays in After Effects, not here — this clip is 4:4:4
+        </span>
+      </div>
+    );
+  }
+
   return (
     <div
       className="scrub"
@@ -285,6 +310,15 @@ export function AssetVideo({
         loop
         playsInline
         preload="metadata"
+        onError={() => setUndecodable(true)}
+        onLoadedMetadata={(event) => {
+          // Some builds of Chromium accept the container, report a duration of
+          // NaN, and then render nothing at all rather than raising `error`.
+          // That is the same outcome for the artist, so it is the same state.
+          if (!Number.isFinite(event.currentTarget.duration)) {
+            setUndecodable(true);
+          }
+        }}
         onTimeUpdate={(event) => {
           const video = event.currentTarget;
           if (Number.isFinite(video.duration) && video.duration > 0) {

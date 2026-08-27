@@ -73,13 +73,39 @@ The panel is already connected. There is no token to paste.
 That one terminal command is the only one, and it goes away entirely with an
 Apple Developer ID certificate.
 
+### It installs for Premiere Pro too
+
+Nothing extra to do. Adobe's extensions folder is shared by every Adobe
+application, and the manifest declares both hosts — `AEFT` and `PPRO` — with
+one panel and a host script each (`seed-host.jsx`, `seed-host-ppro.jsx`). So
+the same install puts SEED in **Window → Extensions** in Premiere as well,
+where it works against the active sequence rather than a comp.
+
+The menu entry still reads *SEED / AE* in both, which is a naming wart rather
+than a bug.
+
+### Where generated media goes
+
+By default, inside SEED's own data folder — fine for trying it, wrong for real
+work. Generated clips are project media: they belong on the drive the job lives
+on, backed up by whatever backs that drive up.
+
+**SEED window → Change media folder…** moves it. The service restarts (about a
+second) and everything new lands there. The window flags the default so it is
+visible rather than something you discover when a job moves machine and the
+renders do not come with it.
+
+Existing media is not moved — point it at the right place before a job, not
+during one.
+
 ### What the SEED window tells you
 
 | Row | What it means |
 | --- | --- |
 | **SEED is running** | The service answered. The panel can reach it. |
 | **Panel installed** | The panel is in Adobe's folder. |
-| **After Effects permission** | Whether unsigned extensions are allowed. |
+| **After Effects permission** | Whether unsigned extensions are allowed. Covers Premiere too — the flag is per CSXS version, not per application. |
+| **Generated media** | Where clips and the catalogue are written. |
 
 Three buttons cover almost every problem: **Restart the service**, **Reinstall
 the panel**, and **Show panel folder**. Closing the window leaves SEED running

@@ -89,6 +89,14 @@ export const SETTINGS: readonly SettingDefinition[] = [
     placeholder: "dreamina-seedance-2-5-260628",
   },
   {
+    key: "SEEDANCE_OUTPUT_FORMAT",
+    label: "Video container",
+    help: "mov is 4:4:4 and the better master, but no browser previews it. mp4 is 4:2:0 and plays in the panel. Same resolution, same price.",
+    group: "Generating",
+    secret: false,
+    placeholder: "mov",
+  },
+  {
     key: "SEED_ARK_AK",
     label: "Ark access key id",
     help: "Account-level key for the asset library. Separate from the API key, and optional.",

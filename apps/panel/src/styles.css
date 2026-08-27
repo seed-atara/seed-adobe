@@ -1643,3 +1643,21 @@ button.linkish {
   flex: none;
   margin-left: auto;
 }
+
+/* A clip the browser will not decode: show the frame, say why. */
+.scrub.undecodable {
+  position: relative;
+}
+
+.scrub.undecodable .scrub-note {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  padding: 2px 5px;
+  background: rgba(0, 0, 0, 0.72);
+  color: var(--white);
+  font-size: 10px;
+  line-height: 1.3;
+  text-align: center;
+}

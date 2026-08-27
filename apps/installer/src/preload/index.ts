@@ -11,6 +11,8 @@ export interface SeedStatus {
   detail: string;
   debugMode: "on" | "off" | "unsupported";
   panelTarget: string;
+  workspace: string;
+  workspaceIsDefault: boolean;
   panelInstalled: boolean;
   version: string;
   baseUrl: string;
@@ -22,6 +24,8 @@ contextBridge.exposeInMainWorld("seed", {
   restart: (): Promise<SeedStatus> => ipcRenderer.invoke("seed:restart"),
   reinstallPanel: (): Promise<SeedStatus> => ipcRenderer.invoke("seed:reinstall-panel"),
   revealPanel: (): Promise<void> => ipcRenderer.invoke("seed:reveal-panel"),
+  chooseWorkspace: (): Promise<SeedStatus> => ipcRenderer.invoke("seed:choose-workspace"),
+  revealWorkspace: (): Promise<void> => ipcRenderer.invoke("seed:reveal-workspace"),
   quit: (): Promise<void> => ipcRenderer.invoke("seed:quit"),
   onStatus: (handler: (status: SeedStatus) => void): void => {
     ipcRenderer.on("seed:status", (_event, value: SeedStatus) => handler(value));

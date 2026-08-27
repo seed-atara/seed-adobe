@@ -154,20 +154,26 @@
       <div class="row"><span class="k">Panel installed</span><span class="v" id="panel"></span></div>
       <div class="row"><span class="k">After Effects permission</span><span class="v" id="perm"></span></div>
       <div class="row"><span class="k">Panel location</span><span class="v" id="where"></span></div>
+      <div class="row">
+        <span class="k">Generated media</span>
+        <span class="v" id="workspace"></span>
+      </div>
     </div>
 
     <div class="next">
       <b>To use it</b>
       <ol>
-        <li>Start (or restart) After Effects</li>
+        <li>Start (or restart) <b>After Effects</b> or <b>Premiere Pro</b></li>
         <li>Window → Extensions → SEED / AE</li>
-        <li>Add your API keys with the gear in the panel</li>
+        <li>Add your API keys with the <b>Keys</b> button in the panel</li>
       </ol>
     </div>
 
     <div class="actions">
       <button id="restart">Restart the service</button>
       <button id="reinstall">Reinstall the panel</button>
+      <button id="chooseWorkspace">Change media folder…</button>
+      <button id="revealWorkspace">Show media folder</button>
       <button id="reveal">Show panel folder</button>
       <button id="quit">Quit SEED</button>
     </div>
@@ -205,6 +211,15 @@
 
         $("where").textContent = s.panelTarget;
 
+        // Named plainly, and flagged while it is still inside the app's own
+        // data folder — that is the one place nobody thinks to copy when a job
+        // moves to another drive or another machine.
+        $("workspace").textContent = s.workspace;
+        $("workspace").className = "v" + (s.workspaceIsDefault ? "" : " good");
+        $("workspace").title = s.workspaceIsDefault
+          ? "Inside SEED's own data folder. Put it on your project drive if these clips matter."
+          : s.workspace;
+
         // Only shown when it says something the rows do not already say.
         const problem = s.service === "failed" || !s.panelInstalled || s.debugMode === "off";
         $("problem").hidden = !problem || !s.detail;
@@ -216,6 +231,18 @@
       $("restart").addEventListener("click", async () => render(await window.seed.restart()));
       $("reinstall").addEventListener("click", async () => render(await window.seed.reinstallPanel()));
       $("reveal").addEventListener("click", () => window.seed.revealPanel());
+      $("revealWorkspace").addEventListener("click", () => window.seed.revealWorkspace());
+      $("chooseWorkspace").addEventListener("click", async () => {
+        // Restarting the service is part of the move, so this can take a
+        // second; say so rather than looking frozen.
+        const button = $("chooseWorkspace");
+        button.disabled = true;
+        try {
+          render(await window.seed.chooseWorkspace());
+        } finally {
+          button.disabled = false;
+        }
+      });
       $("quit").addEventListener("click", () => window.seed.quit());
 
       window.seed.onStatus(render);
