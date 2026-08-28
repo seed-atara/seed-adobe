@@ -172,7 +172,7 @@ describe("the preview route", () => {
     // The case from the field: a library of 120 clips generated before proxies
     // existed. Nothing was written at ingest, so the only chance to make one is
     // when the panel asks to play it.
-    const { startTestService } = await import("./helpers.js");
+    const { startTestService, readJson } = await import("./helpers.js");
     const service = await startTestService();
     try {
       const registered = await service.call("/v1/assets/adopt", {
@@ -180,7 +180,9 @@ describe("the preview route", () => {
         body: JSON.stringify({ path: master }),
       });
       expect(registered.status).toBe(201);
-      const { asset } = await registered.json();
+      // `readJson` rather than `response.json()`: the latter is `unknown`, and
+      // destructuring it is a typecheck error the test suite cannot see.
+      const { asset } = await readJson(registered);
       expect(asset.mimeType).toBe("video/quicktime");
 
       // Exactly what AssetVideo asks for.
