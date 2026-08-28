@@ -310,6 +310,36 @@ export function App({ tabs }: AppProps = {}) {
     if (connection === "live") void refreshAssets();
   }, [filterKey, connection, refreshAssets]);
 
+  /*
+   * Pick up work that is still running.
+   *
+   * The panel keeps its jobs in React state, and After Effects reloads a panel
+   * every time it is closed and reopened. The service carries on regardless —
+   * the renders land, the assets register — but the panel came back knowing
+   * nothing about them, showing no progress and never refreshing when they
+   * finished. It looked like the render never ran.
+   *
+   * Only unsettled jobs, and only when the panel has none of its own: a
+   * generation the artist just started is already being followed, and adopting
+   * over it would replace the entry that has its outputs attached.
+   */
+  const adopted = useRef(false);
+  useEffect(() => {
+    if (connection !== "live" || adopted.current || jobs.length > 0) return;
+    adopted.current = true;
+    void (async () => {
+      try {
+        const { jobs: recent } = await client.recentJobs(25);
+        const live = recent.filter((job) => !SETTLED.includes(job.status));
+        if (live.length === 0) return;
+        setJobs(await Promise.all(live.map((job) => client.job(job.id))));
+      } catch {
+        // Best effort. Failing to find old work must never stop the panel
+        // being usable for new work.
+      }
+    })();
+  }, [client, connection, jobs.length]);
+
   // Connect, then load everything the panel needs to be useful.
   useEffect(() => {
     let cancelled = false;
@@ -413,14 +443,33 @@ export function App({ tabs }: AppProps = {}) {
     return () => clearInterval(timer);
   }, [client, connection, bridge]);
 
-  // Poll every job that has not settled, so variants land as they finish.
+  /*
+   * Poll every job that has not settled, so variants land as they finish.
+   *
+   * `pollTick` is what keeps this alive. The next poll used to be scheduled
+   * only as a consequence of `setJobs` changing `jobs` and re-running this
+   * effect — so a poll that *threw* changed nothing, the effect never re-ran,
+   * and polling was dead for the rest of the session. One transient failure
+   * (a service restarting under `tsx watch`, a laptop waking) and the panel
+   * silently stopped following work that was still running perfectly well.
+   *
+   * Incrementing in `finally` means failure schedules the next attempt exactly
+   * as success does; the backoff keeps a genuinely dead service from being
+   * hammered every 700ms.
+   */
   const pollRef = useRef<number | undefined>(undefined);
+  const [pollTick, setPollTick] = useState(0);
+  const pollFailures = useRef(0);
   useEffect(() => {
     const pending = jobs.filter(
       (entry) => !SETTLED.includes(entry.job.status),
     );
-    if (pending.length === 0) return;
+    if (pending.length === 0) {
+      pollFailures.current = 0;
+      return;
+    }
 
+    const delay = Math.min(700 * 2 ** pollFailures.current, 10_000);
     pollRef.current = window.setTimeout(async () => {
       try {
         const updated = await Promise.all(
@@ -444,12 +493,18 @@ export function App({ tabs }: AppProps = {}) {
             return current;
           });
         }
+        pollFailures.current = 0;
       } catch (cause) {
-        report(cause);
+        pollFailures.current += 1;
+        // Reported once, not on every retry: a service that is restarting
+        // produces a burst of these and the artist needs to see one.
+        if (pollFailures.current === 1) report(cause);
+      } finally {
+        setPollTick((tick) => tick + 1);
       }
-    }, 700);
+    }, delay);
     return () => window.clearTimeout(pollRef.current);
-  }, [client, jobs, bridge, refreshAssets, report]);
+  }, [client, jobs, pollTick, bridge, refreshAssets, report]);
 
   /**
    * Removes an asset from the library and deletes its media.

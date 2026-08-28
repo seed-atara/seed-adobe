@@ -443,6 +443,18 @@ export class SeedClient {
     return this.request(`/v1/jobs/${id}`);
   }
 
+  /**
+   * Recent jobs, whatever started them.
+   *
+   * The panel holds its running jobs in React state, so closing and reopening
+   * it — which After Effects does whenever the panel is toggled — used to lose
+   * sight of work that was still running. The service never stopped; only the
+   * view of it did. This is how the panel finds its way back.
+   */
+  recentJobs(limit = 25): Promise<{ jobs: JobDto[] }> {
+    return this.request(`/v1/jobs?limit=${limit}`);
+  }
+
   cancelJob(id: string): Promise<JobView> {
     return this.request(`/v1/jobs/${id}/cancel`, { method: "POST", body: {} });
   }
