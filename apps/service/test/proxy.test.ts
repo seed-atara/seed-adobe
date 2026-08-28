@@ -173,6 +173,18 @@ describe("the preview route", () => {
     // existed. Nothing was written at ingest, so the only chance to make one is
     // when the panel asks to play it.
     const { startTestService, readJson } = await import("./helpers.js");
+
+    /*
+     * Point the service at the binary we ship, the way the companion does.
+     *
+     * Without this the route resolves ffmpeg from PATH, so the test passes on
+     * a machine that happens to have one and fails on a CI runner that does
+     * not — which is precisely what happened. It also mirrors production:
+     * `SEED_FFMPEG` is what the installed application sets.
+     */
+    const previous = process.env.SEED_FFMPEG;
+    process.env.SEED_FFMPEG = ffmpeg;
+
     const service = await startTestService();
     try {
       const registered = await service.call("/v1/assets/adopt", {
@@ -200,6 +212,8 @@ describe("the preview route", () => {
       expect(original.headers.get("content-type")).toBe("video/quicktime");
     } finally {
       await service.close();
+      if (previous === undefined) delete process.env.SEED_FFMPEG;
+      else process.env.SEED_FFMPEG = previous;
     }
   }, 180_000);
 });
