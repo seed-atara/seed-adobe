@@ -22,7 +22,7 @@ import {
   type ColourStats,
 } from "@seed-ae/media";
 import { resolveStorageUri, toStorageUri } from "@seed-ae/storage";
-import { hasProxy, proxyPath } from "../media/proxy.js";
+import { ensureProxy, hasProxy, needsProxy, proxyPath } from "../media/proxy.js";
 import { z } from "zod";
 import { MAX_OUTPUT_BYTES } from "../generation/mediaIngestor.js";
 import { ensurePlaceholder } from "../placeholder.js";
@@ -611,10 +611,36 @@ export function getAssetFileRoute(deps: AppDeps) {
      * therefore needs no fallback logic and no knowledge of codecs — it asks
      * for a preview and gets the best available answer.
      */
-    const proxy =
+    let proxy =
       variant === "preview" && hasProxy(deps.workspace, asset.id)
         ? proxyPath(deps.workspace, asset.id)
         : undefined;
+
+    /*
+     * Make one now if it is wanted and missing.
+     *
+     * Proxies are normally written at ingest, but that only ever helps clips
+     * generated after the feature existed — a library built before it would
+     * stay unplayable forever, which is exactly what happened. Encoding on
+     * first request costs a few seconds once, and the answer is cached on disk
+     * from then on.
+     */
+    if (variant === "preview" && !proxy && needsProxy(asset)) {
+      const made = await ensureProxy(
+        deps.workspace,
+        asset,
+        resolveStorageUri(deps.workspace, asset.storageUri),
+      );
+      if (made) {
+        proxy = made.path;
+        if (made.encoded) {
+          deps.logger.info("asset.proxy_encoded", {
+            assetId: asset.id,
+            correlationId,
+          });
+        }
+      }
+    }
 
     const storageUri = wantsThumbnail
       ? (asset.thumbnailUri as string)

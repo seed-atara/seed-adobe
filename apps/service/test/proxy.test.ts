@@ -166,3 +166,38 @@ describe("making the proxy", () => {
     expect(result).toBeUndefined();
   }, 60_000);
 });
+
+describe("the preview route", () => {
+  it("encodes a proxy on first request for a clip that predates the feature", async () => {
+    // The case from the field: a library of 120 clips generated before proxies
+    // existed. Nothing was written at ingest, so the only chance to make one is
+    // when the panel asks to play it.
+    const { startTestService } = await import("./helpers.js");
+    const service = await startTestService();
+    try {
+      const registered = await service.call("/v1/assets/adopt", {
+        method: "POST",
+        body: JSON.stringify({ path: master }),
+      });
+      expect(registered.status).toBe(201);
+      const { asset } = await registered.json();
+      expect(asset.mimeType).toBe("video/quicktime");
+
+      // Exactly what AssetVideo asks for.
+      const preview = await service.call(`/v1/assets/${asset.id}/file?variant=preview`);
+      expect(preview.status).toBe(200);
+      // An mp4 the panel can decode, not the quicktime master.
+      expect(preview.headers.get("content-type")).toBe("video/mp4");
+
+      const bytes = Buffer.from(await preview.arrayBuffer());
+      expect(bytes.byteLength).toBeGreaterThan(0);
+
+      // And the master is untouched — asking for a preview must never be a
+      // way to lose the deliverable.
+      const original = await service.call(`/v1/assets/${asset.id}/file`);
+      expect(original.headers.get("content-type")).toBe("video/quicktime");
+    } finally {
+      await service.close();
+    }
+  }, 180_000);
+});

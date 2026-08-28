@@ -195,12 +195,24 @@ export function AssetVideo({
   const videoRef = useRef<HTMLVideoElement>(null);
   const scrubbing = useRef<{ x: number; until: number } | undefined>(undefined);
 
+  /*
+   * Chromium does not always say a clip is undecodable.
+   *
+   * For HEVC in a container it recognises, it frequently fires neither `error`
+   * nor `loadedmetadata` — it simply never paints, which is a transparent box
+   * and a dead scrub bar with nothing to catch. A deadline is the only signal
+   * that state produces: metadata for a local object URL arrives in
+   * milliseconds, so several seconds of silence is an answer.
+   */
+  const decided = useRef(false);
+
   useEffect(() => {
     let cancelled = false;
     let objectUrl: string | undefined;
     setUrl(undefined);
     setFailed(false);
     setUndecodable(false);
+    decided.current = false;
 
     client
       // The playable one. A 4:4:4 master stays the master; this is the proxy
@@ -271,6 +283,14 @@ export function AssetVideo({
     setProgress(wrapped / video.duration);
   };
 
+  useEffect(() => {
+    if (!url) return;
+    const deadline = window.setTimeout(() => {
+      if (!decided.current) setUndecodable(true);
+    }, 6000);
+    return () => window.clearTimeout(deadline);
+  }, [url]);
+
   // Playback resumes once the pointer has been still for a moment.
   useEffect(() => {
     const timer = window.setInterval(() => {
@@ -315,11 +335,15 @@ export function AssetVideo({
         loop
         playsInline
         preload="metadata"
-        onError={() => setUndecodable(true)}
+        onError={() => {
+          decided.current = true;
+          setUndecodable(true);
+        }}
         onLoadedMetadata={(event) => {
-          // Some builds of Chromium accept the container, report a duration of
-          // NaN, and then render nothing at all rather than raising `error`.
-          // That is the same outcome for the artist, so it is the same state.
+          decided.current = true;
+          // Some builds accept the container, report a duration of NaN, and
+          // then render nothing rather than raising `error`. Same outcome for
+          // the artist, so the same state.
           if (!Number.isFinite(event.currentTarget.duration)) {
             setUndecodable(true);
           }
