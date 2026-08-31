@@ -244,6 +244,7 @@ function seedCaptureFrame(outputDir, basename) {
     // A third argument (the Premiere still preset) is accepted and ignored,
     // so the panel can call both hosts identically.
     var restoreDepth = 0;
+    var restoreColor = null;
     try {
         var comp = seedActiveComp();
         if (!comp) return seedFail("no active composition");
@@ -276,8 +277,9 @@ function seedCaptureFrame(outputDir, basename) {
         } while (target.exists && attempt < 1000);
 
         var targetPath = target.fsName;
-        // A 32-bit project writes a frame at a tenth of full scale; see
-        // seedCaptureDepthGuard. Restored in the finally below.
+        // Both restored in the finally below. The colour guard is the one that
+        // matters — see seedCaptureColorGuard for why the depth one is not.
+        restoreColor = seedCaptureColorGuard();
         restoreDepth = seedCaptureDepthGuard();
         try {
             comp.saveFrameToPng(comp.time, target);
@@ -306,12 +308,17 @@ function seedCaptureFrame(outputDir, basename) {
             // What the frame was actually written at, which is not always what
             // the project is set to.
             capturedBitsPerChannel: restoreDepth ? 16 : Number(app.project.bitsPerChannel),
-            projectBitsPerChannel: restoreDepth || Number(app.project.bitsPerChannel)
+            projectBitsPerChannel: restoreDepth || Number(app.project.bitsPerChannel),
+            // Which space the pixels are actually in, and which one the project
+            // is in. When these differ the capture was un-managed on purpose.
+            capturedWorkingSpace: restoreColor ? "" : String(app.project.workingSpace || ""),
+            projectWorkingSpace: restoreColor || String(app.project.workingSpace || "")
         });
     } catch (error) {
         return seedFail(error);
     } finally {
         seedRestoreCaptureDepth(restoreDepth);
+        seedRestoreCaptureColor(restoreColor);
     }
 }
 
@@ -428,6 +435,50 @@ function seedUniqueFile(folder, safeName, suffix, extension) {
  *
  * Returns the depth to restore, or 0 if nothing was changed.
  */
+/**
+ * Turns project colour management off for the duration of a capture.
+ *
+ * `saveFrameToPng` writes the frame in the project's WORKING space with no
+ * display transform applied. In a scene-referred project — ACES, ACEScg, any
+ * linear working space — that is linear data, and everything downstream reads
+ * it as sRGB: the panel, the model, the artist. A real frame comes back as a
+ * near-black one.
+ *
+ * Measured on a 1920x1080 ACEScg capture: mean level 9 of 255, alpha 255
+ * everywhere, 57% of pixels non-zero. A single sRGB encode recovered the whole
+ * picture, which is what proved the pixels were fine and the encoding was not.
+ *
+ * The depth guard below was an earlier, wrong answer to this same symptom —
+ * 32-bit projects tend to be the colour-managed ones, so lowering the depth
+ * appeared to help without touching the actual cause.
+ *
+ * Returns the working space to restore, or null if nothing was changed.
+ */
+function seedCaptureColorGuard() {
+    try {
+        if (!app.project) return null;
+        var current = String(app.project.workingSpace || "");
+        // Already unmanaged: the frame is display-referred and correct.
+        if (current === "") return null;
+        app.project.workingSpace = "";
+        return current;
+    } catch (error) {
+        // Not settable on this version. Capture anyway and report what the
+        // project was, so a dark frame is at least explainable.
+        return null;
+    }
+}
+
+function seedRestoreCaptureColor(previous) {
+    if (!previous) return;
+    try {
+        app.project.workingSpace = previous;
+    } catch (error) {
+        // Nothing useful to do, and throwing would lose a capture that has
+        // already succeeded.
+    }
+}
+
 function seedCaptureDepthGuard() {
     try {
         if (!app.project) return 0;
