@@ -244,7 +244,6 @@ function seedCaptureFrame(outputDir, basename) {
     // A third argument (the Premiere still preset) is accepted and ignored,
     // so the panel can call both hosts identically.
     var restoreDepth = 0;
-    var restoreColor = null;
     try {
         var comp = seedActiveComp();
         if (!comp) return seedFail("no active composition");
@@ -277,9 +276,7 @@ function seedCaptureFrame(outputDir, basename) {
         } while (target.exists && attempt < 1000);
 
         var targetPath = target.fsName;
-        // Both restored in the finally below. The colour guard is the one that
-        // matters — see seedCaptureColorGuard for why the depth one is not.
-        restoreColor = seedCaptureColorGuard();
+        // Restored in the finally below.
         restoreDepth = seedCaptureDepthGuard();
         try {
             comp.saveFrameToPng(comp.time, target);
@@ -311,14 +308,14 @@ function seedCaptureFrame(outputDir, basename) {
             projectBitsPerChannel: restoreDepth || Number(app.project.bitsPerChannel),
             // Which space the pixels are actually in, and which one the project
             // is in. When these differ the capture was un-managed on purpose.
-            capturedWorkingSpace: restoreColor ? "" : String(app.project.workingSpace || ""),
-            projectWorkingSpace: restoreColor || String(app.project.workingSpace || "")
+            // Which space these pixels are in. The service converts when this
+            // says they are not display-referred.
+            workingSpace: seedWorkingSpace()
         });
     } catch (error) {
         return seedFail(error);
     } finally {
         seedRestoreCaptureDepth(restoreDepth);
-        seedRestoreCaptureColor(restoreColor);
     }
 }
 
@@ -436,46 +433,27 @@ function seedUniqueFile(folder, safeName, suffix, extension) {
  * Returns the depth to restore, or 0 if nothing was changed.
  */
 /**
- * Turns project colour management off for the duration of a capture.
+ * What colour space the project is working in. READ ONLY, on purpose.
  *
- * `saveFrameToPng` writes the frame in the project's WORKING space with no
- * display transform applied. In a scene-referred project — ACES, ACEScg, any
- * linear working space — that is linear data, and everything downstream reads
- * it as sRGB: the panel, the model, the artist. A real frame comes back as a
- * near-black one.
+ * An earlier version of this set `app.project.workingSpace = ""` for the
+ * duration of a capture and put it back afterwards. Do not do that. It does
+ * not round-trip: in an OCIO/ACES project the working space is not an ICC
+ * profile description, so After Effects refuses it on the way back with
  *
- * Measured on a 1920x1080 ACEScg capture: mean level 9 of 255, alpha 255
- * everywhere, 57% of pixels non-zero. A single sRGB encode recovered the whole
- * picture, which is what proved the pixels were fine and the encoding was not.
+ *   Profile "ACES - ACEScg" is missing, invalid or has incorrect file
+ *   permissions. (83 :: 0)
  *
- * The depth guard below was an earlier, wrong answer to this same symptom —
- * 32-bit projects tend to be the colour-managed ones, so lowering the depth
- * appeared to help without touching the actual cause.
- *
- * Returns the working space to restore, or null if nothing was changed.
+ * and leaves the project unmanaged. It did not lighten the frame either, so it
+ * was pure cost. `saveFrameToPng` writes in the working space whatever we do
+ * here; the conversion belongs downstream, where it can be tested without
+ * opening After Effects. This function exists only to tell the service which
+ * space the pixels are in.
  */
-function seedCaptureColorGuard() {
+function seedWorkingSpace() {
     try {
-        if (!app.project) return null;
-        var current = String(app.project.workingSpace || "");
-        // Already unmanaged: the frame is display-referred and correct.
-        if (current === "") return null;
-        app.project.workingSpace = "";
-        return current;
+        return String(app.project.workingSpace || "");
     } catch (error) {
-        // Not settable on this version. Capture anyway and report what the
-        // project was, so a dark frame is at least explainable.
-        return null;
-    }
-}
-
-function seedRestoreCaptureColor(previous) {
-    if (!previous) return;
-    try {
-        app.project.workingSpace = previous;
-    } catch (error) {
-        // Nothing useful to do, and throwing would lose a capture that has
-        // already succeeded.
+        return "";
     }
 }
 

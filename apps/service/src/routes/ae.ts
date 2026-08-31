@@ -12,6 +12,7 @@ import {
 } from "@seed-ae/domain";
 import { alphaBounds, decodePng, readMp4Size, readPngSize, sniffMimeType } from "@seed-ae/media";
 import { resolveStorageUri, toStorageUri } from "@seed-ae/storage";
+import { toDisplayReferred } from "../media/displayReferred.js";
 import { z } from "zod";
 import type { AppDeps } from "../app.js";
 import { parseWith, readJsonBody } from "../http/body.js";
@@ -191,6 +192,28 @@ const RegisterCaptureSchema = z.object({
  * panel renders the frame and posts the path here for registration. The path
  * is validated against the workspace before anything reads it.
  */
+/**
+ * The working space, from whichever field the host recorded it in.
+ *
+ * `colorManagement.workingSpace` is the detailed record; `colorSpace` is the
+ * flat one; `workingSpace` is what a newer host reports directly. Reading all
+ * three means a panel and a service on different versions still agree.
+ */
+function workingSpaceOf(context: unknown): string | undefined {
+  if (!context || typeof context !== "object") return undefined;
+  const record = context as Record<string, unknown>;
+  const management = record.colorManagement;
+  if (management && typeof management === "object") {
+    const nested = (management as Record<string, unknown>).workingSpace;
+    if (typeof nested === "string" && nested.trim()) return nested;
+  }
+  for (const key of ["colorSpace", "workingSpace"]) {
+    const value = record[key];
+    if (typeof value === "string" && value.trim()) return value;
+  }
+  return undefined;
+}
+
 export function registerCaptureRoute(deps: AppDeps) {
   return async ({ req }: RequestContext) => {
     const body = await readJsonBody(req);
@@ -207,6 +230,38 @@ export function registerCaptureRoute(deps: AppDeps) {
     );
     if (!exists) {
       throw new SeedError("not_found", `no file at ${request.path}`);
+    }
+
+    /*
+     * Make the pixels display-referred before anything sees them.
+     *
+     * The host writes the frame in the project's working space, so a
+     * colour-managed project hands us scene-referred data that reads as
+     * near-black everywhere downstream — including in the plate sent to the
+     * model. The working space is already in the provenance the panel sent, so
+     * nothing extra had to be asked of After Effects to know this.
+     *
+     * Done before registration, while the file is still a temporary on its way
+     * to being an asset: nothing immutable is rewritten, and a linear original
+     * that nobody can view is not worth keeping.
+     */
+    const colour = await toDisplayReferred(
+      absolutePath,
+      workingSpaceOf(request.context),
+      {
+        ...(request.width !== undefined ? { width: request.width } : {}),
+        ...(request.height !== undefined ? { height: request.height } : {}),
+      },
+    );
+    if (colour.converted) {
+      deps.logger.info("capture.converted_to_display_referred", {
+        from: colour.from,
+        meanLevel: colour.meanLevel,
+      });
+    } else if (colour.reason && !/nothing to do/.test(colour.reason)) {
+      // Not fatal — a capture nobody can convert is still a capture — but the
+      // artist deserves to know why it looks the way it does.
+      deps.logger.warn("capture.not_converted", { reason: colour.reason });
     }
 
     const captured: CapturedMedia = {
