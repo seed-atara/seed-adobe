@@ -36,6 +36,7 @@ import { z } from "zod";
 /** A starting point for the look, not a hidden prompt. The artist edits it. */
 export const RestorePresetSchema = z.enum([
   "detail",
+  "sharp",
   "colourise",
   "monochrome",
   "clean",
@@ -156,6 +157,34 @@ export const RESTORE_PRESETS: Record<RestorePresetId, RestorePreset> = {
       "leaf. Crisp, well-focused edges with no haloing. Rich natural " +
       "contrast, deep blacks, clean highlights, believable period colour.",
   },
+  /*
+   * The one preset that does not ask for film.
+   *
+   * Every other opening here describes a stock — 35mm, Kodachrome, natural
+   * grain — because restoring archive usually means wanting it to still look
+   * like archive. That is the wrong instruction when what is wanted is a
+   * clean, modern, fully resolved picture: asking for grain is asking for
+   * exactly the texture that measured as fake detail, and asking for period
+   * stock is asking for softness.
+   *
+   * Pair it with the slider toward Free. Held faithful, the model can only
+   * re-render what the source already resolved; the detail has to be invented,
+   * and inventing is what the upper bands permit.
+   */
+  sharp: {
+    id: "sharp",
+    label: "Sharp digital re-render",
+    purpose: "Modern camera quality rather than restored film. The most detail available.",
+    look:
+      "Shot on a modern digital cinema camera with a sharp prime lens: clean, " +
+      "crisp, fully resolved imagery, free of film grain and softness. Every " +
+      "surface reads — rivets and panel lines on metal, fabric weave and " +
+      "stitching, individual hairs, skin texture and pores, crisp legible " +
+      "lettering and insignia, grass and foliage resolved blade by blade and " +
+      "leaf by leaf. Deep focus, precise micro-contrast, clean edges, rich " +
+      "natural colour and a full tonal range from deep blacks to clean " +
+      "highlights.",
+  },
   colourise: {
     id: "colourise",
     label: "Colourise",
@@ -198,6 +227,7 @@ export const RESTORE_PRESETS: Record<RestorePresetId, RestorePreset> = {
 /** Offered in this order. Detail is what most footage needs. */
 export const RESTORE_ORDER: RestorePresetId[] = [
   "detail",
+  "sharp",
   "monochrome",
   "colourise",
   "clean",

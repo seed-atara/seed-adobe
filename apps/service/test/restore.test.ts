@@ -214,6 +214,7 @@ describe("the restoration catalogue", () => {
 
       expect(presets.map((p: { id: string }) => p.id)).toEqual([
         "detail",
+        "sharp",
         "monochrome",
         "colourise",
         "clean",
