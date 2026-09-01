@@ -185,6 +185,20 @@ async function adoptClip(service: TestService, name: string): Promise<string> {
   return (await readJson(adopted)).asset.id as string;
 }
 
+/** A still on disk, adopted into the library. */
+async function adoptStill(service: TestService, name: string): Promise<string> {
+  const size = 32;
+  const rgba = new Uint8Array(size * size * 4).fill(180);
+  const dir = await mkdtemp(path.join(tmpdir(), "seed still "));
+  const file = path.join(dir, name);
+  await writeFile(file, encodePng(size, size, rgba));
+  const adopted = await service.call("/v1/assets/adopt", {
+    method: "POST",
+    body: JSON.stringify({ path: file }),
+  });
+  return (await readJson(adopted)).asset.id as string;
+}
+
 function restore(service: TestService, body: unknown): Promise<Response> {
   return service.call("/v1/restore", { method: "POST", body: JSON.stringify(body) });
 }
@@ -481,6 +495,76 @@ describe("restoring a clip", () => {
 
       const jobs = await readJson(await service.call("/v1/jobs"));
       expect(jobs.jobs).toHaveLength(0);
+    } finally {
+      await close();
+    }
+  });
+});
+
+describe("the key frame", () => {
+  it("sends the still beside the clip as a reference, never as a first frame", async () => {
+    /*
+     * The whole architecture rests on this. `first_frame` is refused beside
+     * reference media — "first/last frame content cannot be mixed with
+     * reference media content" — and the clip must be reference media for its
+     * motion to be read at all. Image and video references, however, combine
+     * freely; verified 2026-08-11. So the sharp still is a reference too.
+     */
+    const { seedance, clipId, service, close } = await harness();
+    try {
+      const still = await adoptStill(service, "keyframe.png");
+      await restore(service, {
+        sourceAssetId: clipId,
+        look: "modern digital cinema camera, fully resolved",
+        keyframeAssetId: still,
+      });
+      await seen(1, seedance);
+
+      const request = seedance.seen[0];
+      expect(request?.firstFrame).toBeUndefined();
+      expect(request?.lastFrame).toBeUndefined();
+      expect(request?.references).toHaveLength(2);
+      const kinds = (request?.references ?? []).map((r) =>
+        r.mimeType.startsWith("video/") ? "video" : "image",
+      );
+      expect(kinds).toEqual(["video", "image"]);
+    } finally {
+      await close();
+    }
+  });
+
+  it("records which still a render was aimed at", async () => {
+    const { clipId, service, close } = await harness();
+    try {
+      const still = await adoptStill(service, "keyframe.png");
+      const response = await restore(service, {
+        sourceAssetId: clipId,
+        look: "modern digital cinema camera",
+        keyframeAssetId: still,
+      });
+      const { started } = await readJson(response);
+      const generation = await service.call(
+        `/v1/generations/${started[0].job.generation.id}`,
+      );
+      const record = (await readJson(generation)).generation;
+      // Without this the two halves of a two-step feature cannot be paired up
+      // again afterwards, and a good result cannot be repeated.
+      expect(record.parameters.seedRestoreKeyframe).toBe(still);
+    } finally {
+      await close();
+    }
+  });
+
+  it("turns down a still as the source, since a frame comes out of a clip", async () => {
+    const { service, close } = await harness();
+    try {
+      const still = await adoptStill(service, "photo.png");
+      const response = await service.call("/v1/restore/keyframe", {
+        method: "POST",
+        body: JSON.stringify({ sourceAssetId: still, look: "sharp and detailed" }),
+      });
+      expect(response.status).toBe(400);
+      expect((await readJson(response)).error.message).toMatch(/comes out of a clip/);
     } finally {
       await close();
     }

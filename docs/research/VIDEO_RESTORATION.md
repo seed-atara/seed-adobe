@@ -265,6 +265,48 @@ add texture, the honest question is whether the free end buys real invented
 detail, and that is a creative choice belonging to the artist rather than a
 default we pick.
 
+## The architecture that was missing: render a key frame first
+
+Johannes, on a Free-latitude render that came back with melted faces and
+smeared hands: *"I need a mode that literally makes a realistic start frame
+based on what's in the picture, not a shit version of the picture, and then
+uses the video purely as guidance for animation."* And: *"everything you have
+done so far results in something that's not really better than just scaling it
+in After Effects."*
+
+Both correct, and the second one is the bar this feature has to clear.
+
+**A video model cannot exceed what its source resolved.** Held faithful,
+Seedance re-renders the degraded frames and adds grain — measured at roughly
++4% real detail. Turned loose, it destroys faces. There is no setting between
+those that produces resolution, because resolution is not what an edit-mode
+video generation does.
+
+**An image model is a different machine.** Seedream given one archive frame
+will paint a real photograph of that scene — correct anatomy, real fabric, real
+metal — because generating a convincing still is precisely what image models
+are built for.
+
+So the work splits:
+
+1. `POST /v1/restore/keyframe` — pull one frame at native resolution, hand it
+   to Seedream with a prompt insisting on *this* scene, get a properly
+   rendered still. Seconds, and nearly free.
+2. `POST /v1/restore` with `keyframeAssetId` — the still travels as a
+   `reference_image` beside the clip's `reference_video`. The clip supplies the
+   motion and staging; the still supplies the look.
+
+**The still cannot be a `first_frame`.** Frames are refused beside reference
+media — "first/last frame content cannot be mixed with reference media
+content" — and the clip has to *be* reference media for its motion to be read.
+Image and video references combine freely (verified 2026-08-11), which is what
+makes the whole design possible.
+
+Two steps rather than one on purpose: the still is cheap and the video is not,
+so the quality is judged before anything expensive is paid for. It is also the
+only step that reliably adds detail, so if the frame is not beautiful there is
+no point continuing.
+
 ## Open questions
 
 - No measurement yet of whether Seedance's reference-video mode holds a face

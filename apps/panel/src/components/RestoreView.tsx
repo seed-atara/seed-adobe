@@ -85,6 +85,18 @@ export function RestoreView({
   const [look, setLook] = useState("");
   /** How far the render may depart from the source. Prompt strength only. */
   const [freedom, setFreedom] = useState(DEFAULT_FREEDOM);
+  /*
+   * The sharp still the animation renders towards.
+   *
+   * Two steps rather than one because the first is cheap and the second is
+   * not: a key frame comes back in seconds, and if it is not beautiful there
+   * is no point paying for video. It is also the only step that reliably adds
+   * detail — a video model cannot exceed what its source resolved.
+   */
+  const [keyframeId, setKeyframeId] = useState("");
+  const [keyframeJob, setKeyframeJob] = useState<JobView>();
+  const [makingFrame, setMakingFrame] = useState(false);
+  const [keyframeTick, setKeyframeTick] = useState(0);
   /** So choosing a preset does not silently discard words already typed. */
   const [edited, setEdited] = useState(false);
   const [note, setNote] = useState("");
@@ -214,6 +226,70 @@ export function RestoreView({
     if (opening) setLook(opening);
   }, [presets, preset, edited]);
 
+  /*
+   * Follows the key-frame job to completion.
+   *
+   * Its own loop rather than App's, because App's job list is the *animation*
+   * and putting two unrelated kinds of work in one strip would make the panel
+   * lie about what is running. Rescheduled from a tick advanced in `finally`,
+   * so one failed poll cannot stop it — the bug that made renders look like
+   * they never came back.
+   */
+  useEffect(() => {
+    const id = keyframeJob?.job.id;
+    if (!id) return;
+    const status = keyframeJob?.job.status;
+    if (status !== "queued" && status !== "running") return;
+
+    let cancelled = false;
+    const timer = window.setTimeout(() => {
+      void (async () => {
+        try {
+          const next = await client.job(id);
+          if (cancelled) return;
+          setKeyframeJob(next);
+          // The finished still is what the animation renders towards.
+          const made = next.outputs[0];
+          if (made) setKeyframeId(made.id);
+        } catch {
+          if (!cancelled) setKeyframeTick((tick) => tick + 1);
+        }
+      })();
+    }, 1200);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [client, keyframeJob, keyframeTick]);
+
+  /**
+   * Pulls a frame and renders it properly, then adopts the result.
+   *
+   * The frame comes from the middle of the clip rather than the start: an
+   * opening frame is often a cut or a fade, and the middle is more likely to
+   * be representative of the shot.
+   */
+  async function makeKeyframe() {
+    if (!source) return;
+    setMakingFrame(true);
+    try {
+      const { job } = await client.restoreKeyframe({
+        sourceAssetId: source.id,
+        atSeconds: (source.durationSeconds ?? 2) / 2,
+        look: look.trim(),
+        ...(note.trim() ? { note: note.trim() } : {}),
+        ...(activeProject ? { project: activeProject } : {}),
+      });
+      setKeyframeJob(job);
+      setKeyframeId("");
+    } catch (cause) {
+      onError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setMakingFrame(false);
+    }
+  }
+
   async function start() {
     if (!source) return;
     setStarting(true);
@@ -225,6 +301,7 @@ export function RestoreView({
         freedom,
         ...(providerId ? { providerId } : {}),
         ...(note.trim() ? { note: note.trim() } : {}),
+        ...(keyframeId ? { keyframeAssetId: keyframeId } : {}),
         ...(activeProject ? { project: activeProject } : {}),
       });
       /*
@@ -363,6 +440,43 @@ export function RestoreView({
             setLook(event.target.value);
           }}
         />
+        <button
+          className="btn primary wide"
+          disabled={!source || look.trim().length === 0 || busy || makingFrame}
+          style={{ marginTop: 8 }}
+          onClick={() => void makeKeyframe()}
+        >
+          {makingFrame ? "Rendering…" : "1 · Make a sharp key frame"}
+        </button>
+        <div className="hint faint" style={{ marginTop: 4 }}>
+          Takes one frame out of the clip and has the <b>image</b> model render
+          it properly. This is where the detail comes from — a video model
+          cannot resolve more than its source already did, which is why every
+          attempt so far landed no better than scaling in After Effects. A
+          still is quick and cheap, so judge the quality here before paying for
+          video.
+        </div>
+
+        {keyframeJob ? (
+          <JobStrip
+            client={client}
+            jobs={[keyframeJob]}
+            label="key frame"
+            {...(keyframeId ? { selectedId: keyframeId } : {})}
+          />
+        ) : null}
+
+        {keyframeId ? (
+          <div className="hint faint">
+            Rendering towards that frame. It travels as a reference image
+            beside the clip, so the still supplies the look and the clip
+            supplies the motion.{" "}
+            <button className="btn" onClick={() => { setKeyframeId(""); setKeyframeJob(undefined); }}>
+              Use the clip alone instead
+            </button>
+          </div>
+        ) : null}
+
         <Field
           label={`Latitude — ${latitudeFor(freedom).label}`}
           hint="how far the render may depart from the footage"
@@ -485,7 +599,11 @@ export function RestoreView({
 
       <section className="section">
         <button className="btn primary wide" disabled={blocked} onClick={() => void start()}>
-          {starting ? "Starting…" : "Restore"}
+          {starting
+            ? "Starting…"
+            : keyframeId
+              ? "2 · Animate towards the key frame"
+              : "Restore from the clip alone"}
         </button>
 
         {shrinks ? (

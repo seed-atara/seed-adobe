@@ -270,3 +270,62 @@ export const DEFAULT_FREEDOM = 50;
 export function presetLook(id: RestorePresetId): string {
   return RESTORE_PRESETS[id].look;
 }
+
+/**
+ * The key-frame prompt — the half of restoration that actually adds detail.
+ *
+ * Measured, twice: a video model handed a degraded clip re-renders it and
+ * cannot exceed what the source already resolved. Held faithful it adds grain
+ * and calls it detail; turned loose it melts faces. Neither beats scaling the
+ * clip in After Effects, which is the bar this has to clear.
+ *
+ * An *image* model is a different machine. Seedream given one archive frame
+ * will paint a real photograph of that scene — correct anatomy, real fabric,
+ * real metal — because generating a convincing still is the thing image models
+ * are built for and video models are not.
+ *
+ * So the work splits in two, and this is the first half:
+ *
+ *   1. Pull one frame out of the clip and have Seedream render it *properly*.
+ *      This is where the quality comes from, and it is judged as a still
+ *      before a single second of video is paid for.
+ *   2. Hand that still to Seedance as a `reference_image` alongside the clip
+ *      as a `reference_video` — verified to combine, 2026-08-11 — so the clip
+ *      supplies the motion and the still supplies the look.
+ *
+ * The still cannot be a `first_frame`: frames are refused beside reference
+ * media, and the clip has to travel as reference media for its motion to be
+ * read at all.
+ *
+ * The prompt is emphatic about *this* scene rather than a scene like it. An
+ * image model given latitude will compose a better photograph, and a better
+ * photograph of different people is worthless here.
+ */
+export function keyframePrompt(look: string, note?: string): string {
+  const wanted = look.trim();
+  const about = (note ?? "").trim();
+
+  return [
+    "Render this exact scene as a real, high-resolution photograph. Every " +
+      "person stays in the same position wearing the same clothing with the " +
+      "same posture and expression; every aircraft, vehicle, building, sign " +
+      "and object stays exactly where it is and exactly what it is; the " +
+      "framing, the camera angle, the lens and the direction of the light are " +
+      "unchanged. Nothing enters the frame and nothing leaves it.",
+    "This is a photograph of real people and real machinery, so faces are " +
+      "specific and anatomically correct with real skin, eyes and hair, hands " +
+      "have the right number of fingers, uniforms and equipment are " +
+      "physically plausible and correctly worn, and metal, fabric, skin and " +
+      "vegetation are each made of the right material.",
+    wanted,
+    about
+      ? `About this footage, as background for the render rather than an ` +
+        `instruction to change it: ${about}`
+      : "",
+    "The reference is a degraded, low-resolution frame. Do not reproduce its " +
+      "softness, its noise or its damage — render what it is a photograph " +
+      "*of*, at full quality.",
+  ]
+    .filter(Boolean)
+    .join(" ");
+}

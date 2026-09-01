@@ -8,6 +8,13 @@ import {
   restorePrompt,
 } from "@seed-ae/domain";
 import { z } from "zod";
+import { mkdtemp } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import nodePath from "node:path";
+import { resolveStorageUri } from "@seed-ae/storage";
+import { keyframePrompt } from "@seed-ae/domain";
+import { extractFrame } from "../media/frame.js";
+import { adoptFileIntoLibrary } from "./assets.js";
 import type { AppDeps } from "../app.js";
 import { parseWith, readJsonBody } from "../http/body.js";
 import { json } from "../http/respond.js";
@@ -71,6 +78,15 @@ const StartRestoreSchema = z.object({
   model: z.string().min(1).optional(),
   /** Resolution tier. Defaults to the best the provider offers. */
   size: z.string().optional(),
+  /**
+   * A sharp still to render *towards*, made by `/v1/restore/keyframe`.
+   *
+   * Travels as a `reference_image` beside the clip's `reference_video` —
+   * verified to combine. Not a `first_frame`: frames are refused beside
+   * reference media, and the clip has to be reference media for its motion to
+   * be read at all.
+   */
+  keyframeAssetId: z.string().min(1).optional(),
   seed: z.union([z.number().int(), z.string()]).optional(),
   project: z.string().min(1).optional(),
 });
@@ -125,14 +141,19 @@ export function startRestoreRoute(deps: AppDeps) {
           ? { seed: request.seed }
           : {}),
         ...sizeFor(request.size, capabilities.sizes),
-        inputAssetIds: [source.id],
+        inputAssetIds: [
+          source.id,
+          ...(request.keyframeAssetId ? [request.keyframeAssetId] : []),
+        ],
         /*
          * The whole guarantee, in one field. A lone clip is already read as a
          * reference by the Seedance adapter, but saying so explicitly is what
          * stops a later change to that inference turning every restoration
          * into an animation of its own first frame.
          */
-        inputRoles: ["reference"],
+        inputRoles: request.keyframeAssetId
+          ? ["reference", "reference"]
+          : ["reference"],
         itemMentions: [],
         parentAssetId: source.id,
         ...(request.project ? { project: request.project } : {}),
@@ -142,6 +163,9 @@ export function startRestoreRoute(deps: AppDeps) {
           seedRestoreSource: source.id,
           seedRestoreLook: request.look,
           seedRestoreFreedom: request.freedom,
+          ...(request.keyframeAssetId
+            ? { seedRestoreKeyframe: request.keyframeAssetId }
+            : {}),
           ...(request.note?.trim() ? { seedRestoreNote: request.note.trim() } : {}),
         },
       },
@@ -158,6 +182,124 @@ export function startRestoreRoute(deps: AppDeps) {
 
     return json({ started }, 202);
   };
+}
+
+const KeyframeSchema = z.object({
+  /** The clip to take a frame from. */
+  sourceAssetId: z.string().min(1),
+  /** Where in the clip. The middle is usually more representative than 0. */
+  atSeconds: z.number().min(0).default(0),
+  /** The look to render towards — the artist's own words. */
+  look: z.string().min(1).max(2000),
+  /** What the footage is, as background. */
+  note: z.string().max(600).optional(),
+  /** The image provider. Defaults to the first Seedream configured. */
+  providerId: z.string().min(1).optional(),
+  model: z.string().min(1).optional(),
+  size: z.string().optional(),
+  seed: z.union([z.number().int(), z.string()]).optional(),
+  project: z.string().min(1).optional(),
+});
+
+/**
+ * One frame of the clip, rendered properly by an image model.
+ *
+ * This is where the detail comes from, and it is the half of the feature that
+ * was missing. A video model handed a degraded clip re-renders it and cannot
+ * exceed what the source resolved — held faithful it adds grain and calls it
+ * detail, turned loose it melts faces, and neither beats scaling the clip in
+ * After Effects. Seedream given the same frame paints a real photograph of the
+ * scene, because that is what image models are for.
+ *
+ * Deliberately a separate request from the animation. A still comes back in
+ * seconds and costs almost nothing, so the expensive part is only paid for
+ * once the artist has looked at what the quality will actually be.
+ *
+ * The extracted frame is registered as an asset in its own right rather than
+ * kept in a temp file: it is the input to a generation, so lineage has to be
+ * able to point at it.
+ */
+export function keyframeRoute(deps: AppDeps) {
+  return async ({ req }: RequestContext) => {
+    const request = parseWith(KeyframeSchema, await readJsonBody(req));
+    const source = deps.assets.requireById(request.sourceAssetId);
+
+    if (source.kind !== "video") {
+      throw new SeedError(
+        "bad_request",
+        `a key frame comes out of a clip, and ${source.filename} is ${source.kind}.`,
+      );
+    }
+
+    const providerId = request.providerId ?? imageProvider(deps);
+    if (!providerId) {
+      throw new SeedError(
+        "unsupported_capability",
+        "Making a key frame needs Seedream. Set ARK_API_KEY and a Seedream " +
+          "model id under Keys.",
+      );
+    }
+    const capabilities = await deps.registry.get(providerId).capabilities();
+    if (!capabilities.imageToImage) {
+      throw new SeedError(
+        "unsupported_capability",
+        `${capabilities.displayName} cannot render from an existing image.`,
+      );
+    }
+
+    // Pulled at native resolution into a temp file, then adopted — which
+    // copies it into the library and gives it an id, a thumbnail and a path
+    // the materializer can reach.
+    const scratch = await mkdtemp(nodePath.join(tmpdir(), "seed keyframe "));
+    const file = nodePath.join(
+      scratch,
+      `${nodePath.parse(source.filename).name} f${Math.round(request.atSeconds * 1000)}.png`,
+    );
+    await extractFrame(resolveStorageUri(deps.workspace, source.storageUri), file, {
+      atSeconds: request.atSeconds,
+      env: process.env,
+    });
+    const frame = await adoptFileIntoLibrary(deps, file, request.project);
+
+    const job = await deps.generation.start(
+      {
+        providerId,
+        ...(request.model ? { model: request.model } : {}),
+        operation: "image.edit",
+        prompt: keyframePrompt(request.look, request.note),
+        ...(request.seed !== undefined && capabilities.seed
+          ? { seed: request.seed }
+          : {}),
+        ...sizeFor(request.size, capabilities.sizes),
+        inputAssetIds: [frame.id],
+        inputRoles: ["reference"],
+        itemMentions: [],
+        parentAssetId: frame.id,
+        ...(request.project ? { project: request.project } : {}),
+        parameters: {
+          seedKeyframe: true,
+          seedRestoreSource: source.id,
+          seedKeyframeAt: request.atSeconds,
+          seedRestoreLook: request.look,
+          ...(request.note?.trim() ? { seedRestoreNote: request.note.trim() } : {}),
+        },
+      },
+      `keyframe_${source.id}`,
+    );
+
+    return json(
+      {
+        frame,
+        job: { job: job.job, generation: job.generation, outputs: [] as never[] },
+      },
+      202,
+    );
+  };
+}
+
+/** The Seedream to use when the panel did not name one. */
+function imageProvider(deps: AppDeps): string | undefined {
+  return deps.registry.ids().find((id) => id.startsWith("seedream"));
 }
 
 /**

@@ -308,6 +308,22 @@ export class SeedClient {
     return this.request("/v1/restore/presets");
   }
 
+  /**
+   * One frame of the clip, rendered properly by the image model.
+   *
+   * Where the detail actually comes from. Cheap and quick, so the quality is
+   * judged as a still before any video is paid for.
+   */
+  restoreKeyframe(input: {
+    sourceAssetId: string;
+    atSeconds?: number;
+    look: string;
+    note?: string;
+    project?: string;
+  }): Promise<{ frame: Asset; job: JobView }> {
+    return this.request("/v1/restore/keyframe", { method: "POST", body: input });
+  }
+
   /** One clip re-rendered at the look described. */
   startRestore(input: {
     sourceAssetId: string;
@@ -318,6 +334,8 @@ export class SeedClient {
     note?: string;
     providerId?: string;
     size?: string;
+    /** A sharp still to render towards, from restoreKeyframe. */
+    keyframeAssetId?: string;
     project?: string;
   }): Promise<{ started: Array<{ preset: string; job: JobView }> }> {
     return this.request("/v1/restore", { method: "POST", body: input });
