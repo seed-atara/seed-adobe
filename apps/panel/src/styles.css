@@ -1722,3 +1722,29 @@ button.settings-browse {
   border-bottom: 1px solid var(--shadow);
   padding-bottom: var(--gap-xs);
 }
+
+/*
+ * A list of radio choices, one per line.
+ *
+ * `.check` is inline-flex so a checkbox can sit in a sentence, which means a
+ * run of them reflows into ragged columns as the panel widens — five
+ * restoration presets became a two-column grid with the labels no longer
+ * lining up with anything. A dock panel is narrow and resizable, so anything
+ * that reflows will eventually reflow badly.
+ */
+.choices {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-bottom: var(--gap-xs);
+}
+
+.choices .check {
+  display: flex;
+  align-items: baseline;
+}
+
+.choices .check input {
+  flex: none;
+  margin-top: 2px;
+}

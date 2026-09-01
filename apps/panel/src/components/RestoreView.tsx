@@ -409,26 +409,27 @@ export function RestoreView({
       <section className="section">
         <SectionLabel>look</SectionLabel>
         <div className="hint faint" style={{ marginBottom: 6 }}>
-          Describe the picture you want — stock, lens, grain, palette. The clip
-          supplies the framing, the camera and the action; this supplies the
-          quality. Start from one of these and edit it.
+          Describe the picture you want. The clip supplies framing, camera and
+          action; this supplies the quality.
         </div>
 
-        {presets.map((entry) => (
-          <label className="check" key={entry.id}>
-            <input
-              type="radio"
-              name="seed-restore-preset"
-              checked={preset === entry.id}
-              onChange={() => {
-                setPreset(entry.id);
-                setEdited(false);
-                setLook(entry.look);
-              }}
-            />
-            {entry.label} — <span className="faint">{entry.purpose}</span>
-          </label>
-        ))}
+        <div className="choices">
+          {presets.map((entry) => (
+            <label className="check" key={entry.id}>
+              <input
+                type="radio"
+                name="seed-restore-preset"
+                checked={preset === entry.id}
+                onChange={() => {
+                  setPreset(entry.id);
+                  setEdited(false);
+                  setLook(entry.look);
+                }}
+              />
+              {entry.label} — <span className="faint">{entry.purpose}</span>
+            </label>
+          ))}
+        </div>
 
         <textarea
           value={look}
@@ -449,12 +450,9 @@ export function RestoreView({
           {makingFrame ? "Rendering…" : "1 · Make a sharp key frame"}
         </button>
         <div className="hint faint" style={{ marginTop: 4 }}>
-          Takes one frame out of the clip and has the <b>image</b> model render
-          it properly. This is where the detail comes from — a video model
-          cannot resolve more than its source already did, which is why every
-          attempt so far landed no better than scaling in After Effects. A
-          still is quick and cheap, so judge the quality here before paying for
-          video.
+          The <b>image</b> model renders one frame properly. This is where the
+          detail comes from — a video model cannot resolve more than its source
+          already did. Quick and cheap: judge it here before paying for video.
         </div>
 
         {keyframeJob ? (
@@ -502,19 +500,12 @@ export function RestoreView({
           {latitudeFor(freedom).text}
         </div>
         <div className="hint faint">
-          Framing, camera and timing are held at <b>every</b> setting — this
-          changes how freely the <i>picture</i> is rendered, not the shot. It
-          works by rewording the prompt: Ark publishes no weight for a
-          reference video, so there is no dial underneath this and it would be
-          dishonest to draw one.
+          Framing, camera and timing are held at every setting. Prompt strength
+          only — Ark publishes no weight for a reference video.
         </div>
 
         <div className="hint faint">
-          This text goes to the model as written, between a line holding the
-          shot to the reference and a closing line about stability. Say what to{" "}
-          <b>make</b>, not what to avoid — a prompt of prohibitions gives the
-          model nothing to render, and that is what made the first attempts
-          wander.
+          Sent as written. Say what to <b>make</b>, not what to avoid.
           {edited && chosen ? (
             <>
               {" "}

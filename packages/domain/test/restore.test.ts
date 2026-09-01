@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  keyframePrompt,
   DEFAULT_FREEDOM,
   RESTORE_ORDER,
   RESTORE_PRESETS,
@@ -162,5 +163,36 @@ describe("the freedom slider", () => {
     // is indistinguishable from a slider that works.
     expect(faithful).toContain("nothing is reinterpreted");
     expect(free).toContain("Reinterpret the surfaces");
+  });
+});
+
+describe("the key-frame prompt", () => {
+  it("demands deep focus, because a sharp lens means the opposite to an image model", () => {
+    /*
+     * The first real key frame came back photoreal and soft — shallow depth of
+     * field, background thrown out. "Sharp prime lens" reads as a flattering
+     * portrait look, which is the opposite of archive: documentary photography
+     * where everything front to back reads.
+     */
+    const prompt = keyframePrompt("modern digital cinema camera").toLowerCase();
+    for (const wanted of ["deep depth of field", "no background blur", "no motion blur"]) {
+      expect(prompt).toContain(wanted);
+    }
+  });
+
+  it("pins this scene rather than a scene like it", () => {
+    const prompt = keyframePrompt("sharp and detailed");
+    // An image model given latitude composes a better photograph, and a better
+    // photograph of different people is worthless for archive.
+    expect(prompt).toContain("same position");
+    expect(prompt).toContain("Nothing enters the frame and nothing leaves it");
+    // Anatomy is named because it is what fails first and what an audience
+    // notices first.
+    expect(prompt).toContain("right number of fingers");
+  });
+
+  it("says the reference is degraded, so its softness is not copied", () => {
+    const prompt = keyframePrompt("sharp");
+    expect(prompt).toContain("Do not reproduce its softness");
   });
 });

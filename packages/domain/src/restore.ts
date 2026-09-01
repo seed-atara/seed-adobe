@@ -322,6 +322,22 @@ export function keyframePrompt(look: string, note?: string): string {
       ? `About this footage, as background for the render rather than an ` +
         `instruction to change it: ${about}`
       : "",
+    /*
+     * Deep focus, named explicitly.
+     *
+     * The first real key frame came back photoreal and *soft*: a shallow
+     * depth of field with the aircraft and the background thrown out. That is
+     * what "sharp prime lens, 35mm negative" means to an image model — a
+     * flattering modern portrait look — and it is the opposite of archive,
+     * which is deep-focus documentary photography where everything reads.
+     * Sharpness across the frame has to be asked for; it is not implied by
+     * asking for a sharp lens.
+     */
+    "Every part of the frame is in sharp focus, front to back — deep depth of " +
+      "field, small aperture, documentary photography rather than a portrait. " +
+      "No shallow focus, no background blur, no bokeh, no motion blur, no " +
+      "vignetting. Foreground, subject and far background are all equally " +
+      "crisp and fully detailed.",
     "The reference is a degraded, low-resolution frame. Do not reproduce its " +
       "softness, its noise or its damage — render what it is a photograph " +
       "*of*, at full quality.",

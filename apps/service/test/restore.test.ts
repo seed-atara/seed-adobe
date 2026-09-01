@@ -294,6 +294,33 @@ describe("restoring a clip", () => {
     }
   });
 
+  it("always names a size, even when the provider mixes tiers with shapes", async () => {
+    /*
+     * Seedream offers "2K" and "4K" alongside explicit sizes like
+     * "2160x3840". The old helper declined on a mixed list — right for the
+     * Generate form, where picking a portrait size would be a creative
+     * decision — and so no size was sent at all, and a "4K key frame" came
+     * back as a 2848x1600 JPEG. A restoration already has a source frame, so
+     * its shape is a fact and there is nothing to decline.
+     */
+    const mixed = new (class extends RecordingSeedance {
+      override async capabilities(): Promise<ProviderCapabilities> {
+        return {
+          ...(await super.capabilities()),
+          sizes: ["2K", "4K", "1920x1080", "2160x3840"],
+        };
+      }
+    })();
+    const { service, clipId, close } = await harness({ seedance: mixed });
+    try {
+      await restore(service, { sourceAssetId: clipId, look: "sharp, detailed" });
+      await seen(1, mixed);
+      expect(mixed.seen[0]?.size).toBe("4K");
+    } finally {
+      await close();
+    }
+  });
+
   it("upscales by asking for the best tier rather than the provider default", async () => {
     const { seedance, clipId, service, close } = await harness();
     try {

@@ -4,7 +4,7 @@ import {
   RESTORE_PRESETS,
   RestorePresetSchema,
   SeedError,
-  bestQualitySize,
+  largestSize,
   restorePrompt,
 } from "@seed-ae/domain";
 import { z } from "zod";
@@ -140,7 +140,7 @@ export function startRestoreRoute(deps: AppDeps) {
         ...(request.seed !== undefined && capabilities.seed
           ? { seed: request.seed }
           : {}),
-        ...sizeFor(request.size, capabilities.sizes),
+        ...sizeFor(request.size, capabilities.sizes, aspectOf(source)),
         inputAssetIds: [
           source.id,
           ...(request.keyframeAssetId ? [request.keyframeAssetId] : []),
@@ -270,7 +270,7 @@ export function keyframeRoute(deps: AppDeps) {
         ...(request.seed !== undefined && capabilities.seed
           ? { seed: request.seed }
           : {}),
-        ...sizeFor(request.size, capabilities.sizes),
+        ...sizeFor(request.size, capabilities.sizes, aspectOf(frame)),
         inputAssetIds: [frame.id],
         inputRoles: ["reference"],
         itemMentions: [],
@@ -331,10 +331,20 @@ export function restorePresetsRoute() {
  * the provider's own default — which on Seedance is the bottom, and would make
  * a "restoration" that came back smaller than it went in.
  */
-function sizeFor(requested: string | undefined, sizes: string[]): { size?: string } {
+function sizeFor(
+  requested: string | undefined,
+  sizes: string[],
+  aspect?: number,
+): { size?: string } {
   if (requested) return { size: requested };
-  const best = bestQualitySize(sizes);
+  const best = largestSize(sizes, aspect);
   return best ? { size: best } : {};
+}
+
+/** The shape of a frame, when both numbers are known. */
+function aspectOf(asset: { width?: number; height?: number }): number | undefined {
+  if (!asset.width || !asset.height) return undefined;
+  return asset.width / asset.height;
 }
 
 /**
