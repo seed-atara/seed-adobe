@@ -191,6 +191,25 @@ describe("the key-frame prompt", () => {
     expect(prompt).toContain("right number of fingers");
   });
 
+  it("locks the framing, because a better photograph is a tighter one", () => {
+    /*
+     * The first key frame came back as the right scene at the wrong size —
+     * pushed in hard, fuselage filling the frame where the reference had the
+     * whole aircraft and a lot of sky. An image model asked for a photograph
+     * composes a better one, and tighter is usually better. That fights the
+     * clip it will be paired with.
+     */
+    const prompt = keyframePrompt("sharp").toLowerCase();
+    for (const wanted of [
+      "identical field of view",
+      "same proportion of the frame",
+      "do not zoom in",
+      "do not recompose",
+    ]) {
+      expect(prompt).toContain(wanted);
+    }
+  });
+
   it("says the reference is degraded, so its softness is not copied", () => {
     const prompt = keyframePrompt("sharp");
     expect(prompt).toContain("Do not reproduce its softness");

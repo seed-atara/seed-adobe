@@ -96,6 +96,19 @@ export function RestoreView({
   const [keyframeId, setKeyframeId] = useState("");
   const [keyframeJob, setKeyframeJob] = useState<JobView>();
   const [makingFrame, setMakingFrame] = useState(false);
+  /*
+   * Where in the clip the key frame comes from.
+   *
+   * Was hard-coded to the middle, on the reasoning that an opening frame is
+   * often a cut or a fade. That reasoning assumes one shot. Johannes cuts
+   * several together to clear Seedance's four-second floor, and then "the
+   * middle" is an arbitrary shot he never chose and cannot see — the panel was
+   * showing the clip's poster, which is the *first* shot, while extracting
+   * from the second.
+   */
+  const [atSeconds, setAtSeconds] = useState(0);
+  /** The frame actually pulled, so the comparison is on screen. */
+  const [frame, setFrame] = useState<Asset>();
   const [keyframeTick, setKeyframeTick] = useState(0);
   /** So choosing a preset does not silently discard words already typed. */
   const [edited, setEdited] = useState(false);
@@ -156,6 +169,13 @@ export function RestoreView({
   }, [clips]);
 
   const source = clips.find((clip) => clip.id === sourceId);
+
+  useEffect(() => {
+    setAtSeconds((source?.durationSeconds ?? 0) / 2);
+    setFrame(undefined);
+    setKeyframeId("");
+    setKeyframeJob(undefined);
+  }, [source?.id, source?.durationSeconds]);
 
   /**
    * The models that can restore: Seedance, and only those taking a clip.
@@ -274,13 +294,14 @@ export function RestoreView({
     if (!source) return;
     setMakingFrame(true);
     try {
-      const { job } = await client.restoreKeyframe({
+      const { frame: pulled, job } = await client.restoreKeyframe({
         sourceAssetId: source.id,
-        atSeconds: (source.durationSeconds ?? 2) / 2,
+        atSeconds,
         look: look.trim(),
         ...(note.trim() ? { note: note.trim() } : {}),
         ...(activeProject ? { project: activeProject } : {}),
       });
+      setFrame(pulled);
       setKeyframeJob(job);
       setKeyframeId("");
     } catch (cause) {
@@ -441,6 +462,29 @@ export function RestoreView({
             setLook(event.target.value);
           }}
         />
+        <Field
+          label={`Frame at ${atSeconds.toFixed(2)}s`}
+          hint={
+            source?.durationSeconds
+              ? `of ${source.durationSeconds.toFixed(2)}s — pick a frame inside one shot`
+              : "pick a frame inside one shot"
+          }
+        >
+          <input
+            type="range"
+            min={0}
+            max={Math.max(source?.durationSeconds ?? 0, 0.1)}
+            step={0.05}
+            value={atSeconds}
+            onChange={(event) => setAtSeconds(Number(event.target.value))}
+            style={{ width: "100%" }}
+          />
+        </Field>
+        <div className="hint faint">
+          If the clip is several shots cut together, one still cannot stand for
+          all of them — land this inside the shot that matters.
+        </div>
+
         <button
           className="btn primary wide"
           disabled={!source || look.trim().length === 0 || busy || makingFrame}
@@ -454,6 +498,17 @@ export function RestoreView({
           detail comes from — a video model cannot resolve more than its source
           already did. Quick and cheap: judge it here before paying for video.
         </div>
+
+        {frame ? (
+          <>
+            <div className="hint faint" style={{ marginTop: 6 }}>
+              the frame it took:
+            </div>
+            <div className="variant">
+              <AssetImage client={client} asset={frame} variant="thumbnail" />
+            </div>
+          </>
+        ) : null}
 
         {keyframeJob ? (
           <JobStrip

@@ -310,8 +310,30 @@ export function keyframePrompt(look: string, note?: string): string {
       "person stays in the same position wearing the same clothing with the " +
       "same posture and expression; every aircraft, vehicle, building, sign " +
       "and object stays exactly where it is and exactly what it is; the " +
-      "framing, the camera angle, the lens and the direction of the light are " +
-      "unchanged. Nothing enters the frame and nothing leaves it.",
+      "camera angle, the lens and the direction of the light are unchanged. " +
+      "Nothing enters the frame and nothing leaves it.",
+    /*
+     * The framing lock, said three ways.
+     *
+     * The first real key frame came back as the right scene at the wrong size:
+     * Seedream pushed in hard, filling the frame with the fuselage where the
+     * reference had the whole aircraft plus another behind it and a lot of
+     * sky. An image model asked for a photograph composes a better one, and a
+     * tighter crop is almost always the better photograph — which makes this
+     * the model doing its job and the wrong job.
+     *
+     * It matters more than it looks. The still is handed to the video pass as
+     * a reference beside the clip; if the two disagree about how much of the
+     * world is in frame, they fight, and the animation gets the worst of both.
+     */
+    "Match the reference framing exactly. Identical field of view, identical " +
+      "crop, identical distance from the subject: every object occupies the " +
+      "same position and the same proportion of the frame as it does in the " +
+      "reference, and the edges of the picture cut through exactly the same " +
+      "places. Do not zoom in, do not push in, do not crop tighter, do not " +
+      "recompose, do not centre the subject, do not improve the composition. " +
+      "Anything visible at the edges of the reference is still visible at the " +
+      "edges here.",
     "This is a photograph of real people and real machinery, so faces are " +
       "specific and anatomically correct with real skin, eyes and hair, hands " +
       "have the right number of fingers, uniforms and equipment are " +
