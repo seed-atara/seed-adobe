@@ -71,9 +71,20 @@ export function RestoreView({
 }: Props) {
   const [presets, setPresets] = useState<Preset[]>([]);
   const [sourceId, setSourceId] = useState("");
-  const [treatments, setTreatments] = useState<Set<RestoreTreatment>>(
-    () => new Set<RestoreTreatment>(["detail"]),
-  );
+  /*
+   * One treatment, not a set.
+   *
+   * These were checkboxes, and every artist read them the way the shape
+   * invites: tick what you want fixed, get one better clip. That is the
+   * sensible reading and it was not what happened — each tick was a separate
+   * render, separately charged, coming back as a separate clip, and Johannes
+   * got three files when he wanted one shot that worked.
+   *
+   * The honest fix is the control, not a warning label. One choice, one
+   * result. Comparing two treatments is running it twice, which is exactly
+   * what it always was — now it looks like it.
+   */
+  const [treatment, setTreatment] = useState<RestoreTreatment>("detail");
   const [note, setNote] = useState("");
   const [providerId, setProviderId] = useState("");
   const [starting, setStarting] = useState(false);
@@ -188,16 +199,7 @@ export function RestoreView({
   const shrinks =
     source?.height !== undefined && targetHeight > 0 && targetHeight < source.height;
 
-  const chosen = presets.filter((preset) => treatments.has(preset.treatment));
-
-  function toggle(treatment: RestoreTreatment) {
-    setTreatments((current) => {
-      const next = new Set(current);
-      if (next.has(treatment)) next.delete(treatment);
-      else next.add(treatment);
-      return next;
-    });
-  }
+  const chosen = presets.find((preset) => preset.treatment === treatment);
 
   async function start() {
     if (!source) return;
@@ -205,7 +207,7 @@ export function RestoreView({
     try {
       const response = await client.startRestore({
         sourceAssetId: source.id,
-        treatments: [...treatments],
+        treatments: [treatment],
         ...(providerId ? { providerId } : {}),
         ...(note.trim() ? { note: note.trim() } : {}),
         ...(activeProject ? { project: activeProject } : {}),
@@ -229,7 +231,6 @@ export function RestoreView({
 
   const blocked =
     !source ||
-    treatments.size === 0 ||
     provider === undefined ||
     tooShort ||
     tooLong ||
@@ -317,16 +318,17 @@ export function RestoreView({
         <div className="hint faint" style={{ marginBottom: 6 }}>
           Nothing here changes the shot. Framing, camera, timing and content are
           held to the original — these choose what happens to the{" "}
-          <b>quality of the recording</b> and nothing else. Pick more than one
-          and they run side by side.
+          <b>quality of the recording</b> and nothing else. One choice, one
+          clip; to compare two, run it twice.
         </div>
 
         {presets.map((preset) => (
           <label className="check" key={preset.treatment}>
             <input
-              type="checkbox"
-              checked={treatments.has(preset.treatment)}
-              onChange={() => toggle(preset.treatment)}
+              type="radio"
+              name="seed-restore-treatment"
+              checked={treatment === preset.treatment}
+              onChange={() => setTreatment(preset.treatment)}
             />
             {preset.label} — <span className="faint">{preset.purpose}</span>
           </label>
@@ -337,20 +339,11 @@ export function RestoreView({
           the screen that decides whether a shot can be cut without a caption,
           so it is text rather than an icon and it is never collapsed.
         */}
-        {chosen.length > 0 ? (
-          <ul className="notes" style={{ marginTop: 8 }}>
-            {chosen.map((preset) => (
-              <li key={preset.treatment}>
-                <b>{preset.label}</b> —{" "}
-                <span className="faint">{preset.fidelity}</span>
-              </li>
-            ))}
-          </ul>
-        ) : (
+        {chosen ? (
           <div className="hint faint" style={{ marginTop: 8 }}>
-            Choose a treatment.
+            {chosen.fidelity}
           </div>
-        )}
+        ) : null}
       </section>
 
       <details className="options">
@@ -419,11 +412,7 @@ export function RestoreView({
 
       <section className="section">
         <button className="btn primary wide" disabled={blocked} onClick={() => void start()}>
-          {starting
-            ? "Starting…"
-            : treatments.size > 1
-              ? `Restore — ${treatments.size} passes`
-              : "Restore"}
+          {starting ? "Starting…" : "Restore"}
         </button>
 
         {shrinks ? (

@@ -118,6 +118,53 @@ sit at the end of the prompt as the most recent and most specific instruction,
 which is the position that wins; wrapped, it reads as information constraining
 the restoration, and "make it cinematic" does nothing.
 
+## Measured on real footage, 2026-09-01
+
+First run against an actual AE capture — a 2560x1440 25fps, 7.48s range from a
+graded WWII airfield comp, restored on `seedance-2-0` at 4K.
+
+**Content adherence is good.** The source held three shots cut together —
+aircraft lineup, Spitfire close-up, airmen walking. All three came back, in
+order, with the cuts intact and the `DU(o)U` squadron code still legible and
+correct. Detail is a real improvement: the roundel resolves into rings, exhaust
+stubs and panel lines appear, faces are properly defined.
+
+**Timing is not preserved, and the earlier claim that it was is wrong.** The
+first test round-tripped 6.042s to 6.042s exactly and was written up as proof
+that `duration: -1` matches the input. It was a false positive: that source was
+itself a Seedance output, already sitting on Seedance's own grid. On genuine
+25fps footage:
+
+| | source | detail | clean | repair |
+| --- | --- | --- | --- | --- |
+| size | 2560x1440 | 3840x2160 | 3840x2160 | 3840x2160 |
+| rate | 25 fps | 24 fps | 24 fps | 24 fps |
+| length | 7.48s | 8.04s | 8.04s | 7.04s |
+
+So `duration: -1` means *the model decides, loosely following the input* — not
+*match the input*. Output is always 24fps and lands on whole seconds plus one
+frame (24n+1 frames). The same source gave three different lengths across three
+passes, and the internal cut points moved: it is not a linear stretch, the
+model redistributed time across the three shots.
+
+**Consequences.**
+
+- A restored clip does not drop onto the timeline over its original. Conforming
+  needs a frame-rate interpretation and a time-stretch, and even then internal
+  cuts will not align.
+- **Restore one shot per pass.** Given a span containing cuts, the model treats
+  it as one generation and re-apportions time across it. A single continuous
+  shot has far less room to drift.
+- Colour shifts warm — grass yellower, sky less cyan. Not damage, but it needs
+  grading back before intercutting with untreated archive.
+- `seedance-2-0` ignores `output_format`, so 4K arrives as **HEVC Main 10**,
+  which neither the browser preview nor a plain AE import handles unaided.
+
+**Which treatment did work.** Only `detail`, and by a wide margin — 14.0MB
+against 10.4 and 9.5, and visibly sharper at 100%. `clean` and `repair` had
+nothing to do on a graded digital comp with no tape noise and no physical
+damage. They earn their place on real scanned film, not here.
+
 ## Open questions
 
 - No measurement yet of whether Seedance's reference-video mode holds a face
