@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { Asset, RestoreTreatment } from "@seed-ae/domain";
 import type {
   JobView,
@@ -96,14 +96,39 @@ export function RestoreView({
   );
 
   /*
-   * Newest clip by default, which is almost always the one just captured.
-   * Re-picked only while nothing valid is chosen, so a deliberate choice is
-   * never overwritten by a capture landing in the library behind it.
+   * A clip that has just arrived is the one the artist meant.
+   *
+   * This was originally "keep whatever is selected unless it becomes invalid",
+   * on the reasoning that a deliberate choice should not be overwritten by a
+   * capture landing behind it. That reasoning was wrong, and wrong in the way
+   * that matters: pressing **Capture work area as clip** *is* the deliberate
+   * choice. Johannes captured a range, the banner confirmed it, and the
+   * dropdown quietly stayed on a clip from the day before — so the thing on
+   * screen was not the thing about to be restored.
+   *
+   * So arrival wins. Anything appearing in the library that was not there a
+   * moment ago is selected, which covers the capture button and add-from-disk
+   * alike; a generated result cannot trigger it, because a restoration output
+   * lands while this view is showing its own job strip and the newest clip is
+   * still what the artist chose to restore.
    */
+  const known = useRef<Set<string> | undefined>(undefined);
   useEffect(() => {
-    if (sourceId && clips.some((clip) => clip.id === sourceId)) return;
-    setSourceId(clips[0]?.id ?? "");
-  }, [clips, sourceId]);
+    const ids = new Set(clips.map((clip) => clip.id));
+
+    // First pass: adopt the library as it stands, and start on the newest.
+    if (!known.current) {
+      known.current = ids;
+      setSourceId((current) => current || clips[0]?.id || "");
+      return;
+    }
+
+    const arrived = clips.filter((clip) => !known.current?.has(clip.id));
+    known.current = ids;
+
+    if (arrived[0]) setSourceId(arrived[0].id);
+    else setSourceId((current) => (current && ids.has(current) ? current : clips[0]?.id || ""));
+  }, [clips]);
 
   const source = clips.find((clip) => clip.id === sourceId);
 
@@ -122,9 +147,20 @@ export function RestoreView({
     [providers],
   );
 
+  /*
+   * Default to whichever reaches furthest, because this is an upscale.
+   *
+   * Not the registry's first entry, which is 2.5 and stops at 1080p — on a
+   * 2560x1440 comp capture that is a *downscale* wearing the word "restore".
+   * The newer model is still one click away and the trade is spelled out
+   * beside it.
+   */
   useEffect(() => {
     if (providerId && restorers.some((entry) => entry.id === providerId)) return;
-    setProviderId(restorers[0]?.id ?? "");
+    const furthest = restorers
+      .slice()
+      .sort((a, b) => rank(bestTier(b.sizes) ?? "") - rank(bestTier(a.sizes) ?? ""))[0];
+    setProviderId(furthest?.id ?? "");
   }, [restorers, providerId]);
 
   const provider = restorers.find((entry) => entry.id === providerId);
@@ -140,6 +176,17 @@ export function RestoreView({
   const length = source?.durationSeconds;
   const tooShort = length !== undefined && length < 4;
   const tooLong = length !== undefined && length > 30;
+
+  /*
+   * The trap this feature hides most easily: a "restoration" that comes back
+   * smaller than it went in. A 2560x1440 comp capture restored on a model that
+   * stops at 1080p loses a third of its height, and the result still arrives
+   * looking plausible. Named on screen rather than prevented — 1080p off a
+   * 1440p source is a legitimate thing to want, just never by accident.
+   */
+  const targetHeight = rank(tier ?? "");
+  const shrinks =
+    source?.height !== undefined && targetHeight > 0 && targetHeight < source.height;
 
   const chosen = presets.filter((preset) => treatments.has(preset.treatment));
 
@@ -306,8 +353,20 @@ export function RestoreView({
         )}
       </section>
 
-      <section className="section">
-        <SectionLabel>model</SectionLabel>
+      <details className="options">
+        <summary>
+          Options —{" "}
+          {provider ? (
+            <b>
+              {provider.displayName.replace(/\s*\(Ark\)$/, "")}
+              {tier ? `, ${tier}` : ""}
+            </b>
+          ) : (
+            <b>no model</b>
+          )}
+          {note.trim() ? " · note set" : ""}
+        </summary>
+
         {restorers.length > 0 ? (
           <>
             <Field label="Restore with" hint="the ceiling and the model do not agree">
@@ -327,9 +386,9 @@ export function RestoreView({
               </select>
             </Field>
             <div className="hint faint">
-              2.5 is the better model and stops at 1080p. 2.0 is older and
-              reaches <b>4K</b> — which for an upscale is often the trade worth
-              making. Every pass renders at the top tier of whichever you pick.
+              2.0 reaches <b>4K</b> and is the default because raising
+              resolution is the point. 2.5 is the newer model and stops at
+              1080p — worth it when the source is already small.
             </div>
           </>
         ) : (
@@ -338,10 +397,7 @@ export function RestoreView({
             model id under Keys, then reconnect.
           </div>
         )}
-      </section>
 
-      <section className="section">
-        <SectionLabel>guidance</SectionLabel>
         <Field
           label="Note"
           hint="what the footage is, not what you want it to look like"
@@ -349,17 +405,17 @@ export function RestoreView({
           <input
             type="text"
             value={note}
-            placeholder="Manchester, 1936. Overcast. Trams are green and cream."
+            placeholder="RAF base, 1941. Overcast. Spitfires on grass."
             onChange={(event) => setNote(event.target.value)}
           />
         </Field>
         <div className="hint faint">
-          A note narrows the guessing — a period, a place, the colour of a
-          uniform. It is passed as information about the footage and never as
-          permission to change the shot, so &ldquo;make it cinematic&rdquo; will
-          be ignored by design.
+          Narrows the guessing — a period, a place, the colour of a uniform.
+          Passed as information about the footage and never as permission to
+          change the shot, so &ldquo;make it cinematic&rdquo; is ignored by
+          design. Matters most for Colourise.
         </div>
-      </section>
+      </details>
 
       <section className="section">
         <button className="btn primary wide" disabled={blocked} onClick={() => void start()}>
@@ -369,6 +425,14 @@ export function RestoreView({
               ? `Restore — ${treatments.size} passes`
               : "Restore"}
         </button>
+
+        {shrinks ? (
+          <div className="hint warn" style={{ marginTop: 6 }}>
+            This would come back <b>smaller</b> than it went in — {source?.width}×
+            {source?.height} restored at {tier}. Pick a model that reaches
+            further under Options, or accept the reduction knowingly.
+          </div>
+        ) : null}
 
         {provider ? (
           <div className="hint faint" style={{ marginTop: 6 }}>

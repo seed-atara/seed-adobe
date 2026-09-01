@@ -1693,3 +1693,32 @@ button.settings-browse {
   padding: 1px 8px;
   font-size: 11px;
 }
+
+/*
+ * A section that folds away.
+ *
+ * For controls that have a right answer most of the time and still have to be
+ * reachable — the restoration model and its note. The summary carries the
+ * current values, so folding hides the controls without hiding the state:
+ * "Options — Seedance 2.0, 4K" answers the question the section would have.
+ */
+.options {
+  border: 1px solid var(--shadow);
+  background: var(--face);
+  padding: var(--gap-xs) var(--gap);
+  margin-bottom: var(--gap);
+}
+
+.options > summary {
+  cursor: pointer;
+  font-size: 11px;
+  color: #404040;
+  padding: 2px 0;
+  user-select: none;
+}
+
+.options[open] > summary {
+  margin-bottom: var(--gap-xs);
+  border-bottom: 1px solid var(--shadow);
+  padding-bottom: var(--gap-xs);
+}
