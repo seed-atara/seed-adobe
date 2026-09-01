@@ -75,6 +75,7 @@ export function RestoreView({
     () => new Set<RestoreTreatment>(["detail"]),
   );
   const [note, setNote] = useState("");
+  const [providerId, setProviderId] = useState("");
   const [starting, setStarting] = useState(false);
   const [captions, setCaptions] = useState<string[]>([]);
 
@@ -106,10 +107,27 @@ export function RestoreView({
 
   const source = clips.find((clip) => clip.id === sourceId);
 
-  /** The Seedance that will run this, and the tier it will render at. */
-  const provider = providers.find(
-    (entry) => entry.id.startsWith("seedance") && entry.videoReferences,
+  /**
+   * The models that can restore: Seedance, and only those taking a clip.
+   *
+   * Offered as a choice rather than picked, because the resolution ceiling and
+   * the model quality do not agree. 2.5 is the better model and stops at
+   * 1080p; 2.0 is older and reaches 4K. Choosing the highest tier on the
+   * artist's behalf would silently hand them an older model, and choosing the
+   * newest would hide the only route to 4K — which is the whole point of an
+   * upscale. So both are on screen with the tier they reach.
+   */
+  const restorers = useMemo(
+    () => providers.filter((entry) => entry.id.startsWith("seedance") && entry.videoReferences),
+    [providers],
   );
+
+  useEffect(() => {
+    if (providerId && restorers.some((entry) => entry.id === providerId)) return;
+    setProviderId(restorers[0]?.id ?? "");
+  }, [restorers, providerId]);
+
+  const provider = restorers.find((entry) => entry.id === providerId);
   const tier = bestTier(provider?.sizes ?? []);
 
   const chosen = presets.filter((preset) => treatments.has(preset.treatment));
@@ -130,6 +148,7 @@ export function RestoreView({
       const response = await client.startRestore({
         sourceAssetId: source.id,
         treatments: [...treatments],
+        ...(providerId ? { providerId } : {}),
         ...(note.trim() ? { note: note.trim() } : {}),
         ...(activeProject ? { project: activeProject } : {}),
       });
@@ -261,6 +280,40 @@ export function RestoreView({
       </section>
 
       <section className="section">
+        <SectionLabel>model</SectionLabel>
+        {restorers.length > 0 ? (
+          <>
+            <Field label="Restore with" hint="the ceiling and the model do not agree">
+              <select
+                value={providerId}
+                onChange={(event) => setProviderId(event.target.value)}
+              >
+                {restorers.map((entry) => {
+                  const top = bestTier(entry.sizes);
+                  return (
+                    <option key={entry.id} value={entry.id}>
+                      {entry.displayName}
+                      {top ? ` — up to ${top}` : ""}
+                    </option>
+                  );
+                })}
+              </select>
+            </Field>
+            <div className="hint faint">
+              2.5 is the better model and stops at 1080p. 2.0 is older and
+              reaches <b>4K</b> — which for an upscale is often the trade worth
+              making. Every pass renders at the top tier of whichever you pick.
+            </div>
+          </>
+        ) : (
+          <div className="hint faint">
+            Restoring needs Seedance. Set <b>ARK_API_KEY</b> and a Seedance
+            model id under Keys, then reconnect.
+          </div>
+        )}
+      </section>
+
+      <section className="section">
         <SectionLabel>guidance</SectionLabel>
         <Field
           label="Note"
@@ -293,17 +346,18 @@ export function RestoreView({
         {provider ? (
           <div className="hint faint" style={{ marginTop: 6 }}>
             {provider.displayName}
-            {tier ? <> at <b>{tier}</b></> : null}. The length and the framing
-            follow the clip — nothing here can change them. Results land in the
-            library with the original as their parent, so a restored shot can
-            always be traced back to the footage it came from.
+            {tier ? (
+              <>
+                {" "}
+                at <b>{tier}</b>
+              </>
+            ) : null}
+            . The length and the framing follow the clip — nothing here can
+            change them. Results land in the library with the original as their
+            parent, so a restored shot can always be traced back to the footage
+            it came from.
           </div>
-        ) : (
-          <div className="hint faint" style={{ marginTop: 6 }}>
-            Restoring needs Seedance. Set <b>ARK_API_KEY</b> and a Seedance
-            model id under Keys, then reconnect.
-          </div>
-        )}
+        ) : null}
       </section>
 
       <JobStrip
