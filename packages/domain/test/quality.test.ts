@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { bestQualitySize } from "../src/quality.ts";
+import { bestQualitySize } from "../src/quality.js";
 
 describe("choosing a size for quality", () => {
   it("takes the top of a resolution ladder", () => {

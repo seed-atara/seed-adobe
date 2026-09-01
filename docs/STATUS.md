@@ -1,6 +1,6 @@
 # Status
 
-Last updated: 2026-08-25
+Last updated: 2026-09-01
 
 ## Current milestone
 
@@ -48,6 +48,42 @@ regression tests:
    `image/png`, so files were written as `.png` containing JPEG, with wrong
    mime metadata and silently skipped thumbnails. The ingestor now sniffs the
    bytes and treats any provider-declared type as a hint.
+
+## Restoration — built 2026-09-01, not yet run on real footage
+
+A **Restore** tab for archive: a clip in, the same clip out at better quality,
+with nothing about the shot changed. Aimed at documentary work — a newsreel
+that has to be cut against modern footage.
+
+Two lanes, and which lanes a treatment can use is a property of the treatment:
+
+- **measured** — Topaz Video Upscale (`fal-ai/topaz/upscale/video`). The
+  endpoint **has no prompt field**, so the shot cannot change. Detail and
+  cleanup.
+- **generated** — Seedance with the clip as a reference video under a locked
+  restoration prompt. Colourise and repair-damage need this, because both have
+  to invent; detail and cleanup are offered here too, and the panel can run
+  both lanes at once and show the pair side by side.
+
+The generated lane's fidelity comes from what the request *omits*: no duration
+and no aspect ratio, so Ark reads it as an edit and the output follows the
+input clip exactly; and `inputRoles` pinned to `reference`, so the clip is
+never read as a first frame to animate away from. All three are asserted in
+`apps/service/test/restore.test.ts`.
+
+Found and fixed on the way: **`assertSupported` counted every input against
+`maxImageReferences`**, which is an image budget. A provider taking one clip
+and no images declares zero, so its only input was refused before the adapter
+ran — true of `ReframeProvider` since the day it was registered, and never
+noticed because nothing drove it.
+
+**Status is honest: nothing here has been run against a live fal account.** The
+Topaz contract is its published schema, not a response this code has seen, and
+whether Seedance holds a face steady across a long archive clip is unmeasured.
+Per ADR 0018 this is not "working" until a real clip has been restored and
+looked at. See `docs/research/VIDEO_RESTORATION.md` and ADR 0019.
+
+`npm test` — 676 tests. `npm run typecheck` — clean.
 
 ## Expansion, rebuilt 2026-08-25 — `scripts/expand-shot.ts`
 

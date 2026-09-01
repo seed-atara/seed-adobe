@@ -13,6 +13,8 @@ import type {
   ItemMention,
   JobDto,
   LineageResponse,
+  RestoreLane,
+  RestoreTreatment,
   ResolvedBundle,
   StartGenerationRequest,
 } from "@seed-ae/domain";
@@ -288,6 +290,48 @@ export class SeedClient {
     }>;
   }> {
     return this.request("/v1/passes/presets");
+  }
+
+  /**
+   * The restoration treatments, and what each lane can promise.
+   *
+   * Fetched rather than hard-coded in the panel: the fidelity wording is the
+   * sentence an artist reads before committing an archive shot to a cut, and it
+   * needs exactly one author.
+   */
+  restorePresets(): Promise<{
+    presets: Array<{
+      treatment: RestoreTreatment;
+      label: string;
+      purpose: string;
+      lanes: Array<{ lane: RestoreLane; fidelity: string; takesNote: boolean }>;
+    }>;
+  }> {
+    return this.request("/v1/restore/presets");
+  }
+
+  /**
+   * An archive clip restored — one job per treatment per lane.
+   *
+   * `skipped` is not an error path. Asking for four treatments across both
+   * lanes is one gesture, and the combinations that do not exist come back
+   * named so the panel can say why rather than silently starting fewer jobs
+   * than the artist asked for.
+   */
+  startRestore(input: {
+    sourceAssetId: string;
+    treatments: RestoreTreatment[];
+    lanes: RestoreLane[];
+    note?: string;
+    providerId?: string;
+    upscaleFactor?: number;
+    size?: string;
+    project?: string;
+  }): Promise<{
+    started: Array<{ treatment: RestoreTreatment; lane: RestoreLane; job: JobView }>;
+    skipped: Array<{ treatment: RestoreTreatment; lane: RestoreLane; reason: string }>;
+  }> {
+    return this.request("/v1/restore", { method: "POST", body: input });
   }
 
   /** Depth and normals, computed here rather than generated. */

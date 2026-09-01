@@ -7,4 +7,6 @@ export * from "./generation.js";
 export * from "./ids.js";
 export * from "./item.js";
 export * from "./pass.js";
+export * from "./quality.js";
+export * from "./restore.js";
 export * from "./time.js";

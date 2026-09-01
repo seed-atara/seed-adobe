@@ -20,6 +20,17 @@ export interface MockVideoProviderOptions {
   latencyMs?: number;
   models?: string[];
   now?: () => number;
+  /**
+   * Whether this stand-in accepts a clip as a reference.
+   *
+   * Off by default, matching what most video models actually do. A test that
+   * needs the restoration path — which is defined by handing a clip over as a
+   * reference and nothing else — turns it on, and the capability check then
+   * lets the clip through for exactly the reason a real provider would.
+   */
+  videoReferences?: boolean;
+  /** Tiers rather than explicit sizes, for the callers that pick a quality ladder. */
+  sizes?: string[];
 }
 
 interface MockVideoJob {
@@ -65,7 +76,7 @@ export class MockVideoProvider implements GenerationProvider {
       supportsNegativePrompt: false,
       textToVideo: true,
       imageToVideo: true,
-      videoReferences: false,
+      videoReferences: this.options.videoReferences ?? false,
       startEndFrames: true,
       framesExcludeReferences: false,
       audioReferences: false,
@@ -73,7 +84,7 @@ export class MockVideoProvider implements GenerationProvider {
       outputFormats: [],
       seed: true,
       durationSecondsRange: [2, 10],
-      sizes: ["1920x1080", "1080x1920"],
+      sizes: this.options.sizes ?? ["1920x1080", "1080x1920"],
       aspectRatios: ["16:9", "9:16", "1:1"],
       async: true,
     };

@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { bestQualitySize } from "@seed-ae/domain";
 import type {
   Asset,
   ComposedPlan,
@@ -18,7 +19,7 @@ import {
   opensFromFlatColour,
   type FlatColour,
 } from "../references.ts";
-import { bestQualitySize } from "../quality.ts";
+
 import { ItemPicker } from "./ItemPicker.tsx";
 import { PromptPreview } from "./PromptPreview.tsx";
 import {
@@ -35,6 +36,7 @@ import type {
 } from "../api/client.ts";
 import { AssetImage, Field, SectionLabel, StatusBadge } from "./primitives.tsx";
 import { PromptField } from "./PromptField.tsx";
+import { JobStrip } from "./JobStrip.tsx";
 
 /** The region controls, kept together so App owns one piece of state. */
 export interface RegionSettings {
@@ -155,18 +157,6 @@ interface Props {
   onInsertRegion?: () => void;
 }
 
-/** Whether the provider is reporting real movement, rather than 0 or 1. */
-function moving(progress: number | undefined): boolean {
-  return typeof progress === "number" && progress > 0 && progress < 1;
-}
-
-/** How long a job has been going, in the units a person would say it in. */
-function elapsed(createdAt: string, now: number): string {
-  const seconds = Math.max(0, Math.round((now - new Date(createdAt).getTime()) / 1000));
-  if (seconds < 90) return `${seconds}s`;
-  return `${Math.floor(seconds / 60)}m ${String(seconds % 60).padStart(2, "0")}s`;
-}
-
 /** Moves one entry, leaving the rest in order. */
 function move<T>(ids: T[], index: number, by: number): T[] {
   const next = [...ids];
@@ -217,7 +207,6 @@ export function GenerateView({
   onInsertRegion,
 }: Props) {
   const [directingFor, setDirectingFor] = useState(0);
-  const [now, setNow] = useState(() => Date.now());
   const [refMenu, setRefMenu] = useState<{ x: number; y: number; asset: Asset }>();
 
   /*
@@ -342,11 +331,6 @@ export function GenerateView({
     (entry) => entry.job.status === "queued" || entry.job.status === "running",
   );
 
-  /*
-   * Renders take minutes and the provider reports no progress along the way,
-   * so elapsed time is the only real signal there is. It has to tick on its
-   * own: nothing else changes between the start and the end of a render.
-   */
   useEffect(() => {
     if (!refMenu) return;
     const dismiss = () => setRefMenu(undefined);
@@ -357,12 +341,6 @@ export function GenerateView({
       window.removeEventListener("contextmenu", dismiss);
     };
   }, [refMenu]);
-
-  useEffect(() => {
-    if (!running) return;
-    const timer = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(timer);
-  }, [running]);
 
   /** Every finished result across the set, in the order they were started. */
   const results = jobs.flatMap((entry) => entry.outputs);
@@ -1405,86 +1383,14 @@ export function GenerateView({
         </ul>
       ) : null}
 
-      {jobs.length > 0 ? (
-        <section className="section">
-          <SectionLabel>
-            {jobs.length > 1 ? `results — ${jobs.length} variants` : "job"}
-          </SectionLabel>
-
-          <div className="variants">
-            {jobs.map((entry, index) => {
-              const output = entry.outputs[0];
-              const selected = output !== undefined && output.id === selectedId;
-              const active =
-                entry.job.status === "queued" || entry.job.status === "running";
-              return (
-                <div
-                  className={`variant ${selected ? "selected" : ""}`}
-                  key={entry.job.id}
-                >
-                  <div className="variant-head">
-                    {jobs.length > 1 ? (
-                      <span className="mono faint">{index + 1}</span>
-                    ) : null}
-                    <StatusBadge status={entry.job.status} />
-                  </div>
-
-                  {output ? (
-                    <button
-                      className="variant-pick"
-                      onClick={() => onSelect?.(output.id)}
-                      title="Choose this one"
-                    >
-                      <AssetImage
-                        client={client}
-                        asset={output}
-                        variant="thumbnail"
-                      />
-                    </button>
-                  ) : (
-                    <>
-                      {/*
-                        Seedance reports 0 until it is finished, so a
-                        determinate bar sits empty and motionless for minutes —
-                        which reads as a hung job. A bar is only determinate
-                        when the provider is actually reporting movement.
-                      */}
-                      <div
-                        className={`progress ${
-                          active && !moving(entry.job.progress)
-                            ? "indeterminate"
-                            : ""
-                        }`}
-                      >
-                        <i
-                          style={{
-                            width: `${Math.round((entry.job.progress ?? 0) * 100)}%`,
-                          }}
-                        />
-                      </div>
-                      {active ? (
-                        <div className="hint faint" style={{ marginTop: 2 }}>
-                          {elapsed(entry.job.createdAt, now)}
-                        </div>
-                      ) : null}
-                    </>
-                  )}
-
-                  {entry.job.errorMessage ? (
-                    <div className="hint faint">{entry.job.errorMessage}</div>
-                  ) : null}
-                </div>
-              );
-            })}
-          </div>
-
-          {running ? (
-            <button className="btn ghost danger wide" onClick={onCancel}>
-              Cancel {jobs.length > 1 ? "all" : ""}
-            </button>
-          ) : null}
-        </section>
-      ) : null}
+      <JobStrip
+        client={client}
+        jobs={jobs}
+        label={jobs.length > 1 ? `results — ${jobs.length} variants` : "job"}
+        {...(selectedId ? { selectedId } : {})}
+        {...(onSelect ? { onSelect } : {})}
+        onCancel={onCancel}
+      />
 
     </>
   );

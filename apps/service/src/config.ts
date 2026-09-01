@@ -82,6 +82,9 @@ export interface ProviderConfig {
   falKey?: string;
   falIcLightModel?: string;
   falReframeModel?: string;
+  falUpscaleModel?: string;
+  /** Topaz model family, for an install that has measured its own footage. */
+  falTopazModel?: string;
   arkBaseUrl: string;
   seedreamModelId?: string;
   /** Account access key pair for the asset library. */
@@ -202,6 +205,12 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServiceConfig 
         : {}),
       ...(env.FAL_REFRAME_MODEL?.trim()
         ? { falReframeModel: env.FAL_REFRAME_MODEL.trim() }
+        : {}),
+      ...(env.FAL_UPSCALE_MODEL?.trim()
+        ? { falUpscaleModel: env.FAL_UPSCALE_MODEL.trim() }
+        : {}),
+      ...(env.FAL_TOPAZ_MODEL?.trim()
+        ? { falTopazModel: env.FAL_TOPAZ_MODEL.trim() }
         : {}),
       arkBaseUrl:
         env.ARK_BASE_URL?.trim() || "https://ark.cn-beijing.volces.com",

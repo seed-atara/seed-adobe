@@ -99,13 +99,15 @@ export class GenerationService {
     const expansion = this.expandItems(request, capabilities);
     request = expansion.request;
 
-    assertSupported(capabilities, request, model);
-
     // Fail before creating a job if an input is unknown — a job that could
-    // never run should not appear in history.
+    // never run should not appear in history. Resolved before the capability
+    // check rather than after, because what an input *is* decides which budget
+    // it spends: a clip is not an image reference.
     const inputAssets = request.inputAssetIds.map((id) =>
       this.options.assets.requireById(id),
     );
+
+    assertSupported(capabilities, request, model, inputAssets);
 
     const job = this.options.jobs.create({
       provider: provider.id,
@@ -921,6 +923,7 @@ function assertSupported(
   capabilities: ProviderCapabilities,
   request: StartGenerationRequest,
   model: string,
+  inputs: readonly Asset[],
 ): void {
   if (!capabilities.operations.includes(request.operation)) {
     throw new SeedError(
@@ -934,10 +937,33 @@ function assertSupported(
       details: { models: capabilities.models },
     });
   }
-  if (request.inputAssetIds.length > capabilities.maxImageReferences) {
+  /*
+   * Images and clips spend different budgets.
+   *
+   * `maxImageReferences` is an *image* count, and counting every input against
+   * it made a video-reference provider unusable: Topaz and Reframe both take
+   * exactly one clip and no images at all, so they declare zero — and a single
+   * clip was then refused here, before the adapter that wanted it ever ran.
+   * A restoration is the case that made this visible, but it was true of
+   * Reframe from the day it was registered.
+   */
+  const images = inputs.filter((asset) => asset.kind !== "video" && asset.kind !== "audio");
+  if (images.length > capabilities.maxImageReferences) {
     throw new SeedError(
       "unsupported_capability",
-      `${capabilities.id} accepts at most ${capabilities.maxImageReferences} references`,
+      `${capabilities.id} accepts at most ${capabilities.maxImageReferences} image references`,
+    );
+  }
+  if (inputs.some((asset) => asset.kind === "video") && !capabilities.videoReferences) {
+    throw new SeedError(
+      "unsupported_capability",
+      `${capabilities.id} does not take a clip as a reference`,
+    );
+  }
+  if (inputs.some((asset) => asset.kind === "audio") && !capabilities.audioReferences) {
+    throw new SeedError(
+      "unsupported_capability",
+      `${capabilities.id} does not take audio as a reference`,
     );
   }
   if (request.seed !== undefined && !capabilities.seed) {

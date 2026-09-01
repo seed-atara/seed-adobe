@@ -1,4 +1,14 @@
-import { randomUUID } from "node:crypto";
+/**
+ * Ids, from whichever crypto the runtime has.
+ *
+ * `globalThis.crypto` is the Web Crypto API, and both Node (18+) and every
+ * browser expose it — so importing `node:crypto` here was the one line in the
+ * whole domain package that made it node-only. That went unnoticed while the
+ * panel imported nothing but types from this package, and broke the panel
+ * build the moment it imported an actual function. A shared package that only
+ * runs on one side of the wire is not shared.
+ */
+const randomUUID = (): string => globalThis.crypto.randomUUID();
 
 /**
  * Entity id prefixes. Prefixes make ids self-describing in logs, filenames and

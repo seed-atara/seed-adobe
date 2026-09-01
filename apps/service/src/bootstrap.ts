@@ -3,6 +3,7 @@ import {
   ArkAssetLibrary,
   ICLightProvider,
   ReframeProvider,
+  UpscaleProvider,
   ArkOpenApiClient,
   LookProvider,
   MockImageProvider,
@@ -417,6 +418,21 @@ export function buildRegistry(
       }),
     );
     logger.info("provider.registered", { provider: "luma-reframe" });
+
+    /*
+     * Topaz rides it too, and it is the only provider here that is not
+     * generative at all. Restoration needs one: every other video adapter can
+     * be asked to preserve a shot and this one cannot do anything else, which
+     * is the guarantee an archive clip in a documentary actually requires.
+     */
+    registry.register(
+      new UpscaleProvider({
+        apiKey: config.falKey,
+        ...(config.falUpscaleModel ? { model: config.falUpscaleModel } : {}),
+        ...(config.falTopazModel ? { topazModel: config.falTopazModel } : {}),
+      }),
+    );
+    logger.info("provider.registered", { provider: "topaz-upscale" });
   }
 
     for (const model of config.seedanceModelIds) {

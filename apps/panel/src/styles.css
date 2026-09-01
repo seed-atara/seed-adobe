@@ -997,6 +997,30 @@ pre.raw {
   line-height: 1.4;
 }
 
+/*
+ * A short list of statements, each of which the artist is meant to read.
+ *
+ * Used where a hint would be wrong because there is more than one thing to
+ * say and the items are not interchangeable — the fidelity a restoration lane
+ * can promise, or the passes that were skipped and why. Line height is looser
+ * than .hint on purpose: these get read, not skimmed.
+ */
+.notes {
+  margin: 0;
+  padding-left: var(--gap-lg);
+  font-size: 11px;
+  line-height: 1.5;
+  color: #404040;
+}
+
+.notes li {
+  margin-bottom: 3px;
+}
+
+.notes li:last-child {
+  margin-bottom: 0;
+}
+
 .plan .notice {
   margin-bottom: var(--gap-xs);
 }

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { bestQualitySize } from "@seed-ae/domain";
 import type { Asset, ComposedPlan } from "@seed-ae/domain";
 import {
   DEFAULT_BASE_URL,
@@ -21,12 +22,13 @@ import {
   type RegionSettings,
 } from "./components/GenerateView.tsx";
 import { LibraryView } from "./components/LibraryView.tsx";
+import { RestoreView } from "./components/RestoreView.tsx";
 import { AssetDetail } from "./components/AssetDetail.tsx";
 import { LineageView } from "./components/LineageView.tsx";
 import { ItemsView } from "./components/ItemsView.tsx";
 import { SettingsView } from "./components/SettingsView.tsx";
 import { findMentions } from "./mentions.ts";
-import { bestQualitySize } from "./quality.ts";
+
 import {
   alignRoles,
   flatColourLabel,
@@ -40,7 +42,7 @@ import { resolveRefineTarget } from "./refine.ts";
 // ROO (scene switching) is built and tested but not mounted — see the note
 // above RooView. Re-adding it means restoring "roo" here, in visibleTabs,
 // and the render block.
-type Tab = "generate" | "items" | "library" | "lineage";
+type Tab = "generate" | "restore" | "items" | "library" | "lineage";
 
 export interface AppProps {
   /**
@@ -161,6 +163,7 @@ const EMPTY_FORM: GenerateForm = {
 export function App({ tabs }: AppProps = {}) {
   const visibleTabs: Tab[] = tabs ?? [
     "generate",
+    "restore",
     "items",
     "library",
     "lineage",
@@ -1526,6 +1529,28 @@ export function App({ tabs }: AppProps = {}) {
               onGenerate={startGeneration}
               onCancel={cancelJob}
               onOpenLibrary={() => setTab("library")}
+            />
+          ) : null}
+
+          {tab === "restore" ? (
+            <RestoreView
+              client={client}
+              assets={assets}
+              providers={providers}
+              jobs={jobs}
+              busy={busy}
+              {...(activeProject ? { activeProject } : {})}
+              {...(selectedId ? { selectedId } : {})}
+              onSelect={setSelectedId}
+              onError={report}
+              onJobs={setJobs}
+              onCancel={cancelJob}
+              {...(bridge && (hostApp() !== "PPRO" || hasVideoPreset)
+                ? { onCaptureRange: captureRange }
+                : {})}
+              {...(bridge ? { onAddFile: addFileFromDisk } : {})}
+              onOpenLibrary={() => setTab("library")}
+              host={hostId}
             />
           ) : null}
 
