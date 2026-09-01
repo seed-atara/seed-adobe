@@ -36,11 +36,16 @@ The mechanism is a behaviour measured earlier and documented in
 > `-1`: "the output ratio and duration follow the input video selected by the
 > model for editing."
 
-That is what holds the shot. A restoration prompt reads as an edit, so the
-adapter sends `duration: -1` and **the output follows the input clip's length
-and ratio exactly**. SEED gets that behaviour by *omission* — the restore route
-sends no duration and no aspect ratio, and pins the clip's role to `reference`
-so it can never be read as a first frame to animate away from.
+That is what holds the *shot* — the framing, the content and the camera. A
+restoration prompt reads as an edit, so the adapter sends `duration: -1` and the
+model works from the clip rather than inventing a new one. SEED gets that by
+*omission* — the restore route sends no duration and no aspect ratio, and pins
+the clip's role to `reference` so it can never be read as a first frame to
+animate away from.
+
+**It does not hold the timing.** "Follow the input video" turns out to mean
+follow it loosely; see the measurements below. Read that section before relying
+on a restored clip lining up with its source.
 
 Those three omissions are the feature, and each is one careless line away from
 being undone. `apps/service/test/restore.test.ts` asserts all three.
