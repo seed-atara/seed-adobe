@@ -130,8 +130,8 @@ export const SETTINGS: readonly SettingDefinition[] = [
   {
     key: "FAL_KEY",
     label: "fal key",
-    help: "The upscaler that restores archive footage without changing it, plus IC-Light relighting and Reframe. Optional; each is simply not offered without it.",
-    group: "Generating",
+    help: "IC-Light relighting and Luma Reframe. Optional; without it neither is offered.",
+    group: "Direction",
     secret: true,
   },
   {

@@ -10,33 +10,27 @@ import { z } from "zod";
  * whole design here is about *removing* the model's freedom rather than
  * steering it.
  *
- * That produces the one structural decision worth understanding. A restoration
- * runs down one of two lanes, and the two are genuinely different machines
- * rather than two settings of one:
+ * The engine is Seedance, with the clip attached as a **reference video**. That
+ * is a deliberate choice over a dedicated upscaler, and it comes with a
+ * trade-off worth stating plainly rather than burying:
  *
- *   **measured** — a real upscaler (Topaz). There is no prompt, so no prompt
- *     can drift. The guarantee is not that a model was asked nicely to
- *     preserve the shot; it is that the endpoint has no mechanism for changing
- *     it. Frame count, timing, framing and content are arithmetic. What it
- *     cannot do is invent: it will never colour anything, and it cannot paint
- *     out a scratch.
+ *   - An upscaler cannot drift, because it has no prompt to drift with. But it
+ *     also cannot invent, so it can never colourise and can never paint out a
+ *     scratch — and on badly degraded material it sharpens the damage along
+ *     with the picture, because it does not know which is which.
+ *   - Seedance can do all of it, because it recognises what it is looking at.
+ *     It can also decide to improve the shot, which is the failure mode this
+ *     module exists to prevent.
  *
- *   **generated** — Seedance under a locked restoration prompt, with the clip
- *     as a *reference video*. This is the lane that can invent, which is both
- *     the reason it can colourise and repair damage and the reason it can
- *     drift. It also frequently beats the upscaler on badly degraded footage,
- *     because it understands what it is looking at and an interpolator does
- *     not.
+ * Two things hold it. The prompts below, which are almost entirely
+ * prohibition; and — more reliably — what the request *omits*. A reference
+ * clip sent with no duration and no aspect ratio makes Ark treat the job as an
+ * edit, and the output then follows the input's length and framing exactly.
+ * The prompt argues; the omission binds.
  *
- * Both lanes are offered for the treatments both can do, rather than one being
- * picked on the artist's behalf. They fail differently on different footage and
- * the only reliable way to know which won is to look at the two of them — so
- * the panel can run both at once and put the results side by side.
- *
- * Colourising is the clearest case for the split. No arithmetic recovers the
- * colour of a 1937 omnibus; something has to decide it was red. That is
- * invention, and pretending otherwise would be the dishonest part — not the
- * invention itself.
+ * Even so: this lane can drift, and the `fidelity` line on each treatment says
+ * where to look when it does. Nothing here is a guarantee, and the panel must
+ * never present it as one.
  */
 
 export const RestoreTreatmentSchema = z.enum([
@@ -47,38 +41,27 @@ export const RestoreTreatmentSchema = z.enum([
 ]);
 export type RestoreTreatment = z.infer<typeof RestoreTreatmentSchema>;
 
-/** Which kind of engine runs the pass, and therefore what it can promise. */
-export const RestoreLaneSchema = z.enum(["measured", "generated"]);
-export type RestoreLane = z.infer<typeof RestoreLaneSchema>;
-
-export interface RestoreLaneOffer {
-  lane: RestoreLane;
-  /**
-   * The honest promise, shown beside the control.
-   *
-   * Kept per lane rather than per treatment because the same treatment makes a
-   * completely different promise depending on which engine runs it: "cannot
-   * change the picture" and "usually does not change the picture" are not the
-   * same sentence, and an artist cutting archive needs to know which one they
-   * are being given.
-   */
-  fidelity: string;
-  /** The locked prompt. Absent on the measured lane, which has nowhere to put one. */
-  prompt?: string;
-}
-
 export interface RestorePreset {
   treatment: RestoreTreatment;
   /** What it is called in the panel. */
   label: string;
   /** One line, for the artist deciding whether they want it. */
   purpose: string;
-  /** Engines that can do this treatment, best-understood first. */
-  lanes: RestoreLaneOffer[];
+  /**
+   * How far it can be trusted, and where to look when it fails.
+   *
+   * Separate from `purpose` because the two answer different questions: what
+   * it does, and whether the result can go in a cut without a caption. An
+   * editor working with archive needs the second one before they commit a
+   * shot, so it is shown on screen rather than kept in a doc.
+   */
+  fidelity: string;
+  /** The prompt, minus anything shot-specific. */
+  prompt: string;
 }
 
 /**
- * The opening every generated restoration carries.
+ * The opening every restoration carries.
  *
  * Longer and blunter than the render-pass equivalent, and deliberately so.
  * A pass wants the model to *reinterpret* the plate into another domain; a
@@ -103,135 +86,99 @@ const PIN =
   "as the same take. Change only the quality of the recording, as described " +
   "below.";
 
-/** Said on every measured lane. One sentence, because it is the whole point. */
-const MEASURED_FIDELITY =
-  "Cannot change the picture. No prompt reaches a model, so the frames, the " +
-  "timing, the framing and the content are arithmetic rather than a promise.";
-
 export const RESTORE_PRESETS: Record<RestoreTreatment, RestorePreset> = {
   detail: {
     treatment: "detail",
     label: "Detail",
     purpose: "Resolve the detail that is already there, at higher resolution.",
-    lanes: [
-      {
-        lane: "measured",
-        fidelity: `${MEASURED_FIDELITY} Monochrome stays monochrome.`,
-      },
-      {
-        lane: "generated",
-        fidelity:
-          "Usually holds the shot, and resolves detail an interpolator cannot " +
-          "because it recognises what it is looking at. Check faces and any " +
-          "text in frame — those are where it invents when it is unsure.",
-        prompt:
-          `${PIN} Resolve the detail that this footage already contains, and ` +
-          "nothing else. Recover fine texture the original recorded but could " +
-          "not hold: fabric weave and stitching, individual hairs, skin " +
-          "texture and pores, printed and painted lettering, brickwork, " +
-          "stonework, foliage, the grain of timber, the texture of road " +
-          "surfaces. Edges become genuinely sharp rather than haloed or " +
-          "outlined. Faces gain real skin texture and stay the same faces — " +
-          "same features, same age, same expression, never smoothed, never " +
-          "made younger or more attractive. Preserve the original tonality " +
-          "exactly: if the footage is black and white it stays black and " +
-          "white, with the same contrast, the same blacks and the same " +
-          "highlights. Add no colour whatsoever. Keep the film's own grain " +
-          "structure. Do not clean up damage, do not restyle, do not " +
-          "modernise, and do not add anything that is not already implied by " +
-          "the picture.",
-      },
-    ],
+    fidelity:
+      "Usually holds the shot, and resolves detail an interpolator cannot " +
+      "because it recognises what it is looking at. Check faces and any text " +
+      "in frame — those are where it invents when it is unsure.",
+    prompt:
+      `${PIN} Resolve the detail that this footage already contains, and ` +
+      "nothing else. Recover fine texture the original recorded but could not " +
+      "hold: fabric weave and stitching, individual hairs, skin texture and " +
+      "pores, printed and painted lettering, brickwork, stonework, foliage, " +
+      "the grain of timber, the texture of road surfaces. Edges become " +
+      "genuinely sharp rather than haloed or outlined. Faces gain real skin " +
+      "texture and stay the same faces — same features, same age, same " +
+      "expression, never smoothed, never made younger or more attractive. " +
+      "Preserve the original tonality exactly: if the footage is black and " +
+      "white it stays black and white, with the same contrast, the same blacks " +
+      "and the same highlights. Add no colour whatsoever. Keep the film's own " +
+      "grain structure. Do not clean up damage, do not restyle, do not " +
+      "modernise, and do not add anything that is not already implied by the " +
+      "picture.",
   },
   clean: {
     treatment: "clean",
     label: "Clean up",
     purpose: "Take out the noise, video hiss and compression artefacts.",
-    lanes: [
-      {
-        lane: "measured",
-        fidelity: `${MEASURED_FIDELITY} Leaves the grain of the film itself alone.`,
-      },
-      {
-        lane: "generated",
-        fidelity:
-          "Better than the upscaler on heavily compressed or badly telecined " +
-          "footage, where the damage is structured rather than random. Watch " +
-          "for it smoothing texture it decided was noise.",
-        prompt:
-          `${PIN} Remove the noise and the artefacts of the recording, and ` +
-          "nothing else. Take out video hiss, chroma noise, dot crawl, " +
-          "rainbowing, tape dropout, blocking, banding, mosquito noise and " +
-          "compression smear. The picture underneath is left exactly as it " +
-          "is. Keep every piece of genuine texture — skin pores, fabric " +
-          "weave, grit, dust on surfaces, wood grain — and keep edges as " +
-          "sharp as they already are. Keep the film's own grain: grain is part " +
-          "of the recording, not a fault in it. Faces must not become smooth, " +
-          "waxy or plastic; a face with its texture removed is a worse result " +
-          "than a noisy one. Do not sharpen, do not colourise, do not repair " +
-          "scratches, and do not repaint any surface.",
-      },
-    ],
+    fidelity:
+      "Strongest on heavily compressed or badly telecined footage, where the " +
+      "damage is structured rather than random. Watch for it smoothing " +
+      "texture it decided was noise — skin is where that shows first.",
+    prompt:
+      `${PIN} Remove the noise and the artefacts of the recording, and ` +
+      "nothing else. Take out video hiss, chroma noise, dot crawl, " +
+      "rainbowing, tape dropout, blocking, banding, mosquito noise and " +
+      "compression smear. The picture underneath is left exactly as it is. " +
+      "Keep every piece of genuine texture — skin pores, fabric weave, grit, " +
+      "dust on surfaces, wood grain — and keep edges as sharp as they already " +
+      "are. Keep the film's own grain: grain is part of the recording, not a " +
+      "fault in it. Faces must not become smooth, waxy or plastic; a face with " +
+      "its texture removed is a worse result than a noisy one. Do not sharpen, " +
+      "do not colourise, do not repair scratches, and do not repaint any " +
+      "surface.",
   },
   repair: {
     treatment: "repair",
     label: "Repair damage",
     purpose: "Scratches, dust, splices and flicker taken off the film.",
-    lanes: [
-      {
-        lane: "generated",
-        fidelity:
-          "Paints over physical damage, so what was hidden underneath is " +
-          "reconstructed rather than recovered. Reliable on dust and " +
-          "tramlines; check any frame where damage crossed a face.",
-        prompt:
-          `${PIN} Repair the physical damage to this film and nothing else. ` +
-          "Remove vertical scratches and tramlines, dust, hairs, dirt, " +
-          "sparkle, splice marks and frame joins, tears, mould, chemical " +
-          "staining and emulsion damage. Even out frame-to-frame flicker and " +
-          "exposure pumping so the brightness is steady. What lay beneath the " +
-          "damage is reconstructed from the surrounding frames and the " +
-          "surrounding picture, continuing what is already visible — never " +
-          "replaced with something new. Keep the film's own grain, its " +
-          "tonality, its contrast and its colour exactly as they are: a " +
-          "repaired frame still looks like film of its age, not like video. Do " +
-          "not sharpen, do not denoise, do not colourise, and do not touch any " +
-          "part of the frame that is undamaged.",
-      },
-    ],
+    fidelity:
+      "Paints over physical damage, so what was hidden underneath is " +
+      "reconstructed rather than recovered. Reliable on dust and tramlines; " +
+      "check any frame where damage crossed a face.",
+    prompt:
+      `${PIN} Repair the physical damage to this film and nothing else. ` +
+      "Remove vertical scratches and tramlines, dust, hairs, dirt, sparkle, " +
+      "splice marks and frame joins, tears, mould, chemical staining and " +
+      "emulsion damage. Even out frame-to-frame flicker and exposure pumping " +
+      "so the brightness is steady. What lay beneath the damage is " +
+      "reconstructed from the surrounding frames and the surrounding picture, " +
+      "continuing what is already visible — never replaced with something new. " +
+      "Keep the film's own grain, its tonality, its contrast and its colour " +
+      "exactly as they are: a repaired frame still looks like film of its age, " +
+      "not like video. Do not sharpen, do not denoise, do not colourise, and " +
+      "do not touch any part of the frame that is undamaged.",
   },
   colourise: {
     treatment: "colourise",
     label: "Colourise",
     purpose: "Natural, period-plausible colour on black and white footage.",
-    lanes: [
-      {
-        lane: "generated",
-        fidelity:
-          "Invents colour, because nothing recorded it. The tones and the " +
-          "content are held to the original, but the colours are a plausible " +
-          "guess and should be described as such on screen.",
-        prompt:
-          `${PIN} Add natural, period-plausible colour to this monochrome ` +
-          "footage. Keep every tonal relationship exactly as it is: what is " +
-          "bright stays bright, what is dark stays dark, and no part of the " +
-          "frame changes exposure or contrast. Only hue and saturation are " +
-          "added. Skin tones are believable, varied and appropriate to the " +
-          "people shown. Skies, foliage, brick, stone, timber, painted metal, " +
-          "paper and fabric take the colours those materials plausibly had at " +
-          "the time and place of the footage. Colour is restrained and " +
-          "slightly muted, the way early colour stock records the world — not " +
-          "vivid, not saturated, not digitally graded, no teal-and-orange, no " +
-          "stylisation. Where the correct colour of something cannot be " +
-          "inferred, choose the most ordinary and unremarkable option rather " +
-          "than an interesting one. Do not add detail, do not sharpen, do not " +
-          "clean up damage, and do not change anything that is not colour.",
-      },
-    ],
+    fidelity:
+      "Invents colour, because nothing recorded it. The tones and the content " +
+      "are held to the original, but the colours are a plausible guess and " +
+      "should be described as such on screen.",
+    prompt:
+      `${PIN} Add natural, period-plausible colour to this monochrome ` +
+      "footage. Keep every tonal relationship exactly as it is: what is bright " +
+      "stays bright, what is dark stays dark, and no part of the frame changes " +
+      "exposure or contrast. Only hue and saturation are added. Skin tones are " +
+      "believable, varied and appropriate to the people shown. Skies, foliage, " +
+      "brick, stone, timber, painted metal, paper and fabric take the colours " +
+      "those materials plausibly had at the time and place of the footage. " +
+      "Colour is restrained and slightly muted, the way early colour stock " +
+      "records the world — not vivid, not saturated, not digitally graded, no " +
+      "teal-and-orange, no stylisation. Where the correct colour of something " +
+      "cannot be inferred, choose the most ordinary and unremarkable option " +
+      "rather than an interesting one. Do not add detail, do not sharpen, do " +
+      "not clean up damage, and do not change anything that is not colour.",
   },
 };
 
-/** Offered in this order: cheapest and safest first, most invented last. */
+/** Offered in this order: least invented first, most invented last. */
 export const RESTORE_ORDER: RestoreTreatment[] = [
   "detail",
   "clean",
@@ -239,44 +186,26 @@ export const RESTORE_ORDER: RestoreTreatment[] = [
   "colourise",
 ];
 
-/** The lanes a treatment can run down, in the order they are offered. */
-export function lanesFor(treatment: RestoreTreatment): RestoreLane[] {
-  return RESTORE_PRESETS[treatment].lanes.map((offer) => offer.lane);
-}
-
-/** What a treatment promises down one lane, or undefined if it cannot run there. */
-export function laneOffer(
-  treatment: RestoreTreatment,
-  lane: RestoreLane,
-): RestoreLaneOffer | undefined {
-  return RESTORE_PRESETS[treatment].lanes.find((offer) => offer.lane === lane);
-}
-
 /**
- * The prompt for a treatment on one lane, with the artist's note.
+ * The prompt for a treatment, with the artist's note about this footage.
  *
  * The note is framed as a constraint operating *inside* the restoration rather
  * than as an instruction of its own, which is the difference between "the coat
  * is army green" narrowing the guess and "make it cinematic" turning the shot
- * into something else.
- *
- * Undefined on the measured lane, and the caller must not substitute one: an
- * upscaler has nowhere to put a prompt, and a note that is silently discarded
- * is worse than no note because the artist believes it was applied.
+ * into something else. A note appended bare would sit at the end of the prompt
+ * as the most recent and most specific instruction — which is the position
+ * that wins.
  */
 export function restorePrompt(
   treatment: RestoreTreatment,
-  lane: RestoreLane,
   note?: string,
-): string | undefined {
-  const offer = laneOffer(treatment, lane);
-  if (!offer?.prompt) return undefined;
-
+): string {
+  const preset = RESTORE_PRESETS[treatment];
   const wanted = (note ?? "").trim();
-  if (!wanted) return offer.prompt;
+  if (!wanted) return preset.prompt;
 
   return (
-    `${offer.prompt} The artist has added the following note about this ` +
+    `${preset.prompt} The artist has added the following note about this ` +
     "specific footage. Treat it as additional information constraining the " +
     "restoration described above — never as permission to change the shot: " +
     wanted

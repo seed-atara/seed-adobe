@@ -1,14 +1,10 @@
 import {
   RESTORE_ORDER,
   RESTORE_PRESETS,
-  bestQualitySize,
-  RestoreLaneSchema,
   RestoreTreatmentSchema,
   SeedError,
-  laneOffer,
+  bestQualitySize,
   restorePrompt,
-  type RestoreLane,
-  type RestoreTreatment,
 } from "@seed-ae/domain";
 import { z } from "zod";
 import type { AppDeps } from "../app.js";
@@ -33,34 +29,26 @@ import type { RequestContext } from "../http/router.js";
  *                    animate away from it, which is the one thing a
  *                    restoration must never do.
  *
- * Those three omissions are the feature. Everything else is the ordinary job
- * machinery, which is the point: a restored clip lands in the library with a
- * recipe and a parent like anything else, so it can be found, compared and
- * traced back to the footage it came from.
+ * Those three omissions are the feature, and each is a one-line change from
+ * being undone. What it *does* send is the top of the provider's resolution
+ * ladder — that is the upscale.
+ *
+ * Everything else is the ordinary job machinery, which is the point: a
+ * restored clip lands in the library with a recipe and a parent like anything
+ * else, so it can be found, compared and traced back to the footage it came
+ * from.
  */
 
 const StartRestoreSchema = z.object({
   /** The clip to restore. Travels as a reference, never as a frame. */
   sourceAssetId: z.string().min(1),
   treatments: z.array(RestoreTreatmentSchema).min(1).max(4),
-  /**
-   * Which engines to run. Both is a real answer and often the right one.
-   *
-   * The two lanes fail differently on different footage — the upscaler cannot
-   * invent and the model cannot resist — so running them together and looking
-   * at the pair is faster than reasoning about which will win.
-   */
-  lanes: z.array(RestoreLaneSchema).min(1).max(2).default(["measured"]),
-  /** Reaches the generated lane only; the measured one has nowhere to put it. */
+  /** What the footage *is* — a period, a place, the colour of a uniform. */
   note: z.string().max(600).optional(),
-  /** Provider for the generated lane. Defaults to the first Seedance found. */
+  /** Defaults to the first Seedance the registry has. */
   providerId: z.string().min(1).optional(),
   model: z.string().min(1).optional(),
-  /** Provider for the measured lane. */
-  upscaleProviderId: z.string().min(1).default("topaz-upscale"),
-  /** Topaz multiplies the source; 2 doubles each edge. */
-  upscaleFactor: z.number().min(1).max(4).default(2),
-  /** Resolution tier for the generated lane. Defaults to the provider's best. */
+  /** Resolution tier. Defaults to the best the provider offers. */
   size: z.string().optional(),
   seed: z.union([z.number().int(), z.string()]).optional(),
   project: z.string().min(1).optional(),
@@ -79,144 +67,80 @@ export function startRestoreRoute(deps: AppDeps) {
       );
     }
 
-    const started: Array<{
-      treatment: RestoreTreatment;
-      lane: RestoreLane;
-      /** The same shape /v1/generations returns, so the panel can reuse it. */
-      job: { job: unknown; generation: unknown; outputs: never[] };
-    }> = [];
-    /*
-     * Collected rather than thrown. Asking for four treatments across both
-     * lanes is one gesture in the panel, and half of those combinations do not
-     * exist — colour cannot be measured. Refusing the whole request because one
-     * cell of the grid is empty would make the obvious gesture the wrong one.
-     */
-    const skipped: Array<{ treatment: RestoreTreatment; lane: RestoreLane; reason: string }> = [];
-
-    for (const treatment of request.treatments) {
-      for (const lane of request.lanes) {
-        const offer = laneOffer(treatment, lane);
-        if (!offer) {
-          skipped.push({
-            treatment,
-            lane,
-            reason:
-              lane === "measured"
-                ? `${RESTORE_PRESETS[treatment].label} has to invent, and an upscaler cannot`
-                : `${RESTORE_PRESETS[treatment].label} is not offered on the generated lane`,
-          });
-          continue;
-        }
-
-        const providerId =
-          lane === "measured"
-            ? request.upscaleProviderId
-            : (request.providerId ?? defaultGeneratedProvider(deps));
-
-        if (!providerId) {
-          skipped.push({
-            treatment,
-            lane,
-            reason: "no provider is configured for this lane",
-          });
-          continue;
-        }
-        if (!deps.registry.has(providerId)) {
-          skipped.push({
-            treatment,
-            lane,
-            reason:
-              lane === "measured"
-                ? "the upscaler needs a fal key — set FAL_KEY in Keys"
-                : `${providerId} is not configured`,
-          });
-          continue;
-        }
-
-        const capabilities = await deps.registry.get(providerId).capabilities();
-        const prompt = restorePrompt(treatment, lane, request.note);
-
-        const job = await deps.generation.start(
-          {
-            providerId,
-            ...(lane === "generated" && request.model ? { model: request.model } : {}),
-            operation: "video.generate",
-            /*
-             * The measured lane has no prompt, and this is what goes in the
-             * recipe instead: a sentence saying so. It is not sent anywhere —
-             * the adapter ignores it — but a generation record with an empty
-             * prompt reads as a bug, and one carrying a plausible-looking
-             * prompt would be a lie about what the provider was asked.
-             */
-            prompt:
-              prompt ??
-              `Restoration — ${RESTORE_PRESETS[treatment].label.toLowerCase()}, ` +
-                `measured at ${request.upscaleFactor}x. No prompt is sent: this ` +
-                "provider has no prompt field, which is why it cannot change the shot.",
-            /*
-             * Seeded only where a seed means something. The upscaler is
-             * deterministic and declares no seed support, so sending one would
-             * be refused by the capability check — correctly.
-             */
-            ...(request.seed !== undefined && capabilities.seed
-              ? { seed: request.seed }
-              : {}),
-            ...(lane === "generated"
-              ? sizeFor(request.size, capabilities.sizes)
-              : {}),
-            inputAssetIds: [source.id],
-            /*
-             * The whole guarantee, in one field. A lone clip is already read as
-             * a reference by the Seedance adapter, but saying so explicitly is
-             * what stops a later change to that inference turning every
-             * restoration into an animation of its own first frame.
-             */
-            inputRoles: ["reference"],
-            itemMentions: [],
-            parentAssetId: source.id,
-            ...(request.project ? { project: request.project } : {}),
-            parameters: {
-              /* What makes a restoration findable, and re-runnable. */
-              seedRestore: treatment,
-              seedRestoreLane: lane,
-              seedRestoreSource: source.id,
-              ...(request.note?.trim() && lane === "generated"
-                ? { seedRestoreNote: request.note.trim() }
-                : {}),
-              ...(lane === "measured" ? { upscaleFactor: request.upscaleFactor } : {}),
-            },
-          },
-          `restore_${treatment}_${lane}_${source.id}`,
-        );
-
-        started.push({
-          treatment,
-          lane,
-          job: { job: job.job, generation: job.generation, outputs: [] },
-        });
-      }
-    }
-
-    if (started.length === 0) {
+    const providerId = request.providerId ?? defaultProvider(deps);
+    if (!providerId) {
       throw new SeedError(
-        "bad_request",
-        skipped.map((entry) => entry.reason).join("; ") ||
-          "nothing to restore",
+        "unsupported_capability",
+        "Restoring a clip needs Seedance. Set ARK_API_KEY and a Seedance model " +
+          "id under Keys.",
       );
     }
 
-    return json({ started, skipped }, 202);
+    const capabilities = await deps.registry.get(providerId).capabilities();
+    /*
+     * Checked here rather than left to the generation service, which would
+     * refuse each job separately and report it as a failed render. A
+     * restoration is nothing but a clip as a reference, so a provider that
+     * cannot take one is a wrong choice rather than a failure.
+     */
+    if (!capabilities.videoReferences) {
+      throw new SeedError(
+        "unsupported_capability",
+        `${capabilities.displayName} does not take a clip as a reference, and a ` +
+          "restoration is nothing but a clip as a reference.",
+      );
+    }
+
+    const started = [];
+    for (const treatment of request.treatments) {
+      const job = await deps.generation.start(
+        {
+          providerId,
+          ...(request.model ? { model: request.model } : {}),
+          operation: "video.generate",
+          prompt: restorePrompt(treatment, request.note),
+          ...(request.seed !== undefined && capabilities.seed
+            ? { seed: request.seed }
+            : {}),
+          ...sizeFor(request.size, capabilities.sizes),
+          inputAssetIds: [source.id],
+          /*
+           * The whole guarantee, in one field. A lone clip is already read as a
+           * reference by the Seedance adapter, but saying so explicitly is what
+           * stops a later change to that inference turning every restoration
+           * into an animation of its own first frame.
+           */
+          inputRoles: ["reference"],
+          itemMentions: [],
+          parentAssetId: source.id,
+          ...(request.project ? { project: request.project } : {}),
+          parameters: {
+            /* What makes a restoration findable, and re-runnable. */
+            seedRestore: treatment,
+            seedRestoreSource: source.id,
+            ...(request.note?.trim() ? { seedRestoreNote: request.note.trim() } : {}),
+          },
+        },
+        `restore_${treatment}_${source.id}`,
+      );
+
+      started.push({
+        treatment,
+        /** The same shape /v1/generations returns, so the panel can reuse it. */
+        job: { job: job.job, generation: job.generation, outputs: [] as never[] },
+      });
+    }
+
+    return json({ started }, 202);
   };
 }
 
 /**
- * The treatments, with what each lane can promise.
+ * The treatments, with what each can promise.
  *
  * Served rather than duplicated in the panel so the fidelity wording — the
  * sentence an artist reads before committing a shot to a cut — has exactly one
- * author. Which lanes are actually *available* is answered by the provider
- * list the panel already has, not here: this says what is possible, not what is
- * configured.
+ * author.
  */
 export function restorePresetsRoute() {
   return () =>
@@ -227,11 +151,7 @@ export function restorePresetsRoute() {
           treatment,
           label: preset.label,
           purpose: preset.purpose,
-          lanes: preset.lanes.map((offer) => ({
-            lane: offer.lane,
-            fidelity: offer.fidelity,
-            takesNote: offer.prompt !== undefined,
-          })),
+          fidelity: preset.fidelity,
         };
       }),
     });
@@ -244,10 +164,7 @@ export function restorePresetsRoute() {
  * the provider's own default — which on Seedance is the bottom, and would make
  * a "restoration" that came back smaller than it went in.
  */
-function sizeFor(
-  requested: string | undefined,
-  sizes: string[],
-): { size?: string } {
+function sizeFor(requested: string | undefined, sizes: string[]): { size?: string } {
   if (requested) return { size: requested };
   const best = bestQualitySize(sizes);
   return best ? { size: best } : {};
@@ -256,14 +173,10 @@ function sizeFor(
 /**
  * The Seedance to use when the panel did not name one.
  *
- * Chosen by capability rather than by id: what the generated lane needs is a
- * provider that takes a clip as a reference, and asking the registry that
- * question is more durable than matching on a name that changes with every
- * model release.
+ * Matched on the id prefix because that is what `seedanceProviderId` builds
+ * from a model name, and a registry may hold several — 2.0 and 2.5 are
+ * registered separately, and either can restore.
  */
-function defaultGeneratedProvider(deps: AppDeps): string | undefined {
-  for (const id of deps.registry.ids()) {
-    if (id.startsWith("seedance")) return id;
-  }
-  return undefined;
+function defaultProvider(deps: AppDeps): string | undefined {
+  return deps.registry.ids().find((id) => id.startsWith("seedance"));
 }

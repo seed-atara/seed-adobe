@@ -941,10 +941,10 @@ function assertSupported(
    * Images and clips spend different budgets.
    *
    * `maxImageReferences` is an *image* count, and counting every input against
-   * it made a video-reference provider unusable: Topaz and Reframe both take
-   * exactly one clip and no images at all, so they declare zero — and a single
-   * clip was then refused here, before the adapter that wanted it ever ran.
-   * A restoration is the case that made this visible, but it was true of
+   * it made a video-reference provider unusable: Reframe takes exactly one
+   * clip and no images at all, so it declares zero — and a single clip was
+   * then refused here, before the adapter that wanted it ever ran. A
+   * restoration is the case that made this visible, but it was true of
    * Reframe from the day it was registered.
    */
   const images = inputs.filter((asset) => asset.kind !== "video" && asset.kind !== "audio");

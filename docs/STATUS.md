@@ -53,23 +53,26 @@ regression tests:
 
 A **Restore** tab for archive: a clip in, the same clip out at better quality,
 with nothing about the shot changed. Aimed at documentary work — a newsreel
-that has to be cut against modern footage.
+that has to cut against modern footage and cannot have a sign move or a face
+drift.
 
-Two lanes, and which lanes a treatment can use is a property of the treatment:
+One engine: **Seedance with the clip as a reference video**, under a locked
+restoration prompt. Four treatments — detail, clean up, repair damage,
+colourise — each with its own prompt, any combination running at once so the
+results can be compared side by side.
 
-- **measured** — Topaz Video Upscale (`fal-ai/topaz/upscale/video`). The
-  endpoint **has no prompt field**, so the shot cannot change. Detail and
-  cleanup.
-- **generated** — Seedance with the clip as a reference video under a locked
-  restoration prompt. Colourise and repair-damage need this, because both have
-  to invent; detail and cleanup are offered here too, and the panel can run
-  both lanes at once and show the pair side by side.
+The fidelity comes from what the request *omits*: no duration and no aspect
+ratio, so Ark reads it as an edit and the output follows the input clip's
+length and framing exactly; and `inputRoles` pinned to `reference`, so the clip
+is never read as a first frame to animate away from. All three are asserted in
+`apps/service/test/restore.test.ts`. The upscale is the route asking for the
+top of the provider's resolution ladder rather than its default, which on
+Seedance is the bottom.
 
-The generated lane's fidelity comes from what the request *omits*: no duration
-and no aspect ratio, so Ark reads it as an edit and the output follows the
-input clip exactly; and `inputRoles` pinned to `reference`, so the clip is
-never read as a first frame to animate away from. All three are asserted in
-`apps/service/test/restore.test.ts`.
+A two-lane version with a Topaz upscaler was built and removed the same day —
+it covered only half the treatments, and its guarantee was less clean than it
+sounded. The survey of both upscalers is kept in
+`docs/research/VIDEO_RESTORATION.md`; see ADR 0019.
 
 Found and fixed on the way: **`assertSupported` counted every input against
 `maxImageReferences`**, which is an image budget. A provider taking one clip
@@ -77,13 +80,12 @@ and no images declares zero, so its only input was refused before the adapter
 ran — true of `ReframeProvider` since the day it was registered, and never
 noticed because nothing drove it.
 
-**Status is honest: nothing here has been run against a live fal account.** The
-Topaz contract is its published schema, not a response this code has seen, and
-whether Seedance holds a face steady across a long archive clip is unmeasured.
-Per ADR 0018 this is not "working" until a real clip has been restored and
-looked at. See `docs/research/VIDEO_RESTORATION.md` and ADR 0019.
+**Nothing here has been run on real archive.** Whether Seedance holds a face
+steady across a long clip is unmeasured, and so is its behaviour on tramlining
+and gate weave. Per ADR 0018 this is not "working" until a real clip has been
+restored and looked at.
 
-`npm test` — 676 tests. `npm run typecheck` — clean.
+`npm test` — 658 tests. `npm run typecheck` — clean.
 
 ## Expansion, rebuilt 2026-08-25 — `scripts/expand-shot.ts`
 

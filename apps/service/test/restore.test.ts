@@ -23,11 +23,12 @@ import { readJson, startTestService, type TestService } from "./helpers.js";
  * Restoration, end to end through the service.
  *
  * Almost every assertion here is about something the request does *not*
- * contain. That is not perversity: a restoration is defined by its omissions.
- * A stated duration turns it into a re-cut, a stated ratio reframes it, and a
- * clip handed over as a first frame becomes a shot that animates away from
- * itself. Each of those is a one-line change away at all times, and each would
- * look like a working feature until an editor noticed the shot had moved.
+ * contain. That is not perversity: a restoration runs on a generative model,
+ * and it is defined by its omissions. A stated duration turns it into a
+ * re-cut, a stated ratio reframes it, and a clip handed over as a first frame
+ * becomes a shot that animates away from itself. Each of those is a one-line
+ * change away at all times, and each would look like a working feature until
+ * an editor noticed the shot had moved.
  */
 
 /** Enough of an MP4 for the parts SEED reads: brand, duration, coded size. */
@@ -57,8 +58,8 @@ function fakeMp4(width: number, height: number, seconds: number): Buffer {
  * fetchable URL for video and says which four settings are missing when there
  * is none. That is correct and worth keeping, so rather than weakening a
  * double to dodge it, these tests stand up somewhere for the upload to go. The
- * presigned URL that comes back is never fetched: the doubles record the
- * request and do not resolve it.
+ * presigned URL that comes back is never fetched: the double records the
+ * request and does not resolve it.
  */
 async function stubBucket(): Promise<{ endpoint: string; close: () => Promise<void> }> {
   const server: Server = createServer((req, res) => {
@@ -86,60 +87,18 @@ function hosting(endpoint: string): Record<string, string> {
 }
 
 /**
- * A stand-in for the measured lane that records what it was asked for.
+ * Seedance, declared the way the real adapter declares itself, recording what
+ * it was asked for.
  *
- * Declares itself the way Topaz does — one clip, no images, no seed, no sizes
- * — so the capability check it passes here is the same one the real adapter
- * has to pass.
+ * The id prefix matters: the route finds its provider by looking for one that
+ * starts with `seedance`, because that is what `seedanceProviderId` builds and
+ * a registry may hold several.
  */
-class RecordingUpscaler implements GenerationProvider {
-  readonly id = "topaz-upscale";
-  readonly seen: VideoGenerationRequest[] = [];
-
-  async capabilities(): Promise<ProviderCapabilities> {
-    return {
-      id: this.id,
-      displayName: "Recording Upscaler",
-      models: ["fal-ai/topaz/upscale/video"],
-      operations: ["video.generate"],
-      textToImage: false,
-      imageToImage: false,
-      maxImageReferences: 0,
-      stableImageReferences: 0,
-      addressing: ["hosted-url"],
-      nativeGrouping: false,
-      requiresBindingText: false,
-      mentionSyntax: "positional-en",
-      supportsNegativePrompt: false,
-      textToVideo: false,
-      imageToVideo: false,
-      videoReferences: true,
-      startEndFrames: false,
-      framesExcludeReferences: false,
-      audioReferences: false,
-      generatesAudio: false,
-      outputFormats: [],
-      seed: false,
-      sizes: [],
-      aspectRatios: [],
-      async: true,
-    };
-  }
-
-  async generateVideo(request: VideoGenerationRequest): Promise<ProviderJob> {
-    this.seen.push(request);
-    return { providerJobId: `up_${this.seen.length}`, state: { status: "queued" } };
-  }
-
-  async getJob(): Promise<ProviderJobState> {
-    return { status: "running" };
-  }
-}
-
-/** The generated lane, declared the way Seedance is: takes a clip, has sizes. */
 class RecordingSeedance implements GenerationProvider {
   readonly id = "seedance-test";
   readonly seen: VideoGenerationRequest[] = [];
+
+  constructor(private readonly videoReferences = true) {}
 
   async capabilities(): Promise<ProviderCapabilities> {
     return {
@@ -158,7 +117,7 @@ class RecordingSeedance implements GenerationProvider {
       supportsNegativePrompt: false,
       textToVideo: true,
       imageToVideo: true,
-      videoReferences: true,
+      videoReferences: this.videoReferences,
       startEndFrames: true,
       framesExcludeReferences: true,
       audioReferences: false,
@@ -184,28 +143,27 @@ class RecordingSeedance implements GenerationProvider {
 
 interface Harness {
   service: TestService;
-  upscaler: RecordingUpscaler;
   seedance: RecordingSeedance;
   clipId: string;
   close: () => Promise<void>;
 }
 
-async function harness(): Promise<Harness> {
-  const upscaler = new RecordingUpscaler();
-  const seedance = new RecordingSeedance();
-  const registry = new ProviderRegistry()
-    .register(new MockImageProvider({ latencyMs: 0, sizes: ["64x64"] }))
-    .register(upscaler)
-    .register(seedance);
-
+async function harness(
+  options: { seedance?: RecordingSeedance } = {},
+): Promise<Harness> {
+  const seedance = options.seedance ?? new RecordingSeedance();
   const bucket = await stubBucket();
-  const service = await startTestService({ registry, env: hosting(bucket.endpoint) });
+  const service = await startTestService({
+    registry: new ProviderRegistry()
+      .register(new MockImageProvider({ latencyMs: 0, sizes: ["64x64"] }))
+      .register(seedance),
+    env: hosting(bucket.endpoint),
+  });
 
   const clipId = await adoptClip(service, "newsreel 1936.mp4");
 
   return {
     service,
-    upscaler,
     seedance,
     clipId,
     close: async () => {
@@ -247,26 +205,26 @@ async function seen(count: number, of: { seen: unknown[] }): Promise<void> {
 }
 
 describe("the restoration catalogue", () => {
-  it("says what each lane can promise, per treatment", async () => {
+  it("hands over what each treatment can promise, not just its name", async () => {
     const { service, close } = await harness();
     try {
       const response = await service.call("/v1/restore/presets");
       expect(response.status).toBe(200);
       const { presets } = await readJson(response);
 
-      const colourise = presets.find((p: { treatment: string }) => p.treatment === "colourise");
-      // Colour has to be invented, so there is no measured lane to offer.
-      expect(colourise.lanes.map((l: { lane: string }) => l.lane)).toEqual(["generated"]);
-
-      const detail = presets.find((p: { treatment: string }) => p.treatment === "detail");
-      expect(detail.lanes.map((l: { lane: string }) => l.lane)).toEqual([
-        "measured",
-        "generated",
+      expect(presets.map((p: { treatment: string }) => p.treatment)).toEqual([
+        "detail",
+        "clean",
+        "repair",
+        "colourise",
       ]);
-      // The measured lane cannot read a note, and says so through takesNote
-      // rather than accepting one and discarding it.
-      expect(detail.lanes[0].takesNote).toBe(false);
-      expect(detail.lanes[1].takesNote).toBe(true);
+
+      // The fidelity line is the sentence an editor reads before committing a
+      // shot to a cut, so the service is its single author.
+      const colourise = presets.find(
+        (p: { treatment: string }) => p.treatment === "colourise",
+      );
+      expect(colourise.fidelity).toMatch(/invents colour/i);
     } finally {
       await close();
     }
@@ -275,18 +233,16 @@ describe("the restoration catalogue", () => {
 
 describe("restoring a clip", () => {
   it("sends no duration and no aspect, so the result follows the footage", async () => {
-    const { service, seedance, clipId, close } = await harness();
+    const { seedance, clipId, service, close } = await harness();
     try {
       const response = await restore(service, {
         sourceAssetId: clipId,
         treatments: ["colourise"],
-        lanes: ["generated"],
       });
       expect(response.status).toBe(202);
       await seen(1, seedance);
 
       const request = seedance.seen[0];
-      expect(request).toBeDefined();
       /*
        * The whole guarantee. Ark reads a reference clip with no stated
        * duration as an edit and sends `duration: -1`, which makes the output
@@ -301,13 +257,9 @@ describe("restoring a clip", () => {
   });
 
   it("hands the clip over as a reference and never as a first frame", async () => {
-    const { service, seedance, clipId, close } = await harness();
+    const { seedance, clipId, service, close } = await harness();
     try {
-      await restore(service, {
-        sourceAssetId: clipId,
-        treatments: ["repair"],
-        lanes: ["generated"],
-      });
+      await restore(service, { sourceAssetId: clipId, treatments: ["repair"] });
       await seen(1, seedance);
 
       const request = seedance.seen[0];
@@ -322,13 +274,9 @@ describe("restoring a clip", () => {
   });
 
   it("upscales by asking for the best tier rather than the provider default", async () => {
-    const { service, seedance, clipId, close } = await harness();
+    const { seedance, clipId, service, close } = await harness();
     try {
-      await restore(service, {
-        sourceAssetId: clipId,
-        treatments: ["detail"],
-        lanes: ["generated"],
-      });
+      await restore(service, { sourceAssetId: clipId, treatments: ["detail"] });
       await seen(1, seedance);
 
       // Seedance's own default is the bottom of the ladder, which would make a
@@ -339,128 +287,39 @@ describe("restoring a clip", () => {
     }
   });
 
-  it("runs one job per treatment per lane, and names them all", async () => {
-    const { service, upscaler, seedance, clipId, close } = await harness();
+  it("runs one job per treatment, and names them all", async () => {
+    const { seedance, clipId, service, close } = await harness();
     try {
       const response = await restore(service, {
         sourceAssetId: clipId,
-        treatments: ["detail", "clean"],
-        lanes: ["measured", "generated"],
+        treatments: ["detail", "clean", "repair", "colourise"],
       });
       expect(response.status).toBe(202);
 
-      const { started, skipped } = await readJson(response);
-      expect(started).toHaveLength(4);
-      expect(skipped).toHaveLength(0);
-      await seen(2, upscaler);
-      await seen(2, seedance);
-
-      // Every pair is identified, which is what makes four progress bars a
-      // comparison rather than a grid.
-      expect(
-        started
-          .map(
-            (entry: { treatment: string; lane: string }) =>
-              `${entry.treatment}/${entry.lane}`,
-          )
-          .sort(),
-      ).toEqual([
-        "clean/generated",
-        "clean/measured",
-        "detail/generated",
-        "detail/measured",
-      ]);
-    } finally {
-      await close();
-    }
-  });
-
-  it("skips the combinations that cannot exist rather than refusing the lot", async () => {
-    const { service, upscaler, seedance, clipId, close } = await harness();
-    try {
-      const response = await restore(service, {
-        sourceAssetId: clipId,
-        treatments: ["detail", "colourise"],
-        lanes: ["measured", "generated"],
-      });
-      expect(response.status).toBe(202);
-
-      const { started, skipped } = await readJson(response);
-      /*
-       * Asking for everything is one gesture in the panel, and colour cannot
-       * be measured. Refusing the whole request over one empty cell of the
-       * grid would make the obvious gesture the wrong one.
-       */
-      expect(started).toHaveLength(3);
-      expect(skipped).toHaveLength(1);
-      expect(skipped[0].treatment).toBe("colourise");
-      expect(skipped[0].lane).toBe("measured");
-      expect(skipped[0].reason).toMatch(/invent/);
-
-      await seen(1, upscaler);
-      await seen(2, seedance);
-    } finally {
-      await close();
-    }
-  });
-
-  it("refuses only when nothing at all could run, and says why", async () => {
-    const { service, clipId, close } = await harness();
-    try {
-      const response = await restore(service, {
-        sourceAssetId: clipId,
-        treatments: ["colourise"],
-        lanes: ["measured"],
-      });
-      expect(response.status).toBe(400);
-      const body = await readJson(response);
-      expect(body.error.message).toMatch(/invent/);
-    } finally {
-      await close();
-    }
-  });
-
-  it("carries no prompt to the measured lane, and says so in the recipe", async () => {
-    const { service, upscaler, clipId, close } = await harness();
-    try {
-      const response = await restore(service, {
-        sourceAssetId: clipId,
-        treatments: ["clean"],
-        lanes: ["measured"],
-        note: "this note has nowhere to go",
-        upscaleFactor: 4,
-      });
       const { started } = await readJson(response);
-      await seen(1, upscaler);
+      expect(started).toHaveLength(4);
+      await seen(4, seedance);
 
-      // The adapter is handed the factor and the treatment, not words.
-      expect(upscaler.seen[0]?.parameters?.seedRestore).toBe("clean");
-      expect(upscaler.seen[0]?.parameters?.upscaleFactor).toBe(4);
+      // Every pass is identified, which is what makes four progress bars a
+      // comparison rather than a row.
+      expect(
+        started.map((entry: { treatment: string }) => entry.treatment),
+      ).toEqual(["detail", "clean", "repair", "colourise"]);
 
-      /*
-       * The recipe still needs a prompt field — an empty one reads as a bug —
-       * so it holds a sentence saying none was sent. It must not hold anything
-       * that looks like an instruction, and it must not hold the note.
-       */
-      const generation = await service.call(
-        `/v1/generations/${started[0].job.generation.id}`,
-      );
-      const record = await readJson(generation);
-      expect(record.generation.prompt).toMatch(/No prompt is sent/);
-      expect(record.generation.prompt).not.toContain("nowhere to go");
-      expect(record.generation.parameters.seedRestoreNote).toBeUndefined();
+      // Four different prompts, not one repeated — each treatment excludes the
+      // others explicitly or the passes could not be compared.
+      expect(new Set(seedance.seen.map((request) => request.prompt)).size).toBe(4);
     } finally {
       await close();
     }
   });
 
-  it("records the treatment, the lane and the source so a pass can be found again", async () => {
-    const { service, clipId, close } = await harness();
+  it("records the treatment and the source so a pass can be found again", async () => {
+    const { clipId, service, close } = await harness();
     try {
       const response = await restore(service, {
         sourceAssetId: clipId,
         treatments: ["colourise"],
-        lanes: ["generated"],
         note: "Manchester, 1936",
       });
       const { started } = await readJson(response);
@@ -471,7 +330,6 @@ describe("restoring a clip", () => {
       const record = (await readJson(generation)).generation;
 
       expect(record.parameters.seedRestore).toBe("colourise");
-      expect(record.parameters.seedRestoreLane).toBe("generated");
       expect(record.parameters.seedRestoreSource).toBe(clipId);
       expect(record.parameters.seedRestoreNote).toBe("Manchester, 1936");
       // The note reaches the model framed as information, not as an order.
@@ -501,66 +359,87 @@ describe("restoring a clip", () => {
       const response = await restore(service, {
         sourceAssetId: asset.id,
         treatments: ["detail"],
-        lanes: ["measured"],
       });
       expect(response.status).toBe(400);
-      const body = await readJson(response);
-      expect(body.error.message).toMatch(/work area/);
+      expect((await readJson(response)).error.message).toMatch(/work area/);
     } finally {
       await close();
     }
   });
 
-  it("says which key is missing when a lane is not configured", async () => {
-    // Only the generated lane exists here — no upscaler was registered, which
-    // is what an install with no fal key looks like.
-    const seedance = new RecordingSeedance();
+  it("says which key is missing when there is no Seedance at all", async () => {
     const bucket = await stubBucket();
     const service = await startTestService({
-      registry: new ProviderRegistry()
-        .register(new MockImageProvider({ latencyMs: 0, sizes: ["64x64"] }))
-        .register(seedance),
+      registry: new ProviderRegistry().register(
+        new MockImageProvider({ latencyMs: 0, sizes: ["64x64"] }),
+      ),
       env: hosting(bucket.endpoint),
     });
     try {
       const clipId = await adoptClip(service, "reel.mp4");
-
       const response = await restore(service, {
         sourceAssetId: clipId,
         treatments: ["detail"],
-        lanes: ["measured", "generated"],
       });
-      expect(response.status).toBe(202);
-
-      const { started, skipped } = await readJson(response);
-      expect(started).toHaveLength(1);
+      expect(response.status).toBe(422);
       // Naming the key beats "provider not found": the artist can act on one.
-      expect(skipped[0].reason).toMatch(/FAL_KEY/);
+      expect((await readJson(response)).error.message).toMatch(/ARK_API_KEY/);
     } finally {
       await service.close();
       await bucket.close();
     }
   });
+
+  it("refuses before starting anything when the provider cannot take a clip", async () => {
+    const { service, clipId, seedance, close } = await harness({
+      seedance: new RecordingSeedance(false),
+    });
+    try {
+      const response = await restore(service, {
+        sourceAssetId: clipId,
+        treatments: ["detail", "clean"],
+      });
+      /*
+       * Caught at the route rather than left to the generation service, which
+       * would refuse each job separately and leave two failed renders in the
+       * history for a request that was never going to work.
+       */
+      expect(response.status).toBe(422);
+      expect((await readJson(response)).error.message).toMatch(/as a reference/);
+      expect(seedance.seen).toHaveLength(0);
+
+      const jobs = await readJson(await service.call("/v1/jobs"));
+      expect(jobs.jobs).toHaveLength(0);
+    } finally {
+      await close();
+    }
+  });
 });
 
 describe("what a clip costs against a provider's budget", () => {
-  it("lets a video-reference provider take a clip while declaring no image references", async () => {
+  it("counts a clip against video references, not the image budget", async () => {
     /*
-     * Topaz and Reframe both take exactly one clip and no images, so they
-     * declare `maxImageReferences: 0`. Counting every input against that image
-     * budget refused the clip before the adapter that wanted it ever ran —
-     * true of Reframe from the day it was registered, and found here because
-     * restoration is built entirely on video references.
+     * `maxImageReferences` is an *image* count. Counting every input against
+     * it made a video-reference provider unusable: Reframe takes exactly one
+     * clip and no images, so it declares zero — and a single clip was then
+     * refused here, before the adapter that wanted it ever ran. True from the
+     * day Reframe was registered, and found because restoration is built
+     * entirely on video references.
      */
-    const { service, upscaler, clipId, close } = await harness();
+    const noImages = new (class extends RecordingSeedance {
+      override async capabilities(): Promise<ProviderCapabilities> {
+        return { ...(await super.capabilities()), maxImageReferences: 0 };
+      }
+    })();
+
+    const { service, clipId, close } = await harness({ seedance: noImages });
     try {
       const response = await restore(service, {
         sourceAssetId: clipId,
         treatments: ["detail"],
-        lanes: ["measured"],
       });
       expect(response.status).toBe(202);
-      await seen(1, upscaler);
+      await seen(1, noImages);
     } finally {
       await close();
     }
@@ -575,7 +454,6 @@ describe("what a clip costs against a provider's budget", () => {
     });
     try {
       const clipId = await adoptClip(service, "reel.mp4");
-
       const response = await service.call("/v1/generations", {
         method: "POST",
         body: JSON.stringify({
@@ -587,11 +465,9 @@ describe("what a clip costs against a provider's budget", () => {
         }),
       });
       expect(response.status).toBe(422);
-      const body = await readJson(response);
-      expect(body.error.message).toMatch(/does not take a clip/);
+      expect((await readJson(response)).error.message).toMatch(/does not take a clip/);
     } finally {
       await service.close();
     }
   });
 });
-
