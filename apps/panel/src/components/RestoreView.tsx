@@ -130,6 +130,17 @@ export function RestoreView({
   const provider = restorers.find((entry) => entry.id === providerId);
   const tier = bestTier(provider?.sizes ?? []);
 
+  /*
+   * Seedance takes 4 to 30 seconds and refuses anything else at submit.
+   * A restoration cannot get around it by asking for a different length —
+   * the length follows the clip, which is the entire point — so the only fix
+   * is a different span of footage, and saying so here costs nothing where
+   * finding out from the provider costs a round trip per treatment.
+   */
+  const length = source?.durationSeconds;
+  const tooShort = length !== undefined && length < 4;
+  const tooLong = length !== undefined && length > 30;
+
   const chosen = presets.filter((preset) => treatments.has(preset.treatment));
 
   function toggle(treatment: RestoreTreatment) {
@@ -170,7 +181,13 @@ export function RestoreView({
   }
 
   const blocked =
-    !source || treatments.size === 0 || provider === undefined || busy || starting;
+    !source ||
+    treatments.size === 0 ||
+    provider === undefined ||
+    tooShort ||
+    tooLong ||
+    busy ||
+    starting;
 
   return (
     <>
@@ -232,6 +249,16 @@ export function RestoreView({
             {source ? (
               <div className="variant" style={{ marginTop: 6 }}>
                 <AssetImage client={client} asset={source} variant="thumbnail" />
+              </div>
+            ) : null}
+
+            {tooShort || tooLong ? (
+              <div className="hint warn" style={{ marginTop: 6 }}>
+                Seedance takes <b>4 to 30 seconds</b> and this clip is{" "}
+                {length?.toFixed(1)}s. The restored length follows the footage,
+                so it cannot be asked for — capture a{" "}
+                {tooLong ? "shorter" : "longer"} range instead. A long shot has
+                to be restored in pieces.
               </div>
             ) : null}
           </>
