@@ -212,6 +212,59 @@ sent. `seedRestoreLook` records it verbatim on the generation.
 and in one bad result, not in an A/B. The claim is "the prompt now has the
 shape the model is documented to read", not "the output is better".
 
+## 2.0 adds grain, not detail — measured 2026-09-01
+
+Johannes: *"the run with 2.0 again did not add any detail."* He was right, and
+the earlier "+58% over a plain upscale" was a bad measurement quoted too
+confidently. Measuring the whole frame cannot tell detail from grain, and the
+`detail` preset asks for "fine-grained 35mm colour negative".
+
+Split by region — a featureless sky, where nothing exists to recover, against
+the aircraft, where there is real structure. Same field of view, both rendered
+at 960x540, mean absolute horizontal gradient:
+
+| | sky | aircraft |
+| --- | --- | --- |
+| source, upscaled to 4K | 0.072 | 1.132 |
+| seedance-2-0 at 4K | 0.259 | 1.370 |
+| | **+260%** | **+21%** |
+
+Nothing in a sky can be *resolved*, so the whole of that +260% is grain the
+model painted on. Grain lands across the frame, so most of the aircraft's +21%
+is the same grain. Subtracting the grain floor leaves roughly **+4%** of real
+resolved detail — noise.
+
+**How to measure this properly:** always compare a flat region against a
+detailed one, and always against the source *upscaled to the output size*.
+Whole-frame sharpness metrics reward added texture and cannot distinguish it
+from recovered information.
+
+## The latitude slider, and what it is not
+
+There is **no API parameter weighting a reference video**. Ark documents the
+roles `first_frame`, `last_frame`, `reference_image`, `reference_video` and
+`reference_audio`, and nothing that says how strongly one is followed —
+checked against BytePlus's docs and our own probe notes on 2026-09-01.
+
+So the slider is prompt strength and the panel says so. Three bands:
+
+- **Faithful (0–33)** — "reproduce every surface, marking and face exactly...
+  nothing is reinterpreted, only rendered better"
+- **Balanced (34–66, default)** — "recognisably itself... resolve it the way
+  the scene plainly implies rather than inventing something new"
+- **Free (67–100)** — "treat the reference as the staging, the camera and the
+  action; reinterpret surfaces, materials and light freely"
+
+**Framing, camera, cuts and timing are held at every setting.** Letting those
+go at the top of the range would make it an ordinary generation with a clip
+attached — which the Generate tab already is — and would risk Ark refusing
+`duration: -1`, the only thing tying the output to the source.
+
+The slider exists because of the grain finding: if the faithful end can only
+add texture, the honest question is whether the free end buys real invented
+detail, and that is a creative choice belonging to the artist rather than a
+default we pick.
+
 ## Open questions
 
 - No measurement yet of whether Seedance's reference-video mode holds a face

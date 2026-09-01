@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { DEFAULT_FREEDOM, latitudeFor } from "@seed-ae/domain";
 import type { Asset, RestorePresetId } from "@seed-ae/domain";
 import type {
   JobView,
@@ -82,6 +83,8 @@ export function RestoreView({
    */
   const [preset, setPreset] = useState<RestorePresetId>("detail");
   const [look, setLook] = useState("");
+  /** How far the render may depart from the source. Prompt strength only. */
+  const [freedom, setFreedom] = useState(DEFAULT_FREEDOM);
   /** So choosing a preset does not silently discard words already typed. */
   const [edited, setEdited] = useState(false);
   const [note, setNote] = useState("");
@@ -219,6 +222,7 @@ export function RestoreView({
         sourceAssetId: source.id,
         look: look.trim(),
         preset,
+        freedom,
         ...(providerId ? { providerId } : {}),
         ...(note.trim() ? { note: note.trim() } : {}),
         ...(activeProject ? { project: activeProject } : {}),
@@ -359,6 +363,38 @@ export function RestoreView({
             setLook(event.target.value);
           }}
         />
+        <Field
+          label={`Latitude — ${latitudeFor(freedom).label}`}
+          hint="how far the render may depart from the footage"
+        >
+          <input
+            type="range"
+            min={0}
+            max={100}
+            step={1}
+            value={freedom}
+            onChange={(event) => setFreedom(Number(event.target.value))}
+            style={{ width: "100%" }}
+          />
+        </Field>
+        <div
+          className="hint faint"
+          style={{ display: "flex", justifyContent: "space-between", marginTop: -2 }}
+        >
+          <span>same picture, resolved</span>
+          <span>freely reinterpreted</span>
+        </div>
+        <div className="hint faint">
+          {latitudeFor(freedom).text}
+        </div>
+        <div className="hint faint">
+          Framing, camera and timing are held at <b>every</b> setting — this
+          changes how freely the <i>picture</i> is rendered, not the shot. It
+          works by rewording the prompt: Ark publishes no weight for a
+          reference video, so there is no dial underneath this and it would be
+          dishonest to draw one.
+        </div>
+
         <div className="hint faint">
           This text goes to the model as written, between a line holding the
           shot to the reference and a closing line about stability. Say what to{" "}

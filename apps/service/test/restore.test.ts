@@ -317,6 +317,44 @@ describe("restoring a clip", () => {
     }
   });
 
+  it("carries the latitude setting into the prompt and the recipe", async () => {
+    const { seedance, clipId, service, close } = await harness();
+    try {
+      const response = await restore(service, {
+        sourceAssetId: clipId,
+        look: "35mm colour negative, enormous surface detail",
+        freedom: 100,
+      });
+      const { started } = await readJson(response);
+      await seen(1, seedance);
+
+      // A slider wired to nothing is indistinguishable from one that works,
+      // so the wording it selects is asserted rather than assumed.
+      expect(seedance.seen[0]?.prompt).toContain("Reinterpret the surfaces");
+
+      const generation = await service.call(
+        `/v1/generations/${started[0].job.generation.id}`,
+      );
+      const record = (await readJson(generation)).generation;
+      // Recorded, because a render that came back wrong is only debuggable if
+      // the setting that produced it survived.
+      expect(record.parameters.seedRestoreFreedom).toBe(100);
+    } finally {
+      await close();
+    }
+  });
+
+  it("defaults the latitude to the middle when the panel sends none", async () => {
+    const { seedance, clipId, service, close } = await harness();
+    try {
+      await restore(service, { sourceAssetId: clipId, look: "sharp, detailed" });
+      await seen(1, seedance);
+      expect(seedance.seen[0]?.prompt).toContain("recognisably itself");
+    } finally {
+      await close();
+    }
+  });
+
   it("leads with the anchor and closes with the stability line", async () => {
     const { seedance, clipId, service, close } = await harness();
     try {

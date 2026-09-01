@@ -1,4 +1,5 @@
 import {
+  DEFAULT_FREEDOM,
   RESTORE_ORDER,
   RESTORE_PRESETS,
   RestorePresetSchema,
@@ -54,6 +55,15 @@ const StartRestoreSchema = z.object({
   look: z.string().min(1).max(2000),
   /** Which preset it started from, recorded so a render can be found again. */
   preset: RestorePresetSchema.optional(),
+  /**
+   * How far the render may depart from the source, 0 to 100.
+   *
+   * Prompt strength, not an API parameter — Ark documents no weight for a
+   * reference video, and asserting one would be inventing a contract. It
+   * selects the latitude wording; the framing, camera and timing stay held at
+   * every value.
+   */
+  freedom: z.number().min(0).max(100).default(DEFAULT_FREEDOM),
   /** What the footage *is* — a period, a place, the colour of a uniform. */
   note: z.string().max(600).optional(),
   /** Defaults to the first Seedance the registry has. */
@@ -107,7 +117,10 @@ export function startRestoreRoute(deps: AppDeps) {
         providerId,
         ...(request.model ? { model: request.model } : {}),
         operation: "video.generate",
-        prompt: restorePrompt(request.look, request.note),
+        prompt: restorePrompt(request.look, {
+          freedom: request.freedom,
+          ...(request.note ? { note: request.note } : {}),
+        }),
         ...(request.seed !== undefined && capabilities.seed
           ? { seed: request.seed }
           : {}),
@@ -128,6 +141,7 @@ export function startRestoreRoute(deps: AppDeps) {
           seedRestore: request.preset ?? "custom",
           seedRestoreSource: source.id,
           seedRestoreLook: request.look,
+          seedRestoreFreedom: request.freedom,
           ...(request.note?.trim() ? { seedRestoreNote: request.note.trim() } : {}),
         },
       },

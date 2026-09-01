@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
+  DEFAULT_FREEDOM,
   RESTORE_ORDER,
   RESTORE_PRESETS,
+  latitudeFor,
   presetLook,
   restorePrompt,
 } from "../src/restore.js";
@@ -84,15 +86,25 @@ describe("the restoration prompt", () => {
     expect(prompt.trimEnd().endsWith("no invented objects or people.")).toBe(true);
   });
 
-  it("holds the things that must not move, and only those", () => {
-    const prompt = restorePrompt(presetLook("detail"));
-    for (const held of ["framing", "camera", "perspective", "cuts", "identity"]) {
-      expect(prompt.toLowerCase()).toContain(held);
+  it("holds framing, camera and timing at every setting of the slider", () => {
+    /*
+     * The slider controls how freely the picture may be rendered, never how
+     * freely the shot may be re-staged. Letting framing or timing loose at the
+     * top of the range would make it an ordinary generation with a clip
+     * attached — which the Generate tab already is — and would also risk Ark
+     * refusing `duration: -1`, the only thing tying the result to the source.
+     */
+    for (const freedom of [0, 25, 50, 75, 100]) {
+      const prompt = restorePrompt(presetLook("detail"), { freedom }).toLowerCase();
+      for (const held of ["framing", "camera", "perspective", "cuts", "timing"]) {
+        expect(prompt).toContain(held);
+      }
+      expect(prompt.startsWith("re-render this exact footage")).toBe(true);
     }
   });
 
   it("frames a note as background rather than an instruction", () => {
-    const prompt = restorePrompt(presetLook("colourise"), "RAF airfield, 1941");
+    const prompt = restorePrompt(presetLook("colourise"), { note: "RAF airfield, 1941" });
     expect(prompt).toContain("RAF airfield, 1941");
     /*
      * A note appended bare sits at the end of the prompt as the most recent
@@ -105,8 +117,8 @@ describe("the restoration prompt", () => {
 
   it("ignores a blank note rather than appending an empty clause", () => {
     const bare = restorePrompt(presetLook("clean"));
-    expect(restorePrompt(presetLook("clean"), "   ")).toBe(bare);
-    expect(restorePrompt(presetLook("clean"), "")).toBe(bare);
+    expect(restorePrompt(presetLook("clean"), { note: "   " })).toBe(bare);
+    expect(restorePrompt(presetLook("clean"), { note: "" })).toBe(bare);
   });
 
   it("sends the artist's own words when they have replaced the preset", () => {
@@ -115,5 +127,40 @@ describe("the restoration prompt", () => {
     const prompt = restorePrompt("grainy 16mm reversal, blown highlights");
     expect(prompt).toContain("grainy 16mm reversal");
     expect(prompt).not.toContain("35mm colour negative");
+  });
+});
+
+describe("the freedom slider", () => {
+  it("defaults to the middle, which is what an artist means by restore", () => {
+    expect(DEFAULT_FREEDOM).toBe(50);
+    expect(latitudeFor(DEFAULT_FREEDOM).label).toBe("Balanced");
+    // No argument is the same as the default, so the route and a bare call
+    // cannot drift apart.
+    expect(restorePrompt("x")).toBe(restorePrompt("x", { freedom: DEFAULT_FREEDOM }));
+  });
+
+  it("moves through three named bands and clamps outside them", () => {
+    expect(latitudeFor(0).label).toBe("Faithful");
+    expect(latitudeFor(33).label).toBe("Faithful");
+    expect(latitudeFor(34).label).toBe("Balanced");
+    expect(latitudeFor(66).label).toBe("Balanced");
+    expect(latitudeFor(67).label).toBe("Free");
+    expect(latitudeFor(100).label).toBe("Free");
+    // A slider cannot send these, but a request can.
+    expect(latitudeFor(-40).label).toBe("Faithful");
+    expect(latitudeFor(9999).label).toBe("Free");
+  });
+
+  it("actually changes the prompt, rather than being a control that does nothing", () => {
+    const faithful = restorePrompt(presetLook("detail"), { freedom: 0 });
+    const balanced = restorePrompt(presetLook("detail"), { freedom: 50 });
+    const free = restorePrompt(presetLook("detail"), { freedom: 100 });
+    expect(new Set([faithful, balanced, free]).size).toBe(3);
+
+    // Faithful forbids reinterpretation outright; free invites it. That is the
+    // whole axis, and it is worth asserting because a slider wired to nothing
+    // is indistinguishable from a slider that works.
+    expect(faithful).toContain("nothing is reinterpreted");
+    expect(free).toContain("Reinterpret the surfaces");
   });
 });

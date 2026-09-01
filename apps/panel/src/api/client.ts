@@ -313,6 +313,8 @@ export class SeedClient {
     sourceAssetId: string;
     look: string;
     preset?: RestorePresetId;
+    /** 0 faithful .. 100 freely reinterpreted. Prompt strength, not an API knob. */
+    freedom?: number;
     note?: string;
     providerId?: string;
     size?: string;

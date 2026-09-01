@@ -58,20 +58,77 @@ export interface RestorePreset {
 }
 
 /**
- * What holds the result to the source.
+ * What always holds, at every setting of the slider.
  *
- * Short on purpose. Every clause is doing one of two jobs: keeping Ark's task
- * classification on "edit" so `duration: -1` is legal, or naming the specific
- * things that must not move. It is deliberately *not* a list of everything a
- * model might do wrong — that list was what crowded out the description of
- * what to make.
+ * Two jobs, and both are load-bearing. It keeps Ark's task classification on
+ * "edit" so `duration: -1` stays legal — which is the only thing tying the
+ * result to the source clip rather than letting it become a new shot of an
+ * arbitrary length — and it pins the staging, which is what makes a result
+ * recognisably the same footage however freely it is rendered.
+ *
+ * Deliberately *not* a list of everything a model might do wrong. That list
+ * was the original design and it crowded out the description of what to make.
  */
-const ANCHOR =
-  "Re-render this exact footage at far higher quality. The reference video is " +
-  "the shot: keep its framing, its camera position and movement, its lens and " +
-  "perspective, its cuts, and the identity, position and action of every " +
-  "person, aircraft, vehicle and object in it. Same shot, same performance, " +
-  "same timing — rendered as if it had been photographed properly.";
+const HOLD =
+  "Re-render this exact footage. The reference video is the shot: keep its " +
+  "framing, its camera position and movement, its lens and perspective, its " +
+  "cuts, its timing, and the position and staging of every person, aircraft, " +
+  "vehicle and object in it.";
+
+/**
+ * How far the render may depart from the source — the slider.
+ *
+ * **There is no API parameter for this.** Ark documents `first_frame`,
+ * `last_frame`, `reference_image`, `reference_video` and `reference_audio`,
+ * and nothing that weights how strongly a reference is followed. Checked
+ * against BytePlus's own docs and against our probe notes on 2026-09-01. So
+ * this is prompt strength and only prompt strength, and the panel says so:
+ * calling it "reference weight" would imply a knob that does not exist.
+ *
+ * Three bands rather than a continuous blend, because a prompt is text and
+ * there is nothing to interpolate. The numbers exist so the control can be a
+ * slider — which is the right shape for the artist, since the thing being
+ * chosen genuinely is a single axis from faithful to free.
+ *
+ * The top of the range stops short of "a new shot". Framing and timing stay
+ * held at every setting: a version that let those go would be an ordinary
+ * generation with a clip attached, which is what the Generate tab already is.
+ */
+const LATITUDE: ReadonlyArray<{ upTo: number; label: string; text: string }> = [
+  {
+    upTo: 33,
+    label: "Faithful",
+    text:
+      "Reproduce every surface, material, marking, garment and face exactly " +
+      "as it appears in the reference. This is the same picture, only " +
+      "properly resolved — nothing is reinterpreted, only rendered better.",
+  },
+  {
+    upTo: 66,
+    label: "Balanced",
+    text:
+      "Keep every subject, material and marking recognisably itself, and " +
+      "render it with the detail and clarity the original could not hold. " +
+      "Where the footage is too degraded to read, resolve it the way the " +
+      "scene plainly implies rather than inventing something new.",
+  },
+  {
+    upTo: 100,
+    label: "Free",
+    text:
+      "Treat the reference as the staging, the camera and the action. " +
+      "Reinterpret the surfaces, materials, textures and light freely to " +
+      "achieve the look described, as though the same scene had been shot " +
+      "again on far better equipment. Subjects stay who and what they are.",
+  },
+];
+
+/** Which band a slider position falls in. */
+export function latitudeFor(freedom: number): { label: string; text: string } {
+  const clamped = Math.min(Math.max(freedom, 0), 100);
+  const band = LATITUDE.find((entry) => clamped <= entry.upTo) ?? LATITUDE[LATITUDE.length - 1]!;
+  return { label: band.label, text: band.text };
+}
 
 /**
  * The published closing constraint line.
@@ -149,21 +206,25 @@ export const RESTORE_ORDER: RestorePresetId[] = [
 /**
  * The prompt, in the order Seedance is documented to read.
  *
- * Anchor (what this is and what must not move), then the look (what to make),
- * then what the artist knows about the footage, then the stability tail. The
- * artist's own words go in the middle where they carry the most weight — not
- * at the end, where a bare appended sentence reads as the most recent and most
+ * Hold (what this is and what must not move), how far it may depart, the look
+ * to render, what the artist knows about the footage, then the stability tail.
+ * The artist's own words sit in the middle where they carry weight — not at
+ * the end, where a bare appended sentence reads as the most recent and most
  * specific instruction and can override everything above it.
  */
-export function restorePrompt(look: string, note?: string): string {
+export function restorePrompt(
+  look: string,
+  options: { freedom?: number; note?: string } = {},
+): string {
   const wanted = look.trim();
-  const about = (note ?? "").trim();
+  const about = (options.note ?? "").trim();
 
   return [
-    ANCHOR,
+    HOLD,
+    latitudeFor(options.freedom ?? DEFAULT_FREEDOM).text,
     wanted,
     about
-      ? `About this footage, as background for the render rather than an ` +
+      ? "About this footage, as background for the render rather than an " +
         `instruction to change it: ${about}`
       : "",
     TAIL,
@@ -171,6 +232,9 @@ export function restorePrompt(look: string, note?: string): string {
     .filter(Boolean)
     .join(" ");
 }
+
+/** Half and half, which is what an artist means by "restore this". */
+export const DEFAULT_FREEDOM = 50;
 
 /** The look a preset starts the artist off with. */
 export function presetLook(id: RestorePresetId): string {
