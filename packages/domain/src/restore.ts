@@ -1,213 +1,178 @@
 import { z } from "zod";
 
 /**
- * Restoration — an archive clip made usable, with nothing invented.
+ * Restoration — crappy footage re-rendered at the quality it should have had.
  *
- * This is the opposite of everything else SEED asks a model for. A generation
- * is wanted to be surprising; a restoration must not be. The footage is
- * evidence: a documentary cannot ship a shot where the model gave a man a
- * different coat, moved a sign, or smoothed a face into someone else. So the
- * whole design here is about *removing* the model's freedom rather than
- * steering it.
+ * This started as a prohibition engine: a long paragraph forbidding every way a
+ * video model helpfully ruins archive, and nothing else. It did not work, and
+ * BytePlus's own prompt guidance says why (see docs/research/PROMPT_CRAFT.md):
  *
- * The engine is Seedance, with the clip attached as a **reference video**. That
- * is a deliberate choice over a dedicated upscaler, and it comes with a
- * trade-off worth stating plainly rather than burying:
+ *   - **Seedance reads a prompt as a spatial layer and a temporal one.** The
+ *     old prompt was pure prohibition, so the temporal layer had nothing to
+ *     follow — and a model with nothing to follow invents motion. Measured on
+ *     a real airfield clip: the detail was better in places and the *animation
+ *     was wrong*, which is exactly the shape of that failure.
+ *   - **A model given only prohibitions has no positive objective.**
+ *     "Reproduce exactly, change nothing, do not improve" is close to a null
+ *     instruction, and we spent the entire prompt suppressing the machinery
+ *     that produces quality in the first place.
+ *   - **Constraints are published as a short closing tail**, not an opening
+ *     wall. We had the shape inverted.
  *
- *   - An upscaler cannot drift, because it has no prompt to drift with. But it
- *     also cannot invent, so it can never colourise and can never paint out a
- *     scratch — and on badly degraded material it sharpens the damage along
- *     with the picture, because it does not know which is which.
- *   - Seedance can do all of it, because it recognises what it is looking at.
- *     It can also decide to improve the shot, which is the failure mode this
- *     module exists to prevent.
+ * So the prompt now leads with what to *make*. The artist describes the look
+ * they want — the stock, the optics, the grain, the palette — the reference
+ * clip supplies framing, camera and action, and a single closing line holds
+ * the shot to it. The old wall of "do not" is gone.
  *
- * Two things hold it. The prompts below, which are almost entirely
- * prohibition; and — more reliably — what the request *omits*. A reference
- * clip sent with no duration and no aspect ratio makes Ark treat the job as an
- * edit, and the output then follows the input's length and framing exactly.
- * The prompt argues; the omission binds.
- *
- * Even so: this lane can drift, and the `fidelity` line on each treatment says
- * where to look when it does. Nothing here is a guarantee, and the panel must
- * never present it as one.
+ * One deliberate carry-over. Ark classifies a request carrying a reference
+ * video by what the prompt asks for, and only an *edit* is allowed
+ * `duration: -1`, which is what keeps the result attached to the source clip
+ * rather than becoming a new shot of an arbitrary length. `ANCHOR` below is
+ * what holds that classification, so it stays first and stays worded as an
+ * edit of existing footage. Rewriting it into "a beautiful shot of ..." would
+ * quietly turn every restoration into a fresh generation.
  */
 
-export const RestoreTreatmentSchema = z.enum([
+/** A starting point for the look, not a hidden prompt. The artist edits it. */
+export const RestorePresetSchema = z.enum([
   "detail",
-  "clean",
   "colourise",
-  "repair",
+  "monochrome",
+  "clean",
 ]);
-export type RestoreTreatment = z.infer<typeof RestoreTreatmentSchema>;
+export type RestorePresetId = z.infer<typeof RestorePresetSchema>;
 
 export interface RestorePreset {
-  treatment: RestoreTreatment;
-  /** What it is called in the panel. */
+  id: RestorePresetId;
   label: string;
-  /** One line, for the artist deciding whether they want it. */
+  /** One line, for the artist choosing between them. */
   purpose: string;
   /**
-   * How far it can be trusted, and where to look when it fails.
+   * The text dropped into the Look field.
    *
-   * Separate from `purpose` because the two answer different questions: what
-   * it does, and whether the result can go in a cut without a caption. An
-   * editor working with archive needs the second one before they commit a
-   * shot, so it is shown on screen rather than kept in a doc.
+   * Editable on arrival, which is the point: these are openings, not presets
+   * in the sense of settings. The artist knows what the footage is and we do
+   * not, and their vocabulary is load-bearing per CLAUDE.md.
    */
-  fidelity: string;
-  /** The prompt, minus anything shot-specific. */
-  prompt: string;
+  look: string;
 }
 
 /**
- * The opening every restoration carries.
+ * What holds the result to the source.
  *
- * Longer and blunter than the render-pass equivalent, and deliberately so.
- * A pass wants the model to *reinterpret* the plate into another domain; a
- * restoration wants it to change nothing but the quality of the recording.
- * Everything a generative video model does by instinct — reframing, re-timing,
- * improving a composition, making a face more attractive, tidying a background
- * — is a failure here, so each one is named. A model left to infer what
- * "restore" means will helpfully make a better shot, which is the wrong shot.
+ * Short on purpose. Every clause is doing one of two jobs: keeping Ark's task
+ * classification on "edit" so `duration: -1` is legal, or naming the specific
+ * things that must not move. It is deliberately *not* a list of everything a
+ * model might do wrong — that list was what crowded out the description of
+ * what to make.
  */
-const PIN =
-  "This is a RESTORATION of the reference footage, not a new shot and not a " +
-  "reinterpretation. Reproduce the reference exactly, frame for frame: " +
-  "identical framing, identical crop, identical camera position and camera " +
-  "movement, identical lens and perspective, identical timing and duration. " +
-  "Every person keeps their exact identity, face, age, build, hair, clothing " +
-  "and expression. Every object, vehicle, building, sign, item of text and " +
-  "background element stays exactly where it is and exactly what it is. " +
-  "Nothing enters the frame and nothing leaves it. Do not reframe, recrop, " +
-  "zoom, stabilise, re-time, slow down, speed up, restage, recompose, " +
-  "beautify, modernise, or improve the shot. Do not invent detail that the " +
-  "footage does not already imply. The result must intercut with the original " +
-  "as the same take. Change only the quality of the recording, as described " +
-  "below.";
+const ANCHOR =
+  "Re-render this exact footage at far higher quality. The reference video is " +
+  "the shot: keep its framing, its camera position and movement, its lens and " +
+  "perspective, its cuts, and the identity, position and action of every " +
+  "person, aircraft, vehicle and object in it. Same shot, same performance, " +
+  "same timing — rendered as if it had been photographed properly.";
 
-export const RESTORE_PRESETS: Record<RestoreTreatment, RestorePreset> = {
+/**
+ * The published closing constraint line.
+ *
+ * BytePlus document this as an always-append tail, and it is the one place
+ * prohibitions belong. Short, and about *stability* rather than content —
+ * which is what a re-render actually gets wrong.
+ */
+const TAIL =
+  "Stable faces and stable geometry throughout, fluid natural motion, " +
+  "consistent detail frame to frame, no flicker, no warping, no morphing, " +
+  "no invented objects or people.";
+
+export const RESTORE_PRESETS: Record<RestorePresetId, RestorePreset> = {
   detail: {
-    treatment: "detail",
-    label: "Detail",
-    purpose: "Resolve the detail that is already there, at higher resolution.",
-    fidelity:
-      "Usually holds the shot, and resolves detail an interpolator cannot " +
-      "because it recognises what it is looking at. Check faces and any text " +
-      "in frame — those are where it invents when it is unsure.",
-    prompt:
-      `${PIN} Resolve the detail that this footage already contains, and ` +
-      "nothing else. Recover fine texture the original recorded but could not " +
-      "hold: fabric weave and stitching, individual hairs, skin texture and " +
-      "pores, printed and painted lettering, brickwork, stonework, foliage, " +
-      "the grain of timber, the texture of road surfaces. Edges become " +
-      "genuinely sharp rather than haloed or outlined. Faces gain real skin " +
-      "texture and stay the same faces — same features, same age, same " +
-      "expression, never smoothed, never made younger or more attractive. " +
-      "Preserve the original tonality exactly: if the footage is black and " +
-      "white it stays black and white, with the same contrast, the same blacks " +
-      "and the same highlights. Add no colour whatsoever. Keep the film's own " +
-      "grain structure. Do not clean up damage, do not restyle, do not " +
-      "modernise, and do not add anything that is not already implied by the " +
-      "picture.",
-  },
-  clean: {
-    treatment: "clean",
-    label: "Clean up",
-    purpose: "Take out the noise, video hiss and compression artefacts.",
-    fidelity:
-      "Strongest on heavily compressed or badly telecined footage, where the " +
-      "damage is structured rather than random. Watch for it smoothing " +
-      "texture it decided was noise — skin is where that shows first.",
-    prompt:
-      `${PIN} Remove the noise and the artefacts of the recording, and ` +
-      "nothing else. Take out video hiss, chroma noise, dot crawl, " +
-      "rainbowing, tape dropout, blocking, banding, mosquito noise and " +
-      "compression smear. The picture underneath is left exactly as it is. " +
-      "Keep every piece of genuine texture — skin pores, fabric weave, grit, " +
-      "dust on surfaces, wood grain — and keep edges as sharp as they already " +
-      "are. Keep the film's own grain: grain is part of the recording, not a " +
-      "fault in it. Faces must not become smooth, waxy or plastic; a face with " +
-      "its texture removed is a worse result than a noisy one. Do not sharpen, " +
-      "do not colourise, do not repair scratches, and do not repaint any " +
-      "surface.",
-  },
-  repair: {
-    treatment: "repair",
-    label: "Repair damage",
-    purpose: "Scratches, dust, splices and flicker taken off the film.",
-    fidelity:
-      "Paints over physical damage, so what was hidden underneath is " +
-      "reconstructed rather than recovered. Reliable on dust and tramlines; " +
-      "check any frame where damage crossed a face.",
-    prompt:
-      `${PIN} Repair the physical damage to this film and nothing else. ` +
-      "Remove vertical scratches and tramlines, dust, hairs, dirt, sparkle, " +
-      "splice marks and frame joins, tears, mould, chemical staining and " +
-      "emulsion damage. Even out frame-to-frame flicker and exposure pumping " +
-      "so the brightness is steady. What lay beneath the damage is " +
-      "reconstructed from the surrounding frames and the surrounding picture, " +
-      "continuing what is already visible — never replaced with something new. " +
-      "Keep the film's own grain, its tonality, its contrast and its colour " +
-      "exactly as they are: a repaired frame still looks like film of its age, " +
-      "not like video. Do not sharpen, do not denoise, do not colourise, and " +
-      "do not touch any part of the frame that is undamaged.",
+    id: "detail",
+    label: "Maximum detail",
+    purpose: "Everything the footage should have resolved, and did not.",
+    look:
+      "Photographed on fine-grained 35mm colour negative with a sharp prime " +
+      "lens, scanned at high resolution. Enormous amounts of genuine surface " +
+      "detail: individual blades of grass, rivets and panel lines on metal, " +
+      "weave and stitching in fabric, individual hairs, real skin texture and " +
+      "pores, legible painted lettering and insignia, foliage resolved leaf by " +
+      "leaf. Crisp, well-focused edges with no haloing. Rich natural " +
+      "contrast, deep blacks, clean highlights, believable period colour.",
   },
   colourise: {
-    treatment: "colourise",
+    id: "colourise",
     label: "Colourise",
-    purpose: "Natural, period-plausible colour on black and white footage.",
-    fidelity:
-      "Invents colour, because nothing recorded it. The tones and the content " +
-      "are held to the original, but the colours are a plausible guess and " +
-      "should be described as such on screen.",
-    prompt:
-      `${PIN} Add natural, period-plausible colour to this monochrome ` +
-      "footage. Keep every tonal relationship exactly as it is: what is bright " +
-      "stays bright, what is dark stays dark, and no part of the frame changes " +
-      "exposure or contrast. Only hue and saturation are added. Skin tones are " +
-      "believable, varied and appropriate to the people shown. Skies, foliage, " +
-      "brick, stone, timber, painted metal, paper and fabric take the colours " +
-      "those materials plausibly had at the time and place of the footage. " +
-      "Colour is restrained and slightly muted, the way early colour stock " +
-      "records the world — not vivid, not saturated, not digitally graded, no " +
-      "teal-and-orange, no stylisation. Where the correct colour of something " +
-      "cannot be inferred, choose the most ordinary and unremarkable option " +
-      "rather than an interesting one. Do not add detail, do not sharpen, do " +
-      "not clean up damage, and do not change anything that is not colour.",
+    purpose: "Period-plausible colour on black and white footage.",
+    look:
+      "Photographed on period colour stock — Kodachrome, slightly muted, " +
+      "never vivid or digital. Believable, varied skin tones. Skies, foliage, " +
+      "brick, stone, timber, painted metal and fabric in the colours those " +
+      "materials plausibly had at the time and place shown. Natural daylight, " +
+      "restrained saturation, no teal-and-orange grading. Fine grain and " +
+      "abundant real surface detail throughout.",
+  },
+  monochrome: {
+    id: "monochrome",
+    label: "Black and white, detail only",
+    purpose: "Stays monochrome. Adds resolution and nothing else.",
+    look:
+      "Black and white throughout — no colour anywhere in frame. " +
+      "Photographed on fine-grained 35mm black and white negative with a " +
+      "sharp prime lens. A full tonal range: deep blacks, clean whites, " +
+      "detailed mid greys. Enormous genuine surface detail — fabric weave, " +
+      "metal panel lines and rivets, skin texture, individual hairs, legible " +
+      "lettering, grass and foliage resolved. Crisp focus, natural film grain.",
+  },
+  clean: {
+    id: "clean",
+    label: "Clean and repair",
+    purpose: "Damaged or noisy footage rendered as an undamaged print.",
+    look:
+      "A pristine first-generation print struck from an undamaged negative: " +
+      "smooth unblemished emulsion, an even and perfectly steady exposure, a " +
+      "clean continuous image edge to edge. Fine natural film grain, evenly " +
+      "distributed, the way a well-kept print of its era looks. Sharp focus " +
+      "and abundant real surface detail underneath — fabric weave, metal " +
+      "panel lines, skin texture, foliage, crisp legible lettering. Rich " +
+      "natural contrast with deep blacks and clean highlights.",
   },
 };
 
-/** Offered in this order: least invented first, most invented last. */
-export const RESTORE_ORDER: RestoreTreatment[] = [
+/** Offered in this order. Detail is what most footage needs. */
+export const RESTORE_ORDER: RestorePresetId[] = [
   "detail",
-  "clean",
-  "repair",
+  "monochrome",
   "colourise",
+  "clean",
 ];
 
 /**
- * The prompt for a treatment, with the artist's note about this footage.
+ * The prompt, in the order Seedance is documented to read.
  *
- * The note is framed as a constraint operating *inside* the restoration rather
- * than as an instruction of its own, which is the difference between "the coat
- * is army green" narrowing the guess and "make it cinematic" turning the shot
- * into something else. A note appended bare would sit at the end of the prompt
- * as the most recent and most specific instruction — which is the position
- * that wins.
+ * Anchor (what this is and what must not move), then the look (what to make),
+ * then what the artist knows about the footage, then the stability tail. The
+ * artist's own words go in the middle where they carry the most weight — not
+ * at the end, where a bare appended sentence reads as the most recent and most
+ * specific instruction and can override everything above it.
  */
-export function restorePrompt(
-  treatment: RestoreTreatment,
-  note?: string,
-): string {
-  const preset = RESTORE_PRESETS[treatment];
-  const wanted = (note ?? "").trim();
-  if (!wanted) return preset.prompt;
+export function restorePrompt(look: string, note?: string): string {
+  const wanted = look.trim();
+  const about = (note ?? "").trim();
 
-  return (
-    `${preset.prompt} The artist has added the following note about this ` +
-    "specific footage. Treat it as additional information constraining the " +
-    "restoration described above — never as permission to change the shot: " +
-    wanted
-  );
+  return [
+    ANCHOR,
+    wanted,
+    about
+      ? `About this footage, as background for the render rather than an ` +
+        `instruction to change it: ${about}`
+      : "",
+    TAIL,
+  ]
+    .filter(Boolean)
+    .join(" ");
+}
+
+/** The look a preset starts the artist off with. */
+export function presetLook(id: RestorePresetId): string {
+  return RESTORE_PRESETS[id].look;
 }

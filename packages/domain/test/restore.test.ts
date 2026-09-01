@@ -2,93 +2,118 @@ import { describe, expect, it } from "vitest";
 import {
   RESTORE_ORDER,
   RESTORE_PRESETS,
+  presetLook,
   restorePrompt,
 } from "../src/restore.js";
 
 /**
- * The prompts are the product here. A restoration runs on a generative model,
- * so the only thing standing between "restore this newsreel" and a model
- * helpfully making a better shot is the wording — and a restoration that
- * quietly acquires creative latitude is indistinguishable from a working one
- * until an editor spots that a sign changed.
+ * The prompt shape is the product here, and it was wrong once already.
+ *
+ * The first version was a paragraph of pure prohibition. Measured on real
+ * footage it produced worse pictures *and* invented motion, which BytePlus's
+ * own guidance predicts: Seedance reads a spatial layer and a temporal one,
+ * and a prompt made only of "do not" gives the temporal layer nothing to
+ * follow. These tests hold the corrected shape — lead with what to make, keep
+ * the constraints to a closing tail — because the failure it replaces looked
+ * like a working feature.
  */
 
-describe("the restoration catalogue", () => {
-  it("offers every treatment a prompt and a promise", () => {
-    for (const treatment of RESTORE_ORDER) {
-      const preset = RESTORE_PRESETS[treatment];
-      expect(preset.prompt.length).toBeGreaterThan(200);
-      // The fidelity line is what an editor reads before committing a shot to
-      // a cut, so it has to say something specific rather than reassure.
-      expect(preset.fidelity.length).toBeGreaterThan(40);
+describe("the look presets", () => {
+  it("gives every preset text an artist can read and edit", () => {
+    for (const id of RESTORE_ORDER) {
+      const preset = RESTORE_PRESETS[id];
+      expect(preset.look.length).toBeGreaterThan(120);
+      expect(presetLook(id)).toBe(preset.look);
     }
   });
 
-  it("says something different about each one", () => {
-    const wording = new Set(RESTORE_ORDER.map((t) => RESTORE_PRESETS[t].fidelity));
-    expect(wording.size).toBe(RESTORE_ORDER.length);
+  it("describes what to make rather than what to avoid", () => {
+    /*
+     * The heart of the redesign. A preset that opens with prohibitions is the
+     * old failure returning, so the openings are held to positive description
+     * — no preset may be mostly "no" and "not".
+     */
+    for (const id of RESTORE_ORDER) {
+      const look = RESTORE_PRESETS[id].look;
+      const negatives = (look.match(/\b(no|not|never|avoid|do not)\b/gi) ?? []).length;
+      const sentences = look.split(/\.\s/).length;
+      expect(negatives).toBeLessThan(sentences);
+    }
   });
 
-  it("is honest that colour is invented rather than recovered", () => {
-    // No arithmetic recovers the colour of a 1937 omnibus. Saying so is the
-    // difference between a documentary caption that is true and one that is not.
-    expect(RESTORE_PRESETS.colourise.fidelity).toMatch(/invents colour/i);
+  it("asks for the detail that makes a restoration worth running", () => {
+    // Every look has to name concrete surfaces. "High quality" renders
+    // nothing; "rivets and panel lines on metal" renders rivets.
+    for (const id of RESTORE_ORDER) {
+      expect(RESTORE_PRESETS[id].look).toMatch(
+        /detail|texture|grain|weave|rivet|pores|lettering/i,
+      );
+    }
+  });
+
+  it("keeps monochrome monochrome, and says so first", () => {
+    // The one preset that must exclude something, because "add detail" on
+    // black and white footage otherwise invites colour.
+    expect(RESTORE_PRESETS.monochrome.look).toMatch(/^Black and white throughout/);
   });
 });
 
 describe("the restoration prompt", () => {
-  it("forbids every way a model would helpfully improve the shot", () => {
-    const prompt = restorePrompt("colourise");
-    for (const forbidden of [
-      "reframe",
-      "recrop",
-      "re-time",
-      "stabilise",
-      "recompose",
-      "beautify",
-      "modernise",
-    ]) {
-      expect(prompt.toLowerCase()).toContain(forbidden);
-    }
-    // The identity of the people in the frame is the thing an editor cannot
-    // let drift, so it is pinned by name rather than left to "keep the subject".
-    expect(prompt).toContain("identity");
-  });
-
-  it("keeps colourising to colour, and detail to detail", () => {
-    // Each treatment has to exclude the others explicitly. Asked for colour, a
-    // model will happily sharpen too, and then two passes cannot be compared.
-    const colour = restorePrompt("colourise");
-    expect(colour).toContain("Do not add detail");
-    expect(colour).toContain("do not clean up damage");
-
-    const detail = restorePrompt("detail");
-    expect(detail).toContain("Add no colour whatsoever");
-    expect(detail).toContain("Do not clean up damage");
-
-    const clean = restorePrompt("clean");
-    expect(clean).toContain("Do not sharpen");
-    expect(clean).toContain("do not colourise");
-  });
-
-  it("frames a note as a constraint, never as a new instruction", () => {
-    const prompt = restorePrompt("colourise", "trams are green and cream");
-    expect(prompt).toContain("trams are green and cream");
+  it("opens by anchoring to the reference, so Ark still reads it as an edit", () => {
     /*
-     * The wording around the note is what stops "make it cinematic" working.
-     * A note appended bare would read as the most recent and most specific
-     * instruction in the prompt, which is exactly the position that wins.
+     * Load-bearing, and easy to break by making the prompt read better. Ark
+     * classifies a request carrying a reference video by what the prompt asks
+     * for, and only an edit may send `duration: -1` — which is what keeps the
+     * result attached to the source instead of becoming a new shot of an
+     * arbitrary length.
      */
-    expect(prompt).toContain("never as permission to change the shot");
-    // And the restriction lands before the note, not after it.
-    expect(prompt.indexOf("never as permission")).toBeLessThan(
-      prompt.indexOf("trams are green"),
-    );
+    const prompt = restorePrompt(presetLook("detail"));
+    expect(prompt.startsWith("Re-render this exact footage")).toBe(true);
+    expect(prompt).toContain("reference video is the shot");
+  });
+
+  it("puts the look in the middle and the constraints at the end", () => {
+    const prompt = restorePrompt("shot on Kodachrome, fine grain");
+    const look = prompt.indexOf("Kodachrome");
+    const tail = prompt.indexOf("no flicker");
+    expect(look).toBeGreaterThan(0);
+    // The published shape: constraints are an always-append tail, not an
+    // opening wall. Inverting this is what buried the description of what to
+    // make under two hundred words of prohibition.
+    expect(tail).toBeGreaterThan(look);
+    expect(prompt.trimEnd().endsWith("no invented objects or people.")).toBe(true);
+  });
+
+  it("holds the things that must not move, and only those", () => {
+    const prompt = restorePrompt(presetLook("detail"));
+    for (const held of ["framing", "camera", "perspective", "cuts", "identity"]) {
+      expect(prompt.toLowerCase()).toContain(held);
+    }
+  });
+
+  it("frames a note as background rather than an instruction", () => {
+    const prompt = restorePrompt(presetLook("colourise"), "RAF airfield, 1941");
+    expect(prompt).toContain("RAF airfield, 1941");
+    /*
+     * A note appended bare sits at the end of the prompt as the most recent
+     * and most specific instruction, which is the position that wins. Framed
+     * as background and placed before the tail, it informs rather than steers.
+     */
+    expect(prompt).toContain("background for the render rather than an instruction");
+    expect(prompt.indexOf("RAF airfield")).toBeLessThan(prompt.indexOf("no flicker"));
   });
 
   it("ignores a blank note rather than appending an empty clause", () => {
-    const bare = restorePrompt("repair");
-    expect(restorePrompt("repair", "   ")).toBe(bare);
-    expect(restorePrompt("repair", "")).toBe(bare);
+    const bare = restorePrompt(presetLook("clean"));
+    expect(restorePrompt(presetLook("clean"), "   ")).toBe(bare);
+    expect(restorePrompt(presetLook("clean"), "")).toBe(bare);
+  });
+
+  it("sends the artist's own words when they have replaced the preset", () => {
+    // The field is editable and what is on screen is what gets sent. A preset
+    // that survived into the prompt regardless would make the control a lie.
+    const prompt = restorePrompt("grainy 16mm reversal, blown highlights");
+    expect(prompt).toContain("grainy 16mm reversal");
+    expect(prompt).not.toContain("35mm colour negative");
   });
 });

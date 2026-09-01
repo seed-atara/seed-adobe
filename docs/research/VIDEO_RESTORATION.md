@@ -170,6 +170,48 @@ against 10.4 and 9.5, and visibly sharper at 100%. `clean` and `repair` had
 nothing to do on a graded digital comp with no tape noise and no physical
 damage. They earn their place on real scanned film, not here.
 
+## The prompt was the wrong shape, 2026-09-01
+
+Johannes's verdict on the first real run: *"none of the clips is better than the
+input. It's even worse because some animation is wrong."* He proposed
+re-rendering with the look described and the input as guidance. That is right,
+and `PROMPT_CRAFT.md` says why the original failed.
+
+The first prompt was ~200 words of pure prohibition — reframe, recrop, re-time,
+stabilise, restage, recompose, beautify, modernise, all forbidden — and nothing
+about what to produce. Three problems with that, all from BytePlus's own
+guidance:
+
+1. **Seedance reads a spatial layer and a temporal one, as ordered beats.** A
+   prompt made only of "do not" gives the temporal layer nothing to follow, so
+   the model invents motion. That is exactly the reported defect.
+2. **A model given only prohibitions has no positive objective.** "Reproduce
+   exactly, change nothing" is close to a null instruction; the whole prompt
+   was spent suppressing the machinery that produces quality.
+3. **Constraints are published as a short closing tail**, not an opening wall.
+   The shape was inverted.
+
+### What replaced it
+
+    ANCHOR   Re-render this exact footage at far higher quality. The reference
+             video is the shot: keep its framing, camera, lens, cuts, and the
+             identity, position and action of everything in it.
+    LOOK     <the artist's own words — stock, optics, grain, palette>
+    NOTE     <what the footage is, framed as background>
+    TAIL     Stable faces and geometry, fluid motion, no flicker, no warping.
+
+`ANCHOR` is load-bearing beyond style: Ark classifies the task from the prompt,
+and only an *edit* may send `duration: -1`. Reword it into "a beautiful shot
+of..." and every restoration silently becomes a fresh generation.
+
+The look is now an **editable field in the panel**, not a hidden prompt behind a
+checkbox. Presets fill it; the artist rewrites it; what is on screen is what is
+sent. `seedRestoreLook` records it verbatim on the generation.
+
+**Not yet measured.** This is a redesign grounded in the model-maker's guidance
+and in one bad result, not in an A/B. The claim is "the prompt now has the
+shape the model is documented to read", not "the output is better".
+
 ## Open questions
 
 - No measurement yet of whether Seedance's reference-video mode holds a face

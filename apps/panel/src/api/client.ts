@@ -13,7 +13,7 @@ import type {
   ItemMention,
   JobDto,
   LineageResponse,
-  RestoreTreatment,
+  RestorePresetId,
   ResolvedBundle,
   StartGenerationRequest,
 } from "@seed-ae/domain";
@@ -292,34 +292,32 @@ export class SeedClient {
   }
 
   /**
-   * The restoration treatments, and what each can promise.
+   * The look presets — starting text for the Look field, not hidden prompts.
    *
-   * Fetched rather than hard-coded in the panel: the fidelity wording is the
-   * sentence an artist reads before committing an archive shot to a cut, and it
-   * needs exactly one author.
+   * Fetched rather than hard-coded so the wording has one author, and dropped
+   * straight into an editable field so what the artist sees is what gets sent.
    */
   restorePresets(): Promise<{
     presets: Array<{
-      treatment: RestoreTreatment;
+      id: RestorePresetId;
       label: string;
       purpose: string;
-      fidelity: string;
+      look: string;
     }>;
   }> {
     return this.request("/v1/restore/presets");
   }
 
-  /** An archive clip restored — one job per treatment. */
+  /** One clip re-rendered at the look described. */
   startRestore(input: {
     sourceAssetId: string;
-    treatments: RestoreTreatment[];
+    look: string;
+    preset?: RestorePresetId;
     note?: string;
     providerId?: string;
     size?: string;
     project?: string;
-  }): Promise<{
-    started: Array<{ treatment: RestoreTreatment; job: JobView }>;
-  }> {
+  }): Promise<{ started: Array<{ preset: string; job: JobView }> }> {
     return this.request("/v1/restore", { method: "POST", body: input });
   }
 

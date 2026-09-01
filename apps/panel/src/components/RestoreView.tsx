@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { Asset, RestoreTreatment } from "@seed-ae/domain";
+import type { Asset, RestorePresetId } from "@seed-ae/domain";
 import type {
   JobView,
   ProviderCapabilitiesDto,
@@ -26,10 +26,11 @@ import { JobStrip } from "./JobStrip.tsx";
  */
 
 interface Preset {
-  treatment: RestoreTreatment;
+  id: RestorePresetId;
   label: string;
   purpose: string;
-  fidelity: string;
+  /** Starting text for the Look field. Not a hidden prompt. */
+  look: string;
 }
 
 interface Props {
@@ -72,19 +73,17 @@ export function RestoreView({
   const [presets, setPresets] = useState<Preset[]>([]);
   const [sourceId, setSourceId] = useState("");
   /*
-   * One treatment, not a set.
+   * One render, and the artist can see exactly what is being asked for.
    *
-   * These were checkboxes, and every artist read them the way the shape
-   * invites: tick what you want fixed, get one better clip. That is the
-   * sensible reading and it was not what happened — each tick was a separate
-   * render, separately charged, coming back as a separate clip, and Johannes
-   * got three files when he wanted one shot that worked.
-   *
-   * The honest fix is the control, not a warning label. One choice, one
-   * result. Comparing two treatments is running it twice, which is exactly
-   * what it always was — now it looks like it.
+   * The presets used to be checkboxes hiding a prompt each; now they are
+   * openings that fill `look`, which is an ordinary editable field. What is on
+   * screen is what gets sent — the artist knows what the footage is and we do
+   * not, and their vocabulary is load-bearing.
    */
-  const [treatment, setTreatment] = useState<RestoreTreatment>("detail");
+  const [preset, setPreset] = useState<RestorePresetId>("detail");
+  const [look, setLook] = useState("");
+  /** So choosing a preset does not silently discard words already typed. */
+  const [edited, setEdited] = useState(false);
   const [note, setNote] = useState("");
   const [providerId, setProviderId] = useState("");
   const [starting, setStarting] = useState(false);
@@ -199,7 +198,18 @@ export function RestoreView({
   const shrinks =
     source?.height !== undefined && targetHeight > 0 && targetHeight < source.height;
 
-  const chosen = presets.find((preset) => preset.treatment === treatment);
+  const chosen = presets.find((entry) => entry.id === preset);
+
+  /*
+   * A preset fills the field, unless the artist has been typing in it. Losing
+   * a paragraph someone wrote because they clicked a radio button to read what
+   * it says would be the worst kind of small betrayal.
+   */
+  useEffect(() => {
+    if (edited) return;
+    const opening = presets.find((entry) => entry.id === preset)?.look;
+    if (opening) setLook(opening);
+  }, [presets, preset, edited]);
 
   async function start() {
     if (!source) return;
@@ -207,7 +217,8 @@ export function RestoreView({
     try {
       const response = await client.startRestore({
         sourceAssetId: source.id,
-        treatments: [treatment],
+        look: look.trim(),
+        preset,
         ...(providerId ? { providerId } : {}),
         ...(note.trim() ? { note: note.trim() } : {}),
         ...(activeProject ? { project: activeProject } : {}),
@@ -219,7 +230,7 @@ export function RestoreView({
        * identical progress bars is not a comparison.
        */
       setCaptions(
-        response.started.map((entry) => labelOf(presets, entry.treatment)),
+        response.started.map(() => labelOf(presets, preset)),
       );
       onJobs(response.started.map((entry) => entry.job));
     } catch (cause) {
@@ -231,6 +242,7 @@ export function RestoreView({
 
   const blocked =
     !source ||
+    look.trim().length === 0 ||
     provider === undefined ||
     tooShort ||
     tooLong ||
@@ -314,36 +326,61 @@ export function RestoreView({
       </section>
 
       <section className="section">
-        <SectionLabel>treatment</SectionLabel>
+        <SectionLabel>look</SectionLabel>
         <div className="hint faint" style={{ marginBottom: 6 }}>
-          Nothing here changes the shot. Framing, camera, timing and content are
-          held to the original — these choose what happens to the{" "}
-          <b>quality of the recording</b> and nothing else. One choice, one
-          clip; to compare two, run it twice.
+          Describe the picture you want — stock, lens, grain, palette. The clip
+          supplies the framing, the camera and the action; this supplies the
+          quality. Start from one of these and edit it.
         </div>
 
-        {presets.map((preset) => (
-          <label className="check" key={preset.treatment}>
+        {presets.map((entry) => (
+          <label className="check" key={entry.id}>
             <input
               type="radio"
-              name="seed-restore-treatment"
-              checked={treatment === preset.treatment}
-              onChange={() => setTreatment(preset.treatment)}
+              name="seed-restore-preset"
+              checked={preset === entry.id}
+              onChange={() => {
+                setPreset(entry.id);
+                setEdited(false);
+                setLook(entry.look);
+              }}
             />
-            {preset.label} — <span className="faint">{preset.purpose}</span>
+            {entry.label} — <span className="faint">{entry.purpose}</span>
           </label>
         ))}
 
-        {/*
-          What each chosen treatment can actually promise. This is the part of
-          the screen that decides whether a shot can be cut without a caption,
-          so it is text rather than an icon and it is never collapsed.
-        */}
-        {chosen ? (
-          <div className="hint faint" style={{ marginTop: 8 }}>
-            {chosen.fidelity}
-          </div>
-        ) : null}
+        <textarea
+          value={look}
+          rows={7}
+          spellCheck={false}
+          style={{ width: "100%", marginTop: 6 }}
+          onChange={(event) => {
+            setEdited(true);
+            setLook(event.target.value);
+          }}
+        />
+        <div className="hint faint">
+          This text goes to the model as written, between a line holding the
+          shot to the reference and a closing line about stability. Say what to{" "}
+          <b>make</b>, not what to avoid — a prompt of prohibitions gives the
+          model nothing to render, and that is what made the first attempts
+          wander.
+          {edited && chosen ? (
+            <>
+              {" "}
+              <button
+                className="btn"
+                style={{ marginTop: 6 }}
+                onClick={() => {
+                  setEdited(false);
+                  setLook(chosen.look);
+                }}
+              >
+                Reset to {chosen.label}
+              </button>
+            </>
+          ) : null}
+        </div>
       </section>
 
       <details className="options">
@@ -453,8 +490,8 @@ export function RestoreView({
   );
 }
 
-function labelOf(presets: Preset[], treatment: RestoreTreatment): string {
-  return presets.find((preset) => preset.treatment === treatment)?.label ?? treatment;
+function labelOf(presets: Preset[], id: RestorePresetId): string {
+  return presets.find((entry) => entry.id === id)?.label ?? id;
 }
 
 /**

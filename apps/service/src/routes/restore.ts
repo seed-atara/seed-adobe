@@ -1,7 +1,7 @@
 import {
   RESTORE_ORDER,
   RESTORE_PRESETS,
-  RestoreTreatmentSchema,
+  RestorePresetSchema,
   SeedError,
   bestQualitySize,
   restorePrompt,
@@ -13,16 +13,17 @@ import { json } from "../http/respond.js";
 import type { RequestContext } from "../http/router.js";
 
 /**
- * Restoration — archive footage made usable without being changed.
+ * Restoration — crappy footage re-rendered at the quality it should have had.
  *
- * The route is deliberately thin, because almost everything that makes a
- * restoration different from a generation is expressed by what it *does not*
- * send:
+ * The route is deliberately thin. What makes a restoration different from a
+ * generation is the prompt shape (see `restorePrompt`) and what this does
+ * *not* send:
  *
- *   no duration    — Seedance reads a reference clip with no stated duration as
- *                    an edit and sends `duration: -1`, which makes the output
- *                    follow the input's length exactly. Stating a duration is
- *                    how a restoration silently becomes a re-cut.
+ *   no duration    — Ark classifies a request carrying a reference clip by
+ *                    what the prompt asks for, and only an *edit* may send
+ *                    `duration: -1`, which is what keeps the result attached
+ *                    to the source rather than becoming a new shot of an
+ *                    arbitrary length. Stating a duration forfeits that.
  *   no aspect      — for the same reason. The ratio follows the clip.
  *   no first frame — the role is pinned to `reference`. A still handed over as
  *                    a first frame anchors the opening and lets the model
@@ -42,7 +43,17 @@ import type { RequestContext } from "../http/router.js";
 const StartRestoreSchema = z.object({
   /** The clip to restore. Travels as a reference, never as a frame. */
   sourceAssetId: z.string().min(1),
-  treatments: z.array(RestoreTreatmentSchema).min(1).max(4),
+  /**
+   * The look to render — stock, optics, grain, palette, era.
+   *
+   * The artist's own words, not a preset id. A preset only fills this field in
+   * the panel; by the time it arrives here it is text the artist has seen and
+   * can have edited, which is the difference between a control and a hidden
+   * prompt.
+   */
+  look: z.string().min(1).max(2000),
+  /** Which preset it started from, recorded so a render can be found again. */
+  preset: RestorePresetSchema.optional(),
   /** What the footage *is* — a period, a place, the colour of a uniform. */
   note: z.string().max(600).optional(),
   /** Defaults to the first Seedance the registry has. */
@@ -91,67 +102,67 @@ export function startRestoreRoute(deps: AppDeps) {
       );
     }
 
-    const started = [];
-    for (const treatment of request.treatments) {
-      const job = await deps.generation.start(
-        {
-          providerId,
-          ...(request.model ? { model: request.model } : {}),
-          operation: "video.generate",
-          prompt: restorePrompt(treatment, request.note),
-          ...(request.seed !== undefined && capabilities.seed
-            ? { seed: request.seed }
-            : {}),
-          ...sizeFor(request.size, capabilities.sizes),
-          inputAssetIds: [source.id],
-          /*
-           * The whole guarantee, in one field. A lone clip is already read as a
-           * reference by the Seedance adapter, but saying so explicitly is what
-           * stops a later change to that inference turning every restoration
-           * into an animation of its own first frame.
-           */
-          inputRoles: ["reference"],
-          itemMentions: [],
-          parentAssetId: source.id,
-          ...(request.project ? { project: request.project } : {}),
-          parameters: {
-            /* What makes a restoration findable, and re-runnable. */
-            seedRestore: treatment,
-            seedRestoreSource: source.id,
-            ...(request.note?.trim() ? { seedRestoreNote: request.note.trim() } : {}),
-          },
+    const job = await deps.generation.start(
+      {
+        providerId,
+        ...(request.model ? { model: request.model } : {}),
+        operation: "video.generate",
+        prompt: restorePrompt(request.look, request.note),
+        ...(request.seed !== undefined && capabilities.seed
+          ? { seed: request.seed }
+          : {}),
+        ...sizeFor(request.size, capabilities.sizes),
+        inputAssetIds: [source.id],
+        /*
+         * The whole guarantee, in one field. A lone clip is already read as a
+         * reference by the Seedance adapter, but saying so explicitly is what
+         * stops a later change to that inference turning every restoration
+         * into an animation of its own first frame.
+         */
+        inputRoles: ["reference"],
+        itemMentions: [],
+        parentAssetId: source.id,
+        ...(request.project ? { project: request.project } : {}),
+        parameters: {
+          /* What makes a restoration findable, and re-runnable. */
+          seedRestore: request.preset ?? "custom",
+          seedRestoreSource: source.id,
+          seedRestoreLook: request.look,
+          ...(request.note?.trim() ? { seedRestoreNote: request.note.trim() } : {}),
         },
-        `restore_${treatment}_${source.id}`,
-      );
+      },
+      `restore_${request.preset ?? "custom"}_${source.id}`,
+    );
 
-      started.push({
-        treatment,
+    const started = [
+      {
+        preset: request.preset ?? "custom",
         /** The same shape /v1/generations returns, so the panel can reuse it. */
         job: { job: job.job, generation: job.generation, outputs: [] as never[] },
-      });
-    }
+      },
+    ];
 
     return json({ started }, 202);
   };
 }
 
 /**
- * The treatments, with what each can promise.
+ * The look presets, as starting text rather than hidden prompts.
  *
- * Served rather than duplicated in the panel so the fidelity wording — the
- * sentence an artist reads before committing a shot to a cut — has exactly one
- * author.
+ * Served rather than duplicated in the panel because the panel drops the
+ * `look` straight into an editable field: what the artist sees is what gets
+ * sent, and there is one author for the wording.
  */
 export function restorePresetsRoute() {
   return () =>
     json({
-      presets: RESTORE_ORDER.map((treatment) => {
-        const preset = RESTORE_PRESETS[treatment];
+      presets: RESTORE_ORDER.map((id) => {
+        const preset = RESTORE_PRESETS[id];
         return {
-          treatment,
+          id,
           label: preset.label,
           purpose: preset.purpose,
-          fidelity: preset.fidelity,
+          look: preset.look,
         };
       }),
     });

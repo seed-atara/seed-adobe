@@ -205,26 +205,28 @@ async function seen(count: number, of: { seen: unknown[] }): Promise<void> {
 }
 
 describe("the restoration catalogue", () => {
-  it("hands over what each treatment can promise, not just its name", async () => {
+  it("hands over the look as editable text, not a hidden prompt", async () => {
     const { service, close } = await harness();
     try {
       const response = await service.call("/v1/restore/presets");
       expect(response.status).toBe(200);
       const { presets } = await readJson(response);
 
-      expect(presets.map((p: { treatment: string }) => p.treatment)).toEqual([
+      expect(presets.map((p: { id: string }) => p.id)).toEqual([
         "detail",
-        "clean",
-        "repair",
+        "monochrome",
         "colourise",
+        "clean",
       ]);
 
-      // The fidelity line is the sentence an editor reads before committing a
-      // shot to a cut, so the service is its single author.
-      const colourise = presets.find(
-        (p: { treatment: string }) => p.treatment === "colourise",
-      );
-      expect(colourise.fidelity).toMatch(/invents colour/i);
+      /*
+       * The look is served as editable *text*, not as a hidden prompt behind
+       * an id. That is the whole difference between a control and a black box:
+       * the panel drops this straight into a field the artist can rewrite.
+       */
+      const detail = presets.find((p: { id: string }) => p.id === "detail");
+      expect(detail.look).toMatch(/35mm/);
+      expect(detail.look.length).toBeGreaterThan(120);
     } finally {
       await close();
     }
@@ -237,7 +239,8 @@ describe("restoring a clip", () => {
     try {
       const response = await restore(service, {
         sourceAssetId: clipId,
-        treatments: ["colourise"],
+        look: "shot on Kodachrome, fine grain, muted period colour",
+        preset: "colourise",
       });
       expect(response.status).toBe(202);
       await seen(1, seedance);
@@ -259,7 +262,10 @@ describe("restoring a clip", () => {
   it("hands the clip over as a reference and never as a first frame", async () => {
     const { seedance, clipId, service, close } = await harness();
     try {
-      await restore(service, { sourceAssetId: clipId, treatments: ["repair"] });
+      await restore(service, {
+        sourceAssetId: clipId,
+        look: "a pristine first-generation print, fine natural grain",
+      });
       await seen(1, seedance);
 
       const request = seedance.seen[0];
@@ -276,7 +282,10 @@ describe("restoring a clip", () => {
   it("upscales by asking for the best tier rather than the provider default", async () => {
     const { seedance, clipId, service, close } = await harness();
     try {
-      await restore(service, { sourceAssetId: clipId, treatments: ["detail"] });
+      await restore(service, {
+        sourceAssetId: clipId,
+        look: "35mm colour negative, enormous surface detail",
+      });
       await seen(1, seedance);
 
       // Seedance's own default is the bottom of the ladder, which would make a
@@ -287,39 +296,59 @@ describe("restoring a clip", () => {
     }
   });
 
-  it("runs one job per treatment, and names them all", async () => {
+  it("sends the artist's own words, not the preset they started from", async () => {
     const { seedance, clipId, service, close } = await harness();
     try {
       const response = await restore(service, {
         sourceAssetId: clipId,
-        treatments: ["detail", "clean", "repair", "colourise"],
+        // Started from a preset, then rewritten. What is on screen is what
+        // gets sent, or the field is a decoration rather than a control.
+        preset: "detail",
+        look: "grainy 16mm reversal stock, blown highlights, heavy halation",
       });
       expect(response.status).toBe(202);
+      await seen(1, seedance);
 
-      const { started } = await readJson(response);
-      expect(started).toHaveLength(4);
-      await seen(4, seedance);
-
-      // Every pass is identified, which is what makes four progress bars a
-      // comparison rather than a row.
-      expect(
-        started.map((entry: { treatment: string }) => entry.treatment),
-      ).toEqual(["detail", "clean", "repair", "colourise"]);
-
-      // Four different prompts, not one repeated — each treatment excludes the
-      // others explicitly or the passes could not be compared.
-      expect(new Set(seedance.seen.map((request) => request.prompt)).size).toBe(4);
+      const prompt = seedance.seen[0]?.prompt ?? "";
+      expect(prompt).toContain("grainy 16mm reversal stock");
+      expect(prompt).not.toContain("35mm colour negative");
     } finally {
       await close();
     }
   });
 
-  it("records the treatment and the source so a pass can be found again", async () => {
+  it("leads with the anchor and closes with the stability line", async () => {
+    const { seedance, clipId, service, close } = await harness();
+    try {
+      await restore(service, {
+        sourceAssetId: clipId,
+        look: "fine-grained 35mm, enormous surface detail",
+      });
+      await seen(1, seedance);
+      const prompt = seedance.seen[0]?.prompt ?? "";
+
+      /*
+       * The shape BytePlus document, and the shape the first version had
+       * inverted: anchor, then what to make, then a short constraint tail.
+       * The anchor also has to stay first for a reason that is not stylistic —
+       * Ark classifies the task from the prompt, and only an edit may send
+       * `duration: -1`.
+       */
+      expect(prompt.startsWith("Re-render this exact footage")).toBe(true);
+      expect(prompt.indexOf("35mm")).toBeLessThan(prompt.indexOf("no flicker"));
+      expect(prompt.trimEnd().endsWith("no invented objects or people.")).toBe(true);
+    } finally {
+      await close();
+    }
+  });
+
+  it("records the look and the source so a render can be found again", async () => {
     const { clipId, service, close } = await harness();
     try {
       const response = await restore(service, {
         sourceAssetId: clipId,
-        treatments: ["colourise"],
+        preset: "colourise",
+        look: "period colour stock, muted, believable skin tones",
         note: "Manchester, 1936",
       });
       const { started } = await readJson(response);
@@ -332,9 +361,12 @@ describe("restoring a clip", () => {
       expect(record.parameters.seedRestore).toBe("colourise");
       expect(record.parameters.seedRestoreSource).toBe(clipId);
       expect(record.parameters.seedRestoreNote).toBe("Manchester, 1936");
-      // The note reaches the model framed as information, not as an order.
+      // The look is kept verbatim, so a render can be repeated or adjusted
+      // without reconstructing what was asked for from the prompt.
+      expect(record.parameters.seedRestoreLook).toContain("period colour stock");
+      // The note reaches the model framed as background, not as an order.
       expect(record.prompt).toContain("Manchester, 1936");
-      expect(record.prompt).toContain("never as permission to change the shot");
+      expect(record.prompt).toContain("background for the render");
       // And the restored clip descends from the footage it came from.
       expect(record.parentAssetId).toBe(clipId);
     } finally {
@@ -358,7 +390,7 @@ describe("restoring a clip", () => {
 
       const response = await restore(service, {
         sourceAssetId: asset.id,
-        treatments: ["detail"],
+        look: "35mm, sharp, detailed",
       });
       expect(response.status).toBe(400);
       expect((await readJson(response)).error.message).toMatch(/work area/);
@@ -379,7 +411,7 @@ describe("restoring a clip", () => {
       const clipId = await adoptClip(service, "reel.mp4");
       const response = await restore(service, {
         sourceAssetId: clipId,
-        treatments: ["detail"],
+        look: "35mm, sharp, detailed",
       });
       expect(response.status).toBe(422);
       // Naming the key beats "provider not found": the artist can act on one.
@@ -397,7 +429,7 @@ describe("restoring a clip", () => {
     try {
       const response = await restore(service, {
         sourceAssetId: clipId,
-        treatments: ["detail", "clean"],
+        look: "35mm, sharp, detailed",
       });
       /*
        * Caught at the route rather than left to the generation service, which
@@ -436,7 +468,7 @@ describe("what a clip costs against a provider's budget", () => {
     try {
       const response = await restore(service, {
         sourceAssetId: clipId,
-        treatments: ["detail"],
+        look: "35mm, sharp, detailed",
       });
       expect(response.status).toBe(202);
       await seen(1, noImages);
