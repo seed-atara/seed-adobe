@@ -318,3 +318,39 @@ no point continuing.
   de-interlace before the restoration is currently the artist's problem.
 - Seedance caps at 30 seconds, so a long archive shot has to be restored in
   pieces — and nothing checks that two pieces match at the join.
+
+## The two-step pipeline, measured (2026-09-08)
+
+The first end-to-end run: `Comp_1_f00000_range_008.mp4`, 2560×1440 / 25fps /
+7.51s, three shots cut together. Key frame at 3.7545s → Seedream at 4K,
+5504×3040. Video → Seedance 2.0, 3840×2160 / 24fps / 8.04s.
+
+Measured against the source **upscaled to output size with lanczos**, which is
+the honest baseline — it is what "just scale it in After Effects" produces.
+Regions chosen in shot 3, the shot the key frame did *not* cover, because the
+question is whether the still lifts the whole clip or only its own shot.
+
+| region | upscaled | seedance | change |
+| --- | --- | --- | --- |
+| sky — flat, nothing to resolve | 0.482 | 0.329 | **−32%** |
+| figures — real information | 2.935 | 3.789 | **+29%** |
+
+Mean gradient magnitude on the gray plane. This is the signature that was
+missing before: **detail rises where there is information and falls where
+there is none.** The earlier reference-video-only runs did the opposite — sky
++260%, aircraft +21%, which is grain wearing detail's clothes and measured out
+at roughly +4% of real gain.
+
+Visually confirmed rather than inferred: a sergeant's chevrons legible where
+the upscale has a smear, exhaust stubs resolved on the Merlin, background
+aircraft separated from each other.
+
+Two cautions from the same run:
+
+- A first sky measurement read **+678%**. The crop had caught a radio mast —
+  faint in the source, a hard black line in the output. One high-contrast edge
+  dominates the mean over an otherwise flat crop. Flat-region crops have to be
+  checked by eye before their number is believed.
+- The shot structure and the cuts survive, but timing does not: 7.51s at 25fps
+  came back 8.04s at 24fps, so cut points move. Anything conformed to the
+  original edit needs retiming.
