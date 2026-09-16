@@ -88,6 +88,12 @@ import {
   restorePresetsRoute,
   startRestoreRoute,
 } from "./routes/restore.js";
+import {
+  agreementRoute,
+  startTransformRoute,
+  transformKeyframeRoute,
+  transformPresetsRoute,
+} from "./routes/transform.js";
 import { switchRoute } from "./routes/switch.js";
 import { exportPackRoute, importPackRoute } from "./routes/packs.js";
 import { healthRoute } from "./routes/health.js";
@@ -161,6 +167,10 @@ export function buildRouter(deps: AppDeps): Router {
     .post("/v1/restore", startRestoreRoute(deps))
     .get("/v1/restore/presets", restorePresetsRoute())
     .post("/v1/restore/keyframe", keyframeRoute(deps))
+    .post("/v1/transform", startTransformRoute(deps))
+    .get("/v1/transform/presets", transformPresetsRoute())
+    .post("/v1/transform/keyframe", transformKeyframeRoute(deps))
+    .post("/v1/transform/agreement", agreementRoute(deps))
     .post("/v1/passes/derive", derivePassesRoute(deps))
     .post("/v1/passes/relight", relightRoute(deps))
     .post("/v1/passes/light-transfer", lightTransferRoute(deps))

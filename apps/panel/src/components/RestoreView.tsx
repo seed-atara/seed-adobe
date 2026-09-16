@@ -8,6 +8,7 @@ import type {
 } from "../api/client.ts";
 import { AssetImage, Field, SectionLabel } from "./primitives.tsx";
 import { JobStrip } from "./JobStrip.tsx";
+import { useClipLibrary } from "./useClipLibrary.ts";
 
 /**
  * Restore — archive footage made usable, with nothing invented.
@@ -72,7 +73,6 @@ export function RestoreView({
   host,
 }: Props) {
   const [presets, setPresets] = useState<Preset[]>([]);
-  const [sourceId, setSourceId] = useState("");
   /*
    * One render, and the artist can see exactly what is being asked for.
    *
@@ -127,48 +127,12 @@ export function RestoreView({
       });
   }, [client]);
 
-  /** Only clips. A restoration of a still is a different job with different tools. */
-  const clips = useMemo(
-    () => assets.filter((asset) => asset.kind === "video"),
-    [assets],
-  );
-
   /*
-   * A clip that has just arrived is the one the artist meant.
-   *
-   * This was originally "keep whatever is selected unless it becomes invalid",
-   * on the reasoning that a deliberate choice should not be overwritten by a
-   * capture landing behind it. That reasoning was wrong, and wrong in the way
-   * that matters: pressing **Capture work area as clip** *is* the deliberate
-   * choice. Johannes captured a range, the banner confirmed it, and the
-   * dropdown quietly stayed on a clip from the day before — so the thing on
-   * screen was not the thing about to be restored.
-   *
-   * So arrival wins. Anything appearing in the library that was not there a
-   * moment ago is selected, which covers the capture button and add-from-disk
-   * alike; a generated result cannot trigger it, because a restoration output
-   * lands while this view is showing its own job strip and the newest clip is
-   * still what the artist chose to restore.
+   * Shared with the transformation view — see `useClipLibrary` for why arrival
+   * wins over whatever was selected.
    */
-  const known = useRef<Set<string> | undefined>(undefined);
-  useEffect(() => {
-    const ids = new Set(clips.map((clip) => clip.id));
+  const { clips, sourceId, setSourceId, source } = useClipLibrary(assets);
 
-    // First pass: adopt the library as it stands, and start on the newest.
-    if (!known.current) {
-      known.current = ids;
-      setSourceId((current) => current || clips[0]?.id || "");
-      return;
-    }
-
-    const arrived = clips.filter((clip) => !known.current?.has(clip.id));
-    known.current = ids;
-
-    if (arrived[0]) setSourceId(arrived[0].id);
-    else setSourceId((current) => (current && ids.has(current) ? current : clips[0]?.id || ""));
-  }, [clips]);
-
-  const source = clips.find((clip) => clip.id === sourceId);
 
   useEffect(() => {
     setAtSeconds((source?.durationSeconds ?? 0) / 2);

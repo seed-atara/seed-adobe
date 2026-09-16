@@ -23,6 +23,7 @@ import {
 } from "./components/GenerateView.tsx";
 import { LibraryView } from "./components/LibraryView.tsx";
 import { RestoreView } from "./components/RestoreView.tsx";
+import { TransformView } from "./components/TransformView.tsx";
 import { AssetDetail } from "./components/AssetDetail.tsx";
 import { LineageView } from "./components/LineageView.tsx";
 import { ItemsView } from "./components/ItemsView.tsx";
@@ -42,7 +43,7 @@ import { resolveRefineTarget } from "./refine.ts";
 // ROO (scene switching) is built and tested but not mounted — see the note
 // above RooView. Re-adding it means restoring "roo" here, in visibleTabs,
 // and the render block.
-type Tab = "generate" | "restore" | "items" | "library" | "lineage";
+type Tab = "generate" | "restore" | "transform" | "items" | "library" | "lineage";
 
 export interface AppProps {
   /**
@@ -164,6 +165,7 @@ export function App({ tabs }: AppProps = {}) {
   const visibleTabs: Tab[] = tabs ?? [
     "generate",
     "restore",
+    "transform",
     "items",
     "library",
     "lineage",
@@ -1542,6 +1544,26 @@ export function App({ tabs }: AppProps = {}) {
               {...(activeProject ? { activeProject } : {})}
               {...(selectedId ? { selectedId } : {})}
               onSelect={setSelectedId}
+              onError={report}
+              onJobs={setJobs}
+              onCancel={cancelJob}
+              {...(bridge && (hostApp() !== "PPRO" || hasVideoPreset)
+                ? { onCaptureRange: captureRange }
+                : {})}
+              {...(bridge ? { onAddFile: addFileFromDisk } : {})}
+              onOpenLibrary={() => setTab("library")}
+              host={hostId}
+            />
+          ) : null}
+
+          {tab === "transform" ? (
+            <TransformView
+              client={client}
+              assets={assets}
+              providers={providers}
+              jobs={jobs}
+              busy={busy}
+              {...(activeProject ? { activeProject } : {})}
               onError={report}
               onJobs={setJobs}
               onCancel={cancelJob}

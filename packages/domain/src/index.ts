@@ -9,4 +9,5 @@ export * from "./item.js";
 export * from "./pass.js";
 export * from "./quality.js";
 export * from "./restore.js";
+export * from "./transform.js";
 export * from "./time.js";

@@ -354,3 +354,29 @@ Two cautions from the same run:
 - The shot structure and the cuts survive, but timing does not: 7.51s at 25fps
   came back 8.04s at 24fps, so cut points move. Anything conformed to the
   original edit needs retiming.
+
+## The key frame drifted, and the eye said it had not (2026-09-16)
+
+Recorded here because this note previously reported the framing lock as having
+fixed the recomposition, on visual inspection, and that was wrong.
+
+Measured with `POST /v1/transform/agreement` against the plate frame it was
+rendered from — `Comp_1_f00000_range_008_f3755_002.png`, 2560x1440 — the last
+key frame of the restoration work reports:
+
+| | |
+| --- | --- |
+| regions measured | 33 of 64 (31 too flat to vote) |
+| tolerance | 10px |
+| median displacement | **143.6px — 5.6% of frame width** |
+| regions held | **0%** |
+| worst | 358px, top edge (a floor: it hit the search limit) |
+
+A 50/50 blend of the two frames shows the squadron code `DU◉U` twice, the
+propeller twice, and the whole aircraft doubled with a horizontal offset.
+
+So the three-way framing lock added in `3d7bde5` **reduced** the recomposition
+without stopping it, and a side-by-side at panel size was not enough to see
+that. The lesson is not about the lock — it is that "looks like the same
+framing" and "is the same framing" are far apart at 2560px, and only one of
+them survives a supervisor's wipe.

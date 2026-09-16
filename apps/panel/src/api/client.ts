@@ -14,6 +14,7 @@ import type {
   JobDto,
   LineageResponse,
   RestorePresetId,
+  TransformPresetId,
   ResolvedBundle,
   StartGenerationRequest,
 } from "@seed-ae/domain";
@@ -339,6 +340,75 @@ export class SeedClient {
     project?: string;
   }): Promise<{ started: Array<{ preset: string; job: JobView }> }> {
     return this.request("/v1/restore", { method: "POST", body: input });
+  }
+
+  transformPresets(): Promise<{
+    presets: Array<{
+      id: TransformPresetId;
+      label: string;
+      purpose: string;
+      change: string;
+    }>;
+  }> {
+    return this.request("/v1/transform/presets");
+  }
+
+  /** One frame of the plate, with the change applied by the image model. */
+  transformKeyframe(input: {
+    sourceAssetId: string;
+    atSeconds?: number;
+    change: string;
+    depth?: number;
+    note?: string;
+    project?: string;
+  }): Promise<{ frame: Asset; job: JobView }> {
+    return this.request("/v1/transform/keyframe", { method: "POST", body: input });
+  }
+
+  /** One plate re-rendered with a single named change. */
+  startTransform(input: {
+    sourceAssetId: string;
+    change: string;
+    preset?: TransformPresetId;
+    /** 0 surfaces only .. 100 everything the change plausibly reaches. */
+    depth?: number;
+    note?: string;
+    providerId?: string;
+    size?: string;
+    /** A transformed still to render towards, from transformKeyframe. */
+    keyframeAssetId?: string;
+    project?: string;
+  }): Promise<{ started: Array<{ preset: string; job: JobView }> }> {
+    return this.request("/v1/transform", { method: "POST", body: input });
+  }
+
+  /**
+   * How far the render moved from its plate, in plate pixels.
+   *
+   * Not a similarity score — a correct season change is *supposed* to look
+   * unlike its plate. This reports whether anything shifted position, which is
+   * the question a review actually asks.
+   */
+  plateAgreement(input: {
+    plateAssetId: string;
+    resultAssetId: string;
+    atSeconds?: number;
+    grid?: number;
+  }): Promise<{
+    plate: { id: string; filename: string };
+    result: { id: string; filename: string; kind: string };
+    agreement: {
+      measured: number;
+      skipped: number;
+      medianDistance: number;
+      worst?: { column: number; row: number; distance: number; confidence: number };
+      held: number;
+      saturated: number;
+      truncated: boolean;
+      tolerance: number;
+    };
+  }> {
+    return this.request("/v1/transform/agreement", { method: "POST", body: input });
   }
 
   /** Depth and normals, computed here rather than generated. */

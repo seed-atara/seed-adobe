@@ -298,7 +298,7 @@ export function keyframeRoute(deps: AppDeps) {
 }
 
 /** The Seedream to use when the panel did not name one. */
-function imageProvider(deps: AppDeps): string | undefined {
+export function imageProvider(deps: AppDeps): string | undefined {
   return deps.registry.ids().find((id) => id.startsWith("seedream"));
 }
 
@@ -331,7 +331,7 @@ export function restorePresetsRoute() {
  * the provider's own default — which on Seedance is the bottom, and would make
  * a "restoration" that came back smaller than it went in.
  */
-function sizeFor(
+export function sizeFor(
   requested: string | undefined,
   sizes: string[],
   aspect?: number,
@@ -342,7 +342,7 @@ function sizeFor(
 }
 
 /** The shape of a frame, when both numbers are known. */
-function aspectOf(asset: { width?: number; height?: number }): number | undefined {
+export function aspectOf(asset: { width?: number; height?: number }): number | undefined {
   if (!asset.width || !asset.height) return undefined;
   return asset.width / asset.height;
 }
@@ -354,6 +354,6 @@ function aspectOf(asset: { width?: number; height?: number }): number | undefine
  * from a model name, and a registry may hold several — 2.0 and 2.5 are
  * registered separately, and either can restore.
  */
-function defaultProvider(deps: AppDeps): string | undefined {
+export function defaultProvider(deps: AppDeps): string | undefined {
   return deps.registry.ids().find((id) => id.startsWith("seedance"));
 }
