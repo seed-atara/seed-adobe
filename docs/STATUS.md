@@ -1,6 +1,6 @@
 # Status
 
-Last updated: 2026-09-01
+Last updated: 2026-10-12
 
 ## Current milestone
 
@@ -959,11 +959,78 @@ the backing colour is removed. Picking the backing per element — the colour
 furthest from that element's own palette — is the open follow-up, and it
 matters on a street full of foliage.
 
+## Four entities built end to end (2026-10-12)
+
+`GYG_Sides-Right_v001` — the cleaned re-layout, 6688x1912, 28 flat PSD layers,
+all at native size. Four elements taken from still to looping thirty-second
+precomp without leaving this session:
+
+| comp | element | clip | on screen | oversample |
+|---|---|---|---|---|
+| `Mariachi01` | 564x421 | 1664x1248 | 564x421 | 2.95x |
+| `PartyCrew01` | 952x513 | 1920x1080 | 952x513 | 2.02x |
+| `CafeFriends01` | 758x423 | 1920x1080 | 758x423 | 2.53x |
+| `TacoDate01` | 354x379 | 1440x1440 | 354x379 | 4.07x |
+
+The shape of each, which is now the house pattern:
+
+1. `precompose` the single PSD layer with **`moveAllAttributes: false`**. That
+   is the "leave all attributes" option, and it is what sizes the new comp to
+   the element instead of to the 6688-wide parent; placement stays outside.
+2. `captureFrame` with no backing, to read the element's palette.
+3. Pick the backing colour by measuring (below), `addSolid`, capture the plate.
+4. `animate` — Seedance 2.0, 1080p, 10s, `aspectRatio: "adaptive"` so the
+   clip follows the element rather than a forced tier shape.
+5. `matte` to ProRes 4444 with real alpha. No keying effects on the layer.
+6. Three `insertIntoComp` calls at 0s, 10s and 20s.
+
+### Why three inserts and not `repeatToFill`
+
+A ten-second clip at 24fps is **241** frames, and with `flf2v` the last frame
+is the first frame again — measured seam 1.59 to 2.49 mean levels against a
+median adjacent-frame step of 0.93 to 13.9. Laid end to end that duplicate
+holds a frame at every join. Started at 0/10/20s instead, each copy's first
+frame lands on top of the previous copy's duplicate last frame and covers it:
+720 unique frames, no hold. `repeatToFill` is still right for a clip whose
+ends differ.
+
+### Choosing the backing by measuring, not by habit
+
+Chebyshev distance from a candidate backing to the nearest artwork pixel:
+
+| element | green | blue | verdict |
+|---|---|---|---|
+| mariachi | **127** | — | green |
+| party crew | 70 | **100** | blue |
+| cafe tables | 82 | **127** | blue |
+| taco date | **54** | **82** | blue |
+
+The taco date settles it: 54 is inside the matte's default tolerance of 60
+before a single frame exists, because the man wears green shorts. This is the
+"backing per element" follow-up, closed — see `BACKDROPS` in
+`packages/domain/src/animate.ts` for why blue and not violet.
+
+### What the clips measured
+
+All four hold the design, keep the camera locked off and show no scale or
+position drift. Loop seams are 5x to 9x *smaller* than one frame of ordinary
+motion. Backdrop corner spread 7 to 13 levels across every frame.
+
+One soft spot, not yet acted on: `CafeFriends01` has **59 of 240** frames
+where under 0.2% of pixels move, against 13 for mariachi. Eight characters at
+two tables is the most crowded of the four and the model held more than it
+animated. Worth a re-roll if it reads as stuttery on the wall.
+
 ## Next engineering actions, continued
 
-6. Smoke-test the remaining twelve host operations against a scratch comp, and
-   add a `deleteLayer` so a test can clean up after itself.
-7. Choose the matte backing per element from the artwork's own palette.
+6. Smoke-test the remaining host operations against a scratch comp, and add a
+   `deleteLayer` so a test can clean up after itself.
+7. ~~Choose the matte backing per element from the artwork's own palette.~~
+   Done — measured per element, `blue` added to `BACKDROPS`.
 8. `replaceFootage` cannot address one layer of a layered PSD — Adobe document
    no call that does. A PSD re-version is a manual relink until measured
    otherwise.
+9. The remaining elements of this side: the delivery cyclist, the walking
+   woman, the takeaway worker, the drive-thru window, the clouds and the car.
+10. `saveVersion` writes a new file and After Effects then works in it. After
+    the first call the open project is no longer `ANUAL_SUMMIT.aep`.
