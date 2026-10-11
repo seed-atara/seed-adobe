@@ -182,6 +182,65 @@ describe("SEED over MCP", () => {
     expect(tools.find((tool) => tool.name === "ae_status")).toBeDefined();
   });
 
+  it("sends an animation as one still in both frame slots", async () => {
+    const client = await connect();
+    reply = () => ({ status: 200, body: { job: { id: "job_1" }, generation: { id: "gen_1" } } });
+
+    await client.callTool({
+      name: "animate",
+      arguments: {
+        sourceAssetId: "ast_plate",
+        describe: "three mariachi musicians in black charro suits",
+        beats: [{ from: 0, to: 10, action: "they play" }],
+        durationSeconds: 10,
+        size: "1080p",
+      },
+    });
+
+    const body = calls[0]?.body as Record<string, unknown>;
+    expect(calls[0]?.path).toBe("/v1/generations");
+    expect(body).toMatchObject({
+      providerId: "seedance-2-0",
+      operation: "video.generate",
+      inputAssetIds: ["ast_plate"],
+      // The whole point of a cel element: it has to end where it began, and
+      // Ark has a mode of its own for one still in both slots.
+      inputRoles: ["loop"],
+    });
+
+    /*
+     * The scaffolding the caller did not write. Each of these is in the
+     * generations that worked and missing from the ones that did not, so a
+     * tool that passed the beats through bare would quietly undo the thing
+     * that makes this reliable.
+     */
+    const prompt = String(body.prompt);
+    expect(prompt).toContain("Image 1 as the first frame, held exactly:");
+    expect(prompt).toContain("camera locked off, no movement");
+    expect(prompt).toContain("chroma-green");
+    expect(prompt).toContain("no stuttering or flickering");
+  });
+
+  it("says what a render will cost before it is paid for", async () => {
+    const client = await connect();
+    reply = () => ({ status: 200, body: { job: { id: "job_1" } } });
+
+    const result = await client.callTool({
+      name: "animate",
+      arguments: {
+        sourceAssetId: "ast_plate",
+        describe: "a yellow hatchback",
+        beats: [{ from: 0, to: 10, action: "the wheels turn" }],
+        durationSeconds: 10,
+        size: "1080p",
+      },
+    });
+
+    // ~488k on this account for 10s at 1080p, measured. An agent that can see
+    // the number before spending it can be asked to stay inside a budget.
+    expect(resultText(result)).toMatch(/"estimatedTokens": 4[89]\d{4}/);
+  });
+
   it("reaches the host bridge rather than the mock adapter", async () => {
     const client = await connect();
     reply = () => ({ status: 200, body: { ok: true, value: { comp: "Comp 1" } } });

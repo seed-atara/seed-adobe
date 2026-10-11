@@ -3221,6 +3221,496 @@ function seedSetLayerSolo(layerIndex, solo) {
     }
 }
 
+// ------------------------------------------------------------ doing the work
+
+/*
+ * Everything above this point can look at a project. These change one.
+ *
+ * ## Aiming
+ *
+ * Twenty-two functions in this file resolve `app.project.activeItem`, and
+ * until now nothing could set it — which meant that from outside the panel
+ * every write landed on whatever composition the artist happened to have in
+ * front of them. For a build made of a dozen entity comps that is not a
+ * limitation, it is a hazard.
+ *
+ * `seedSetActiveComp` is the aim, and the rest keep working on the active
+ * comp rather than each growing a compId of their own. One way to point, one
+ * place to get it wrong.
+ */
+
+/**
+ * Brings a composition to the front, so the writes below land on it.
+ *
+ * `app.project.activeItem` is read-only; `openInViewer` is the documented way
+ * to change what is active, and it returns the viewer so a failure is
+ * distinguishable from a success that did nothing.
+ */
+function seedSetActiveComp(compId) {
+    try {
+        if (!app.project) return seedFail("no project is open");
+
+        var comp = seedFindCompById(compId);
+        if (!comp) return seedFail("no composition has id " + String(compId));
+
+        var viewer = comp.openInViewer();
+        if (!viewer) {
+            return seedFail(
+                "After Effects would not open " + comp.name + " in a viewer. " +
+                "A modal dialog in the host will do this.");
+        }
+
+        var active = app.project.activeItem;
+        return seedOk({
+            comp: { id: String(comp.id), name: comp.name, width: comp.width, height: comp.height },
+            // Reported rather than assumed: openInViewer succeeding and the
+            // item actually being active are two different claims.
+            isActive: active && active.id === comp.id ? true : false
+        });
+    } catch (error) {
+        return seedFail(error);
+    }
+}
+
+/**
+ * A solid behind the artwork, which is how an element gets captured alone.
+ *
+ * The default is broadcast chroma green rather than pure 0,255,0 — the same
+ * green a keyer expects, and far enough from the flat illustration palette in
+ * this kind of artwork to pull cleanly. Overridable, because an element that
+ * happens to contain that green needs a different one and nobody should have
+ * to fight the default.
+ */
+function seedAddSolid(color, name, atBottom) {
+    try {
+        var comp = seedActiveComp();
+        if (!comp) return seedFail("no active composition");
+
+        var rgb = [0, 0.694, 0.251];
+        if (color instanceof Array && color.length >= 3) {
+            rgb = [Number(color[0]), Number(color[1]), Number(color[2])];
+            for (var c = 0; c < 3; c++) {
+                if (!(rgb[c] >= 0 && rgb[c] <= 1)) {
+                    return seedFail("solid colour channels are 0 to 1, not 0 to 255");
+                }
+            }
+        }
+
+        app.beginUndoGroup("SEED: add solid");
+        var layer;
+        try {
+            layer = comp.layers.addSolid(
+                rgb,
+                String(name || "SEED backing"),
+                comp.width,
+                comp.height,
+                comp.pixelAspect,
+                comp.duration);
+            // Behind everything, which is the only place a backing belongs.
+            if (atBottom !== false) layer.moveToEnd();
+        } finally {
+            app.endUndoGroup();
+        }
+
+        return seedOk({
+            layerIndex: layer.index,
+            name: layer.name,
+            color: rgb,
+            compName: comp.name
+        });
+    } catch (error) {
+        try { app.endUndoGroup(); } catch (ignored) {}
+        return seedFail(error);
+    }
+}
+
+/**
+ * Effect names to try, in order, for the ones this pipeline leans on.
+ *
+ * Both spellings for each: After Effects accepts a display name or a match
+ * name from `canAddProperty`, and which one works has moved between versions.
+ * The display name is what an artist would say; the match name is what
+ * survives a localised install. Trying both and reporting which landed is
+ * cheaper than being sure.
+ */
+var SEED_EFFECT_ALIASES = {
+    "color range": ["Color Range", "ADBE Color Range"],
+    "refine hard matte": ["Refine Hard Matte", "ADBE Refine Matte"],
+    "advanced spill suppressor": ["Advanced Spill Suppressor", "ADBE Advanced Spill Suppressor"],
+    "extract": ["Extract", "ADBE Extract"],
+    "matte choker": ["Matte Choker", "ADBE Matte Choker"],
+    "simple choker": ["Simple Choker", "ADBE Simple Choker"],
+    "keylight": ["Keylight (1.2)", "Keylight"],
+    "set channels": ["Set Channels", "ADBE Set Channels"],
+    "levels": ["Levels", "ADBE Easy Levels2"],
+    "curves": ["Curves", "ADBE CurvesCustom"],
+    "hue/saturation": ["Hue/Saturation", "ADBE HUE SATURATION"]
+};
+
+/** The green-screen chain this project already uses, in its working order. */
+var SEED_KEY_CHAIN = ["Color Range", "Refine Hard Matte", "Advanced Spill Suppressor"];
+
+/**
+ * Adds effects to a layer by name, in order.
+ *
+ * Reports what was actually added by match name rather than echoing the
+ * request. An effect that is not installed — Keylight on a machine without
+ * it — fails quietly in `canAddProperty`, and a caller told "done" would go
+ * on to composite something that was never keyed.
+ */
+function seedApplyEffects(layerIndex, names) {
+    try {
+        var comp = seedActiveComp();
+        if (!comp) return seedFail("no active composition");
+
+        var index = Number(layerIndex);
+        if (!(index >= 1 && index <= comp.numLayers)) {
+            return seedFail(
+                "layer " + String(layerIndex) + " is not in " + comp.name +
+                ", which has " + comp.numLayers + " layers");
+        }
+
+        var wanted = [];
+        if (names instanceof Array && names.length > 0) {
+            for (var n = 0; n < names.length; n++) wanted.push(String(names[n]));
+        } else {
+            wanted = SEED_KEY_CHAIN;
+        }
+
+        var layer = comp.layer(index);
+        var added = [];
+        var refused = [];
+
+        app.beginUndoGroup("SEED: add effects");
+        try {
+            for (var i = 0; i < wanted.length; i++) {
+                var alias = SEED_EFFECT_ALIASES[String(wanted[i]).toLowerCase()];
+                var candidates = alias ? alias : [wanted[i]];
+                var effect = seedAddEffect(layer, candidates);
+                if (effect) added.push({ asked: wanted[i], matchName: String(effect.matchName), name: effect.name });
+                else refused.push(wanted[i]);
+            }
+        } finally {
+            app.endUndoGroup();
+        }
+
+        return seedOk({
+            layer: { index: layer.index, name: layer.name },
+            added: added,
+            /** Not installed, or not spelled the way this build spells it. */
+            refused: refused
+        });
+    } catch (error) {
+        try { app.endUndoGroup(); } catch (ignored) {}
+        return seedFail(error);
+    }
+}
+
+/** The eyeball. How a plate is kept but taken out of the picture. */
+function seedSetLayerEnabled(layerIndex, enabled) {
+    try {
+        var comp = seedActiveComp();
+        if (!comp) return seedFail("no active composition");
+
+        var index = Number(layerIndex);
+        if (!(index >= 1 && index <= comp.numLayers)) {
+            return seedFail(
+                "layer " + String(layerIndex) + " is not in " + comp.name +
+                ", which has " + comp.numLayers + " layers");
+        }
+
+        app.beginUndoGroup("SEED: layer visibility");
+        var layer = comp.layer(index);
+        try {
+            layer.enabled = enabled === false ? false : true;
+        } finally {
+            app.endUndoGroup();
+        }
+
+        return seedOk({ layerIndex: layer.index, name: layer.name, enabled: layer.enabled });
+    } catch (error) {
+        try { app.endUndoGroup(); } catch (ignored) {}
+        return seedFail(error);
+    }
+}
+
+/**
+ * Puts an already-imported item into the active comp, sized to the frame.
+ *
+ * `fit` is the parameter worth reading twice, because getting it wrong is
+ * already visible in this project: a 3:4 clip forced into a 0.81 hole with
+ * separate horizontal and vertical scales, and every character in it ten per
+ * cent too short.
+ *
+ * - `cover` (the default) — uniform scale, fills the frame, overflow cropped.
+ * - `contain` — uniform scale, whole clip visible, gaps at the edges.
+ * - `stretch` — fills exactly and **distorts**. Offered because sometimes it
+ *   is genuinely what is wanted, and named so it cannot be chosen by accident.
+ * - `none` — native size.
+ */
+function seedInsertIntoComp(projectItemId, startSeconds, fit, name) {
+    try {
+        var comp = seedActiveComp();
+        if (!comp) return seedFail("no active composition");
+
+        var item = seedFindItemById(projectItemId);
+        if (!item) return seedFail("project item " + String(projectItemId) + " not found");
+
+        app.beginUndoGroup("SEED: insert into comp");
+        var layer;
+        var scale = [100, 100];
+        try {
+            layer = comp.layers.add(item);
+            if (name) layer.name = String(name);
+
+            var start = Number(startSeconds);
+            layer.startTime = start >= 0 ? start : 0;
+
+            var mode = String(fit || "cover").toLowerCase();
+            var sourceWidth = Number(item.width);
+            var sourceHeight = Number(item.height);
+            if (mode !== "none" && sourceWidth > 0 && sourceHeight > 0) {
+                var byWidth = (comp.width / sourceWidth) * 100;
+                var byHeight = (comp.height / sourceHeight) * 100;
+                if (mode === "stretch") scale = [byWidth, byHeight];
+                else if (mode === "contain") {
+                    var small = Math.min(byWidth, byHeight);
+                    scale = [small, small];
+                } else {
+                    var large = Math.max(byWidth, byHeight);
+                    scale = [large, large];
+                }
+                layer.property("Transform").property("Scale").setValue(scale);
+            }
+
+            layer.property("Transform").property("Position")
+                .setValue([comp.width / 2, comp.height / 2]);
+            layer.selected = true;
+        } finally {
+            app.endUndoGroup();
+        }
+
+        return seedOk({
+            layerIndex: layer.index,
+            name: layer.name,
+            compName: comp.name,
+            scalePercent: [Math.round(scale[0] * 100) / 100, Math.round(scale[1] * 100) / 100],
+            startSeconds: layer.startTime,
+            inSeconds: layer.inPoint,
+            outSeconds: layer.outPoint
+        });
+    } catch (error) {
+        try { app.endUndoGroup(); } catch (ignored) {}
+        return seedFail(error);
+    }
+}
+
+/**
+ * Repeats a layer end to end until the timeline is covered.
+ *
+ * What a looping cel element needs and what this project does by hand six
+ * times per entity: a ten-second loop laid three times across thirty seconds,
+ * the last copy trimmed rather than overhanging.
+ *
+ * The duplicates carry the original's effects and transforms, because
+ * `duplicate` copies the layer rather than the source — which is the whole
+ * reason to do it this way instead of adding the footage three times.
+ */
+function seedRepeatToFill(layerIndex, untilSeconds) {
+    try {
+        var comp = seedActiveComp();
+        if (!comp) return seedFail("no active composition");
+
+        var index = Number(layerIndex);
+        if (!(index >= 1 && index <= comp.numLayers)) {
+            return seedFail(
+                "layer " + String(layerIndex) + " is not in " + comp.name +
+                ", which has " + comp.numLayers + " layers");
+        }
+
+        var until = Number(untilSeconds);
+        if (!(until > 0)) until = comp.duration;
+        if (until > comp.duration) until = comp.duration;
+
+        var original = comp.layer(index);
+        var inPoint = original.inPoint;
+        var outPoint = original.outPoint;
+        var span = outPoint - inPoint;
+        var frame = 1 / comp.frameRate;
+
+        if (!(span > frame)) {
+            return seedFail(
+                original.name + " is " + span + "s long — there is nothing to repeat.");
+        }
+        if (outPoint >= until - frame / 2) {
+            return seedOk({ added: 0, copies: [], reason: "already covers the range" });
+        }
+
+        app.beginUndoGroup("SEED: repeat to fill");
+        var copies = [];
+        try {
+            var n = 1;
+            while (inPoint + span * n < until - frame / 2 && n < 64) {
+                var copy = original.duplicate();
+                copy.startTime = original.startTime + span * n;
+                copy.inPoint = inPoint + span * n;
+                var end = outPoint + span * n;
+                copy.outPoint = end > until ? until : end;
+                copies.push({
+                    layerIndex: copy.index,
+                    name: copy.name,
+                    inSeconds: Math.round(copy.inPoint * 1000) / 1000,
+                    outSeconds: Math.round(copy.outPoint * 1000) / 1000
+                });
+                n++;
+            }
+        } finally {
+            app.endUndoGroup();
+        }
+
+        return seedOk({
+            source: { index: original.index, name: original.name, spanSeconds: Math.round(span * 1000) / 1000 },
+            added: copies.length,
+            copies: copies,
+            coversToSeconds: until
+        });
+    } catch (error) {
+        try { app.endUndoGroup(); } catch (ignored) {}
+        return seedFail(error);
+    }
+}
+
+/**
+ * Points a footage item at a different file.
+ *
+ * **Read this before using it on a layered PSD.** `FootageItem.replace` takes
+ * a file, and there is no scripting call that says "layer 7 of this PSD" —
+ * `replaceWithSequence`, `replaceWithSolid` and `replaceWithPlaceholder` are
+ * the only relatives Adobe documents, and none of them addresses a layer. An
+ * item that came in as one layer of a PSD is therefore reported back with
+ * `wasLayeredSource: true` and whoever called is told plainly, because the
+ * replacement will not preserve the layer association and the quiet version
+ * of that is an entity comp full of the whole mural.
+ *
+ * For a flat file — a generated clip, a rendered still — it is exactly right.
+ *
+ * Unverified inside Adobe at the time of writing. See the project's note on
+ * host scripts being unproven until they have been run in the host.
+ */
+function seedReplaceFootage(projectItemId, newPath) {
+    try {
+        if (!app.project) return seedFail("no project is open");
+
+        var item = seedFindItemById(projectItemId);
+        if (!item) return seedFail("project item " + String(projectItemId) + " not found");
+        if (!(item instanceof FootageItem)) {
+            return seedFail(
+                String(item.name) + " is not footage — only a footage item has a file to replace.");
+        }
+
+        var path = seedNormalizePath(newPath);
+        var file = new File(path);
+        if (!file.exists) return seedFail("no file at " + path);
+        if (file.length === 0) {
+            return seedFail(
+                path + " is zero bytes. On Google Drive that means the file is a " +
+                "placeholder and has not been downloaded — make it available offline first.");
+        }
+
+        var before = null;
+        var layered = false;
+        try {
+            var main = item.mainSource;
+            if (main instanceof FileSource) {
+                before = main.file.fsName;
+                // A PSD or AI item whose name carries a layer prefix came in
+                // as one layer of a layered document.
+                layered = /\.(psd|ai|psb)$/i.test(String(main.file.name)) &&
+                    String(item.name).indexOf("/") >= 0;
+            }
+        } catch (ignored) {}
+
+        app.beginUndoGroup("SEED: replace footage");
+        try {
+            item.replace(file);
+        } finally {
+            app.endUndoGroup();
+        }
+
+        return seedOk({
+            itemId: String(item.id),
+            name: item.name,
+            from: before,
+            to: file.fsName,
+            width: item.width,
+            height: item.height,
+            /** True when the layer association is the thing just lost. */
+            wasLayeredSource: layered
+        });
+    } catch (error) {
+        try { app.endUndoGroup(); } catch (ignored) {}
+        return seedFail(error);
+    }
+}
+
+/**
+ * Saves the project under the next free version number.
+ *
+ * `ANUAL_SUMMIT.aep` becomes `ANUAL_SUMMIT_v002.aep`, and a project already
+ * carrying a version counts up from its own. The number is found by looking
+ * for a gap rather than by incrementing the current one: two people working
+ * from the same folder would otherwise both save v003, and the second would
+ * destroy the first.
+ *
+ * A fresh `File` per check, every time. ExtendScript's File caches what it
+ * knew at construction, and a reused instance will cheerfully report that a
+ * file written a second ago is not there.
+ */
+function seedSaveVersion(label) {
+    try {
+        if (!app.project) return seedFail("no project is open");
+
+        var current = app.project.file;
+        if (!current) {
+            return seedFail(
+                "this project has never been saved, so there is no name to version from. " +
+                "Save it once by hand first.");
+        }
+
+        var folder = current.parent;
+        var base = String(decodeURI(current.name)).replace(/\.aep$/i, "");
+
+        var match = base.match(/^(.*?)[_-]v(\d+)$/i);
+        var stem = match ? match[1] : base;
+        var next = match ? Number(match[2]) + 1 : 2;
+        if (label) stem = stem + "_" + String(label).replace(/[^A-Za-z0-9_-]/g, "");
+
+        var target = null;
+        for (var n = next; n < next + 500; n++) {
+            var padded = String(n);
+            while (padded.length < 3) padded = "0" + padded;
+            var candidate = new File(folder.fsName + "/" + stem + "_v" + padded + ".aep");
+            if (!candidate.exists) { target = candidate; break; }
+        }
+        if (!target) return seedFail("could not find an unused version number beside " + base);
+
+        app.project.save(target);
+
+        // Asked again, of a new File, because the save is the claim being made.
+        var written = new File(target.fsName);
+        if (!written.exists) return seedFail("After Effects reported no error but wrote no file");
+
+        return seedOk({
+            savedAs: written.fsName,
+            name: decodeURI(written.name),
+            previous: current.fsName,
+            byteSize: written.length
+        });
+    } catch (error) {
+        return seedFail(error);
+    }
+}
+
 function seedPing() {
     try {
         return seedOk({
@@ -3272,6 +3762,14 @@ var seedAeft_layerBounds = seedLayerBounds;
 var seedAeft_precompose = seedPrecompose;
 var seedAeft_regionFromLayer = seedRegionFromLayer;
 var seedAeft_setLayerSolo = seedSetLayerSolo;
+var seedAeft_setActiveComp = seedSetActiveComp;
+var seedAeft_addSolid = seedAddSolid;
+var seedAeft_applyEffects = seedApplyEffects;
+var seedAeft_setLayerEnabled = seedSetLayerEnabled;
+var seedAeft_insertIntoComp = seedInsertIntoComp;
+var seedAeft_repeatToFill = seedRepeatToFill;
+var seedAeft_replaceFootage = seedReplaceFootage;
+var seedAeft_saveVersion = seedSaveVersion;
 var seedAeft_adoptPlaceholder = seedAdoptPlaceholder;
 
 var seedAeft_buildLookRig = seedBuildLookRig;

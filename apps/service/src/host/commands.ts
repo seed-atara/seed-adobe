@@ -90,6 +90,14 @@ export const HOST_WRITES = [
   "setLayerSolo",
   "captureRegion",
   "insertRegion",
+  "setActiveComp",
+  "addSolid",
+  "applyEffects",
+  "setLayerEnabled",
+  "insertIntoComp",
+  "repeatToFill",
+  "replaceFootage",
+  "saveVersion",
 ] as const;
 
 export const HOST_COMMANDS: readonly string[] = [...HOST_READS, ...HOST_WRITES];

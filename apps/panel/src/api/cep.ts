@@ -684,6 +684,97 @@ export class CepAeBridge {
     );
   }
 
+  // ------------------------------------------------------- changing a build
+
+  /**
+   * Brings a comp to the front.
+   *
+   * Everything below works on the active composition, as the rest of the host
+   * always has. This is how something that is not a mouse points at one.
+   */
+  async setActiveComp(compId: string): Promise<Record<string, unknown>> {
+    await this.ensureHost();
+    return evalHost(`${hostPrefix()}setActiveComp(${quote(compId)})`);
+  }
+
+  /** A backing solid, bottom of the stack, chroma green unless told otherwise. */
+  async addSolid(
+    color?: [number, number, number],
+    name = "SEED backing",
+    atBottom = true,
+  ): Promise<Record<string, unknown>> {
+    await this.ensureHost();
+    const rgb = color ? `[${color.map((channel) => Number(channel)).join(",")}]` : "null";
+    return evalHost(
+      `${hostPrefix()}addSolid(${rgb}, ${quote(name)}, ${atBottom ? "true" : "false"})`,
+    );
+  }
+
+  /** Effects by name, in order. Defaults to the green-key chain. */
+  async applyEffects(layerIndex: number, names?: string[]): Promise<Record<string, unknown>> {
+    await this.ensureHost();
+    const list = names ? `[${names.map((name) => quote(name)).join(",")}]` : "null";
+    return evalHost(`${hostPrefix()}applyEffects(${Number(layerIndex)}, ${list})`);
+  }
+
+  async setLayerEnabled(layerIndex: number, enabled: boolean): Promise<Record<string, unknown>> {
+    await this.ensureHost();
+    return evalHost(
+      `${hostPrefix()}setLayerEnabled(${Number(layerIndex)}, ${enabled ? "true" : "false"})`,
+    );
+  }
+
+  /**
+   * Imports an asset and lays it into the active comp, sized to the frame.
+   *
+   * Import first, exactly as insertRegion does — the host's own importer
+   * already waits for a file to be readable, which matters for anything that
+   * just came off a download.
+   */
+  async insertIntoComp(
+    assetId: string,
+    options: {
+      startSeconds?: number;
+      fit?: "cover" | "contain" | "stretch" | "none";
+      name?: string;
+    } = {},
+  ): Promise<Record<string, unknown>> {
+    await this.ensureHost();
+    const { path } = await this.client.assetPath(assetId);
+    const imported = await evalHost<{ projectItemId: string; name: string }>(
+      `${hostPrefix()}import(${quote(path)})`,
+    );
+    return evalHost(
+      `${hostPrefix()}insertIntoComp(${quote(imported.projectItemId)}, ${Number(
+        options.startSeconds ?? 0,
+      )}, ${quote(options.fit ?? "cover")}, ${options.name ? quote(options.name) : "null"})`,
+    );
+  }
+
+  /** Lays a layer end to end until the timeline is covered. */
+  async repeatToFill(layerIndex: number, untilSeconds?: number): Promise<Record<string, unknown>> {
+    await this.ensureHost();
+    return evalHost(
+      `${hostPrefix()}repeatToFill(${Number(layerIndex)}, ${
+        untilSeconds === undefined ? "null" : Number(untilSeconds)
+      })`,
+    );
+  }
+
+  /** Points a footage item at a different file. */
+  async replaceFootage(projectItemId: string, path: string): Promise<Record<string, unknown>> {
+    await this.ensureHost();
+    return evalHost(
+      `${hostPrefix()}replaceFootage(${quote(projectItemId)}, ${quote(path)})`,
+    );
+  }
+
+  /** Saves under the next free version number beside the current file. */
+  async saveVersion(label?: string): Promise<Record<string, unknown>> {
+    await this.ensureHost();
+    return evalHost(`${hostPrefix()}saveVersion(${label ? quote(label) : "null"})`);
+  }
+
   /**
    * Renders just the region and registers it, region geometry and all.
    *

@@ -120,6 +120,29 @@ const HOST_SPECIFIC: Record<string, { host: string; because: string }> = {
     because: "sourceRectAtTime and the transform chain are After Effects only",
   },
   seedSetLayerSolo: { host: "seed-host.jsx", because: "Premiere has no solo flag per clip" },
+  /*
+   * Changing a build rather than reading one. Each of these leans on
+   * something the After Effects DOM has and Premiere's does not: a viewer
+   * that can be opened on an item, solid layers, scriptable effects, layer
+   * enable flags, and a project that saves to a named file.
+   */
+  seedSetActiveComp: { host: "seed-host.jsx", because: "openInViewer is a CompItem method" },
+  seedAddSolid: { host: "seed-host.jsx", because: "solid layers are After Effects only" },
+  seedApplyEffects: {
+    host: "seed-host.jsx",
+    because: "adding an effect in Premiere is not in the documented API",
+  },
+  seedSetLayerEnabled: { host: "seed-host.jsx", because: "comp layers are an AE idea" },
+  seedInsertIntoComp: { host: "seed-host.jsx", because: "comp layers are an AE idea" },
+  seedRepeatToFill: { host: "seed-host.jsx", because: "comp layers are an AE idea" },
+  seedReplaceFootage: {
+    host: "seed-host.jsx",
+    because: "FootageItem.replace has no Premiere equivalent",
+  },
+  seedSaveVersion: {
+    host: "seed-host.jsx",
+    because: "a Premiere project is saved by the host, not to a path we choose",
+  },
 };
 
 describe("panel to host contract", () => {

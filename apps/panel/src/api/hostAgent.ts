@@ -126,6 +126,40 @@ export function dispatch(
         mode: args.mode === "clip" ? "clip" : "still",
         quality: args.quality === "quality" ? "quality" : "delivery",
       });
+    case "setActiveComp":
+      return bridge.setActiveComp(String(args.compId));
+    case "addSolid":
+      return bridge.addSolid(
+        rgbOf(args.color),
+        String(args.name ?? "SEED backing"),
+        args.atBottom === false ? false : true,
+      );
+    case "applyEffects":
+      return bridge.applyEffects(
+        Number(args.layerIndex),
+        Array.isArray(args.names) ? args.names.map((name) => String(name)) : undefined,
+      );
+    case "setLayerEnabled":
+      return bridge.setLayerEnabled(Number(args.layerIndex), args.enabled !== false);
+    case "insertIntoComp":
+      return bridge.insertIntoComp(String(args.assetId), {
+        startSeconds: Number(args.startSeconds ?? 0),
+        fit: fitOf(args.fit),
+        ...(args.name === undefined ? {} : { name: String(args.name) }),
+      });
+    case "repeatToFill":
+      return bridge.repeatToFill(
+        Number(args.layerIndex),
+        args.untilSeconds === undefined || args.untilSeconds === null
+          ? undefined
+          : Number(args.untilSeconds),
+      );
+    case "replaceFootage":
+      return bridge.replaceFootage(String(args.projectItemId), String(args.path));
+    case "saveVersion":
+      return bridge.saveVersion(
+        args.label === undefined || args.label === null ? undefined : String(args.label),
+      );
     case "insertRegion":
       return bridge.insertRegion(String(args.assetId), {
         regionName: String(args.regionName),
@@ -159,6 +193,27 @@ function indexList(value: unknown): number[] {
     }
     return index;
   });
+}
+
+/**
+ * A solid colour, as the host wants it: three channels, 0 to 1.
+ *
+ * `undefined` rather than a guess when it is anything else, so the host's own
+ * chroma-green default applies. Silently reading 0-255 values as 0-1 would
+ * produce a white solid and a key that mattes nothing.
+ */
+function rgbOf(value: unknown): [number, number, number] | undefined {
+  if (!Array.isArray(value) || value.length < 3) return undefined;
+  const channels = value.slice(0, 3).map((channel) => Number(channel));
+  if (channels.some((channel) => !Number.isFinite(channel) || channel < 0 || channel > 1)) {
+    throw new Error("solid colour channels are 0 to 1, not 0 to 255.");
+  }
+  return [channels[0]!, channels[1]!, channels[2]!];
+}
+
+/** Scaling modes, with the distorting one reachable only by naming it. */
+function fitOf(value: unknown): "cover" | "contain" | "stretch" | "none" {
+  return value === "contain" || value === "stretch" || value === "none" ? value : "cover";
 }
 
 /** The three the host accepts, with 32 as the default this project prefers. */

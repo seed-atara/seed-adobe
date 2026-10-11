@@ -1,5 +1,6 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import { animatePrompt, estimateTokens, tierFor } from "@seed-ae/domain";
 import { z } from "zod";
 
 /**
@@ -266,6 +267,132 @@ export function createSeedMcpServer(options: McpOptions): McpServer {
     async (args) => text(await call("/v1/restore/keyframe", { method: "POST", body: args })),
   );
 
+  // ---- Animating one piece of artwork -----------------------------------
+
+  server.registerTool(
+    "animate",
+    {
+      title: "Animate a still as a cel element",
+      description:
+        "Turn one piece of flat artwork into a looping clip that can be keyed and " +
+        "comped back into the plate it came from. Give it the artwork's own " +
+        "description and a beat sheet; the camera note, the backdrop hold and the " +
+        "stability constraints are added for you from what has measurably worked " +
+        "on this project. Returns the job to poll, and what the render will cost " +
+        "in provider tokens. Pass a frame captured WITH its backdrop already " +
+        "behind it — this writes the prompt, it does not isolate the subject.",
+      inputSchema: {
+        sourceAssetId: z
+          .string()
+          .min(1)
+          .describe("the still to animate, normally a capture of the element on its backdrop"),
+        describe: z
+          .string()
+          .min(1)
+          .max(1200)
+          .describe(
+            "what the artwork IS — style, line weight, colours, props. Holds the " +
+              "design; does not describe the motion",
+          ),
+        beats: z
+          .array(
+            z.object({
+              from: z.number().min(0),
+              to: z.number().min(0),
+              action: z.string().min(1).max(600),
+            }),
+          )
+          .min(1)
+          .max(8)
+          .describe("what happens, in timed beats covering the whole duration"),
+        durationSeconds: z.number().min(4).max(30).default(10),
+        size: z.enum(["480p", "720p", "1080p", "4K"]).default("1080p"),
+        aspectRatio: z
+          .string()
+          .default("adaptive")
+          .describe("match the ELEMENT's shape, not the comp's — a forced aspect is what failed before"),
+        backdrop: z.enum(["green", "white", "none"]).default("green"),
+        loop: z
+          .boolean()
+          .default(true)
+          .describe("same still in both frame slots, so the shot ends where it began"),
+        providerId: z
+          .enum(["seedance-2-0", "seedance-2-0-fast", "seedance-2-0-mini", "seedance-2-5"])
+          .default("seedance-2-0")
+          .describe("2-0 is the only one that reaches 4K; fast and mini stop at 720p"),
+        project: z.string().optional().describe("the host project, so the result files with it"),
+        seed: z.number().int().optional(),
+      },
+    },
+    async (args) => {
+      const prompt = animatePrompt({
+        describe: args.describe,
+        beats: args.beats,
+        loop: args.loop,
+        backdrop: args.backdrop,
+      });
+
+      const started = await call("/v1/generations", {
+        method: "POST",
+        body: {
+          providerId: args.providerId,
+          operation: "video.generate",
+          prompt,
+          size: args.size,
+          durationSeconds: args.durationSeconds,
+          aspectRatio: args.aspectRatio,
+          inputAssetIds: [args.sourceAssetId],
+          // `loop` puts the one still in both frame slots. `first` anchors the
+          // opening and lets the end go where it will.
+          inputRoles: [args.loop ? "loop" : "first"],
+          ...(args.project ? { project: args.project } : {}),
+          ...(args.seed === undefined ? {} : { seed: args.seed }),
+        },
+      });
+
+      return text({
+        ...(started as Record<string, unknown>),
+        prompt,
+        estimatedTokens: estimateTokens(args.size, args.durationSeconds),
+        note:
+          "Renders take minutes — poll `job`. Token estimate is measured on this " +
+          "account at ~1017 pixels per token; the rate per token is a console setting.",
+      });
+    },
+  );
+
+  server.registerTool(
+    "plan_animation",
+    {
+      title: "Size and cost before spending",
+      description:
+        "Which resolution tier to generate at for an element of a given on-screen " +
+        "size, and what each option would cost in tokens. Generating above the " +
+        "size a clip is scaled down to is fine — this project runs 2–4x " +
+        "oversampled and it is clean. Generating below it cannot be recovered.",
+      inputSchema: {
+        screenWidth: z.number().positive().describe("the element's width in comp pixels"),
+        screenHeight: z.number().positive(),
+        durationSeconds: z.number().min(4).max(30).default(10),
+      },
+    },
+    async ({ screenWidth, screenHeight, durationSeconds }) => {
+      const recommended = tierFor(screenWidth, screenHeight);
+      const options = ["720p", "1080p", "4K"].map((size) => ({
+        size,
+        tokens: estimateTokens(size, durationSeconds),
+        withVideoReference: estimateTokens(size, durationSeconds, { hasVideoReference: true }),
+      }));
+      return text({
+        element: { screenWidth, screenHeight, aspect: Math.round((screenWidth / screenHeight) * 1000) / 1000 },
+        recommended,
+        options,
+        typicalWallClock: { "720p": "~2.5 min", "1080p": "~4 min", "4K": "~6.5 min" },
+        note: "Aspect should follow the element, not the comp it lands in.",
+      });
+    },
+  );
+
   // ---- Watching work finish ---------------------------------------------
 
   server.registerTool(
@@ -320,8 +447,10 @@ export function createSeedMcpServer(options: McpOptions): McpServer {
         "Writes (these change the artist's project): captureFrame, createRegion, " +
         "regionFromLayer (a region framed on one layer), captureRegion, " +
         "insertRegion, precompose (group layers into a comp of their own), " +
-        "setLayerSolo, setRegionAspect, setRegionContain, setProjectDepth. Call " +
-        "ae_status first to see the current list.",
+        "setLayerSolo, setRegionAspect, setRegionContain, setProjectDepth, " +
+        "setActiveComp (AIM FIRST — everything else works on the active comp), " +
+        "addSolid, applyEffects, setLayerEnabled, insertIntoComp, repeatToFill, " +
+        "replaceFootage, saveVersion. Call ae_status first to see the current list.",
       inputSchema: {
         name: z.string().min(1).describe("the operation, from the allowlist"),
         args: z.record(z.string(), z.unknown()).default({}),
