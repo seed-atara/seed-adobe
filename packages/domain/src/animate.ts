@@ -48,12 +48,45 @@ export interface Beat {
  * the element genuinely fills frame. `none` exists so that the clause can be
  * left out honestly rather than by passing an empty string that would leave a
  * dangling sentence in the prompt.
+ *
+ * ## Why blue is here
+ *
+ * Green is the default and not the universal answer, because the backdrop has
+ * to be a colour the artwork does not contain. Measured on the four GYG
+ * entities, as the Chebyshev distance from pure chroma green to the nearest
+ * artwork pixel:
+ *
+ * | element | to green | to blue |
+ * |---|---|---|
+ * | mariachi trio | 127 | — |
+ * | rooftop party crew | 70 | 100 |
+ * | cafe tables | 82 | 127 |
+ * | taco date | **54** | 82 |
+ *
+ * The taco date is the argument. Its nearest pixel to green is 54 — inside
+ * the matte's default tolerance of 60 before a single frame is generated, so
+ * a green backdrop would remove part of the man's shorts and call it
+ * background. A Mexican street is full of green; the colour the backdrop has
+ * to avoid is whatever the illustrator already used.
+ *
+ * Blue rather than violet or magenta, which measured marginally better on two
+ * of the three: blue screen is the other industry-standard backdrop, so it is
+ * as well represented in a video model's training as green and can be relied
+ * on to come back FLAT. Flatness is what the matte depends on — a backdrop
+ * the model renders as a lit gradient keys worse than one that is slightly
+ * nearer the artwork. That tradeoff is a judgement, not a measurement, and is
+ * written down here so it can be revisited if a violet test ever runs.
  */
 export const BACKDROPS = {
   green: {
     opening: "isolated on a flat chroma-green background with no shadow spill",
     closing:
       "Flat chroma-green backdrop stays pure, even and unchanged for the whole shot",
+  },
+  blue: {
+    opening: "isolated on a flat chroma-blue background with no shadow spill",
+    closing:
+      "Flat chroma-blue backdrop stays pure, even and unchanged for the whole shot",
   },
   white: {
     opening: "isolated on a plain flat white background with no shadow spill",

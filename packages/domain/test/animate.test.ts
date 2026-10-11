@@ -72,6 +72,29 @@ describe("the cel-element prompt", () => {
     expect(prompt).toContain("stays pure, even and unchanged for the whole shot");
   });
 
+  it("offers a backdrop for artwork that is already green", () => {
+    /*
+     * Not a style option. Measured on the four GYG entities as the distance
+     * from pure chroma green to the nearest artwork pixel: the mariachi trio
+     * is 127 clear, but the taco date is **54** — inside the matte's default
+     * tolerance of 60 before anything is generated, because the man is
+     * wearing green shorts. On green, his shorts are background.
+     *
+     * So the backdrop has to be choosable per element, and the alternative
+     * has to read to the model exactly like the green one does.
+     */
+    const blue = animatePrompt({ ...SHOT, backdrop: "blue" });
+
+    expect(blue.match(/chroma-blue/g)).toHaveLength(2);
+    expect(blue).toContain("stays pure, even and unchanged for the whole shot");
+    expect(blue).not.toContain("chroma-green");
+
+    // Same sentence, one word different — the wording is what the eleven
+    // generations that worked used, and only the colour may vary.
+    const green = animatePrompt(SHOT);
+    expect(blue).toBe(green.replace(/chroma-green/g, "chroma-blue"));
+  });
+
   it("leaves the backdrop out cleanly rather than trailing an empty clause", () => {
     const prompt = animatePrompt({ ...SHOT, backdrop: "none" });
 

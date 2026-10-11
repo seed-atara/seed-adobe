@@ -14,27 +14,62 @@ export interface Mp4Size {
   durationSeconds?: number;
 }
 
-/** The visual sample entries that carry a frame size. */
-const VISUAL_CODECS = ["avc1", "avc3", "hvc1", "hev1", "mp4v", "av01", "vp09"];
+/**
+ * The visual sample entries that carry a frame size.
+ *
+ * The ProRes half of this list is not decoration. SEED's own matted masters
+ * come out of ffmpeg as ProRes 4444 — `ap4h` — and while that fourcc was
+ * missing, every clip this pipeline produced itself was registered with no
+ * width, height or duration: the one kind of file the library is most certain
+ * about was the one kind it could not measure. Delivery codecs were read
+ * fine, which is why it went unnoticed.
+ */
+const VISUAL_CODECS = [
+  "avc1",
+  "avc3",
+  "hvc1",
+  "hev1",
+  "mp4v",
+  "av01",
+  "vp09",
+  // ProRes, in the order Apple numbers them: proxy, LT, 422, HQ, 4444, 4444 XQ.
+  "apco",
+  "apcs",
+  "apcn",
+  "apch",
+  "ap4h",
+  "ap4x",
+];
 
 export function readMp4Size(bytes: Buffer): Mp4Size | undefined {
-  const stsd = bytes.indexOf(Buffer.from("stsd", "ascii"));
-  if (stsd < 0) return undefined;
+  /*
+   * Every `stsd`, not the first.
+   *
+   * The first match is only the real sample description in a file whose moov
+   * comes before its mdat. ffmpeg writes .mov the other way round, so the
+   * search crosses hundreds of megabytes of pixel data first, and any four
+   * bytes of that can spell `stsd`. Taking the first match meant one unlucky
+   * frame of video could cost a file its dimensions — a bug that would have
+   * reproduced about as often as it was looked for.
+   */
+  const needle = Buffer.from("stsd", "ascii");
+  for (let stsd = bytes.indexOf(needle); stsd >= 0; stsd = bytes.indexOf(needle, stsd + 1)) {
+    // stsd: type(4) version+flags(4) entryCount(4), then the first sample entry.
+    const entry = stsd + 12;
+    if (entry + 40 > bytes.length) continue;
 
-  // stsd: type(4) version+flags(4) entryCount(4), then the first sample entry.
-  const entry = stsd + 12;
-  if (entry + 40 > bytes.length) return undefined;
+    const codec = bytes.toString("ascii", entry + 4, entry + 8);
+    if (!VISUAL_CODECS.includes(codec)) continue;
 
-  const codec = bytes.toString("ascii", entry + 4, entry + 8);
-  if (!VISUAL_CODECS.includes(codec)) return undefined;
+    // VisualSampleEntry: 8 header, 6 reserved, 2 data ref, 2+2+12 predefined,
+    // then width and height as 16-bit each.
+    const width = bytes.readUInt16BE(entry + 32);
+    const height = bytes.readUInt16BE(entry + 34);
+    if (width <= 0 || height <= 0) continue;
 
-  // VisualSampleEntry: 8 header, 6 reserved, 2 data ref, 2+2+12 predefined,
-  // then width and height as 16-bit each.
-  const width = bytes.readUInt16BE(entry + 32);
-  const height = bytes.readUInt16BE(entry + 34);
-  if (width <= 0 || height <= 0) return undefined;
-
-  return { width, height, ...(readDuration(bytes) ?? {}) };
+    return { width, height, ...(readDuration(bytes) ?? {}) };
+  }
+  return undefined;
 }
 
 /** Duration from the movie header, which is the whole file's length. */

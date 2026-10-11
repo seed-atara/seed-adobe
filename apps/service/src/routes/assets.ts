@@ -1,5 +1,6 @@
 import { createReadStream } from "node:fs";
-import { readFile, stat, unlink, writeFile } from "node:fs/promises";
+import { constants as fsConstants } from "node:fs";
+import { copyFile, open, readFile, stat, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import {
   type Asset,
@@ -24,7 +25,7 @@ import {
 import { resolveStorageUri, toStorageUri } from "@seed-ae/storage";
 import { ensureProxy, hasProxy, needsProxy, proxyPath } from "../media/proxy.js";
 import { z } from "zod";
-import { MAX_OUTPUT_BYTES } from "../generation/mediaIngestor.js";
+import { MAX_ADOPT_BYTES, MAX_OUTPUT_BYTES } from "../generation/mediaIngestor.js";
 import { ensurePlaceholder } from "../placeholder.js";
 import type { AppDeps } from "../app.js";
 import { parseWith, readJsonBody } from "../http/body.js";
@@ -437,15 +438,27 @@ export async function adoptFileIntoLibrary(
     if (info.size === 0) {
       throw new SeedError("bad_request", `${path.basename(source)} is empty`);
     }
-    if (info.size > MAX_OUTPUT_BYTES) {
+    if (info.size > MAX_ADOPT_BYTES) {
       throw new SeedError(
         "bad_request",
         `${path.basename(source)} is ${info.size} bytes, over the ` +
-          `${MAX_OUTPUT_BYTES} byte limit`,
+          `${MAX_ADOPT_BYTES} byte limit`,
       );
     }
 
-    const bytes = await readFile(source);
+    /*
+     * Small files are read whole, as they always were. A large one — a ProRes
+     * master, which is the normal result of matting a generated clip — is
+     * probed at both ends instead, because holding half a gigabyte in a
+     * Buffer to read two atoms out of it is how a service gets killed by the
+     * allocator on the one operation it most needs to finish.
+     *
+     * Head AND tail: `readMp4Size` scans for `stsd`, and ffmpeg writes the
+     * moov atom at the END of a .mov unless told otherwise, so a head-only
+     * probe would silently register every master with no width or duration.
+     */
+    const streaming = info.size > MAX_OUTPUT_BYTES;
+    const bytes = streaming ? await probeEnds(source, info.size) : await readFile(source);
     // The bytes decide what this is. A .mp4 that is really a MOV, or a .png
     // holding JPEG, would otherwise be registered as whatever it was named.
     const mimeType = sniffMimeType(bytes) ?? "application/octet-stream";
@@ -469,7 +482,9 @@ export async function adoptFileIntoLibrary(
       const suffix = String(attempt).padStart(3, "0");
       target = path.join(deps.workspace.originalsDir, `${stem}_${suffix}${extension}`);
       try {
-        await writeFile(target, bytes, { flag: "wx" });
+        // COPYFILE_EXCL, so the never-overwrite rule above still holds.
+        if (streaming) await copyFile(source, target, fsConstants.COPYFILE_EXCL);
+        else await writeFile(target, bytes, { flag: "wx" });
         break;
       } catch (cause) {
         if ((cause as NodeJS.ErrnoException).code !== "EEXIST") {
@@ -492,7 +507,7 @@ export async function adoptFileIntoLibrary(
       filename: path.basename(target),
       mimeType,
       storageUri: toStorageUri(deps.workspace, target),
-      byteSize: bytes.length,
+      byteSize: info.size,
       ...(width ? { width } : {}),
       ...(height ? { height } : {}),
       ...(video?.durationSeconds ? { durationSeconds: video.durationSeconds } : {}),
@@ -511,11 +526,37 @@ export async function adoptFileIntoLibrary(
       assetId: asset.id,
       kind,
       mimeType,
-      byteSize: bytes.length,
+      byteSize: info.size,
+      streamed: streaming,
     });
 
     return registered;
   };
+}
+
+/**
+ * The first and last megabytes of a file, joined.
+ *
+ * Enough for `sniffMimeType`, `readPngSize` and `readMp4Size` without reading
+ * the middle, which for a video master is all of it. The two ends are joined
+ * rather than returned separately so every existing caller keeps working on
+ * one Buffer — the cost is that a structure straddling the join would be
+ * misread, and nothing SEED parses does: magic bytes are at the very front,
+ * and `moov` is a contiguous atom at one end or the other.
+ */
+async function probeEnds(source: string, size: number): Promise<Buffer> {
+  const edge = Math.min(1024 * 1024, size);
+  const handle = await open(source, "r");
+  try {
+    const head = Buffer.alloc(edge);
+    await handle.read(head, 0, edge, 0);
+    if (size <= edge * 2) return head.subarray(0, size);
+    const tail = Buffer.alloc(edge);
+    await handle.read(tail, 0, edge, size - edge);
+    return Buffer.concat([head, tail]);
+  } finally {
+    await handle.close();
+  }
 }
 
 /** A sensible extension for a file that arrived without one. */

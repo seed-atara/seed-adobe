@@ -26,6 +26,23 @@ import {
 
 /** Refuse absurd downloads rather than filling the user's disk. */
 export const MAX_OUTPUT_BYTES = 256 * 1024 * 1024;
+
+/**
+ * The ceiling for a file SEED is asked to adopt from local disk.
+ *
+ * Deliberately far above `MAX_OUTPUT_BYTES`, because the two guard different
+ * things. That one bounds an untrusted download arriving over the wire on
+ * someone else's say-so. This one bounds a file that is already on the disk,
+ * usually one SEED has just written itself — and a ProRes 4444 master
+ * legitimately is this big: the first matted GYG element, ten seconds of flat
+ * vector art at 1664x1248, came out at 537 MB. Refusing it would have meant
+ * the pipeline could generate a master it could not then keep.
+ *
+ * The number that mattered was never the size anyway, it was the memory:
+ * adoption used to read the whole file into a Buffer. It streams now, so this
+ * is a sanity bound rather than a load-bearing one.
+ */
+export const MAX_ADOPT_BYTES = 4 * 1024 * 1024 * 1024;
 export const THUMBNAIL_MAX_EDGE = 512;
 
 const EXTENSIONS: Record<string, string> = {

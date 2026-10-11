@@ -311,7 +311,13 @@ export function createSeedMcpServer(options: McpOptions): McpServer {
           .string()
           .default("adaptive")
           .describe("match the ELEMENT's shape, not the comp's — a forced aspect is what failed before"),
-        backdrop: z.enum(["green", "white", "none"]).default("green"),
+        backdrop: z
+          .enum(["green", "blue", "white", "none"])
+          .default("green")
+          .describe(
+            "the colour the element stands on. Pick one the ARTWORK does not " +
+              "contain — green is the default, not the universal answer",
+          ),
         loop: z
           .boolean()
           .default(true)
