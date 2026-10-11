@@ -909,3 +909,61 @@ explains it. Worth asking Adobe rather than reverse-engineering.
 5. Milestone 5 continued: the direction agent plans but does not act. Tool use
    and an execution loop stay gated behind the rule in ADR 0007 — the agent
    proposes, the user approves anything destructive.
+
+## SEED can drive After Effects now, and the GYG build is the first real test
+
+The panel bridge gained a direction it never had: a service-side queue the
+panel long-polls, so something that is not a mouse can run a named operation
+in the host. A command is a name and typed arguments, never a script, refused
+at both ends. See ADR 0021 and `host/commands.ts`.
+
+Eighteen operations are on the allowlist. Reading a build apart — `compTree`
+with `pixelRatio` per part, `projectComps`, `layerBounds` — and changing one:
+`setActiveComp` (which everything else depends on, since twenty-two host
+functions resolve `activeItem` and nothing could set it), `precompose`,
+`addSolid`, `applyEffects`, `setLayerEnabled`, `insertIntoComp`,
+`repeatToFill`, `regionFromLayer`, `setLayerSolo`, `replaceFootage`,
+`saveVersion`, plus `captureRegion` and `insertRegion` which existed and were
+unreachable.
+
+**Six are smoke-tested in After Effects 26.0** — ping, setActiveComp,
+layerBounds, setLayerEnabled, addSolid, applyEffects. The rest are written and
+unrun, which per ADR 0018 means written. That is the next thing to fix, and it
+needs a scratch comp rather than the artist's project, because there is no
+delete-layer command to clean up after a test.
+
+### What the GYG projection taught us
+
+`ANUAL_SUMMIT.aep` is a 6688x1912 arcade assembled from six entity sub-comps,
+each one the same shape: a Seedance clip repeated to fill thirty seconds over
+a disabled PSD still and a disabled green solid. Nothing in it is
+under-resolved — every clip runs 2.0-4.2 source pixels per screen pixel, which
+is where `tierFor` gets its 2x target from. One real defect found by reading
+it: `Cafe01` is scaled 23.72/21.45, a non-uniform squash from forcing a 3:4
+clip into a 0.81 hole, which is why `insertIntoComp` defaults to `cover` and
+makes `stretch` something you have to name.
+
+`docs/research/SEEDANCE_2_0_COST_AND_STYLE.md` records what 150 jobs on this
+account actually cost — the meter is ~1017 pixels per token — and the house
+prompt recipe, now in `packages/domain/src/animate.ts` with a test per clause.
+
+### Alpha without a keyer
+
+`media/floodMatte.ts` reads the backing as a connected region rather than a
+colour, so artwork that happens to be green survives and backing trapped
+behind the subject does not. ProRes 4444 out, no keying effects on the AE
+layer. Verified on a real clip.
+
+Its one honest cost is in the suite as a test: artwork painted in *exactly*
+the backing colour is removed. Picking the backing per element — the colour
+furthest from that element's own palette — is the open follow-up, and it
+matters on a street full of foliage.
+
+## Next engineering actions, continued
+
+6. Smoke-test the remaining twelve host operations against a scratch comp, and
+   add a `deleteLayer` so a test can clean up after itself.
+7. Choose the matte backing per element from the artwork's own palette.
+8. `replaceFootage` cannot address one layer of a layered PSD — Adobe document
+   no call that does. A PSD re-version is a manual relink until measured
+   otherwise.
