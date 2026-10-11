@@ -24,6 +24,7 @@ import {
 import { LibraryView } from "./components/LibraryView.tsx";
 import { RestoreView } from "./components/RestoreView.tsx";
 import { TransformView } from "./components/TransformView.tsx";
+import { startHostAgent } from "./api/hostAgent.ts";
 import { AssetDetail } from "./components/AssetDetail.tsx";
 import { LineageView } from "./components/LineageView.tsx";
 import { ItemsView } from "./components/ItemsView.tsx";
@@ -178,6 +179,18 @@ export function App({ tabs }: AppProps = {}) {
     "connecting" | "live" | "unauthorized" | "down"
   >(() => (initialToken() ? "connecting" : "unauthorized"));
   const [connectionMessage, setConnectionMessage] = useState("");
+  /*
+   * Whether this panel will run work queued by something other than the
+   * artist — an agent driving the project through `/v1/host`.
+   *
+   * Off until switched on, and never remembered across sessions. The service
+   * is already behind a session token, so this is not the security boundary;
+   * it is the artist knowing. A panel that quietly accepted instructions to
+   * change the open project because a token leaked into a terminal history
+   * would be a bad surprise, and the cost of asking is one click.
+   */
+  const [agentOn, setAgentOn] = useState(false);
+  const [agentBusy, setAgentBusy] = useState<string>();
 
   const client = useMemo(
     () => new SeedClient(DEFAULT_BASE_URL, token),
@@ -193,6 +206,20 @@ export function App({ tabs }: AppProps = {}) {
     () => (isCepHost() ? new CepAeBridge(client) : undefined),
     [client],
   );
+
+
+  /*
+   * The panel as a worker for the host bridge.
+   *
+   * Only while switched on, only while connected, and torn down on either
+   * going away — a loop left running against a dead service would spin, and
+   * one left running after the artist switched it off would be the exact
+   * surprise the switch exists to prevent.
+   */
+  useEffect(() => {
+    if (!agentOn || connection !== "live" || !bridge) return;
+    return startHostAgent({ client, bridge, onActivity: setAgentBusy });
+  }, [agentOn, connection, bridge, client]);
 
   const [tab, setTab] = useState<Tab>(visibleTabs[0] ?? "generate");
   /** Credentials live behind the gear, not in a tab: set once, then forget. */
@@ -1416,6 +1443,20 @@ export function App({ tabs }: AppProps = {}) {
           The single most important control for a new install cannot be a
           symbol that depends on a font nobody has.
         */}
+        {bridge ? (
+          <button
+            className="statusbar-keys"
+            onClick={() => setAgentOn((on) => !on)}
+            title={
+              agentOn
+                ? "SEED is accepting work queued from outside the panel. Click to stop."
+                : "Let an agent drive After Effects through this panel. Off by default."
+            }
+            style={agentOn ? { color: "var(--accent, #6cf)" } : undefined}
+          >
+            {agentBusy ? `Agent · ${agentBusy}` : agentOn ? "Agent · on" : "Agent · off"}
+          </button>
+        ) : null}
         <button
           className="statusbar-keys"
           onClick={() => setShowSettings(true)}

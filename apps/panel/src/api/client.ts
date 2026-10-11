@@ -411,6 +411,33 @@ export class SeedClient {
     return this.request("/v1/transform/agreement", { method: "POST", body: input });
   }
 
+  /**
+   * The panel asking the service for work to run inside the host.
+   *
+   * Long-polls: the service holds this open for ~25s and answers with `null`
+   * if nothing arrived, so an idle panel is not spinning and a queued command
+   * lands in milliseconds.
+   */
+  async nextHostCommand(): Promise<
+    { id: string; name: string; args: Record<string, unknown> } | undefined
+  > {
+    const response = await this.request<{
+      command: { id: string; name: string; args: Record<string, unknown> } | null;
+    }>("/v1/host/next");
+    return response.command ?? undefined;
+  }
+
+  /** The panel reporting what the host said. */
+  hostCommandResult(
+    id: string,
+    result: { ok: boolean; value?: unknown; error?: string },
+  ): Promise<{ recorded: true }> {
+    return this.request(`/v1/host/result/${encodeURIComponent(id)}`, {
+      method: "POST",
+      body: result,
+    });
+  }
+
   /** Depth and normals, computed here rather than generated. */
   derivePasses(input: {
     sourceAssetId: string;

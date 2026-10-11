@@ -89,6 +89,13 @@ import {
   startRestoreRoute,
 } from "./routes/restore.js";
 import {
+  hostCommandResultRoute,
+  hostStatusRoute,
+  nextHostCommandRoute,
+  runHostCommandRoute,
+} from "./routes/host.js";
+import { HostCommandQueue } from "./host/commands.js";
+import {
   agreementRoute,
   startTransformRoute,
   transformKeyframeRoute,
@@ -111,6 +118,14 @@ export interface AppDeps {
   ingestor: MediaIngestor;
   workspace: WorkspaceLayout;
   aeHost: AeHostAdapter;
+  /**
+   * Work queued for the CEP panel to run inside After Effects.
+   *
+   * `aeHost` above is the service's own adapter and is a mock: the service
+   * cannot reach a host on its own. This is the other direction — the panel
+   * long-polls here, so something that is not a mouse can drive the project.
+   */
+  hostCommands: HostCommandQueue;
   /** Absent when ANTHROPIC_API_KEY is unset — direction is optional. */
   director?: PromptDirector;
   /** Absent for the same reason as the director: no key, no feature. */
@@ -171,6 +186,10 @@ export function buildRouter(deps: AppDeps): Router {
     .get("/v1/transform/presets", transformPresetsRoute())
     .post("/v1/transform/keyframe", transformKeyframeRoute(deps))
     .post("/v1/transform/agreement", agreementRoute(deps))
+    .post("/v1/host/run", runHostCommandRoute(deps))
+    .get("/v1/host/next", nextHostCommandRoute(deps))
+    .post("/v1/host/result/:id", hostCommandResultRoute(deps))
+    .get("/v1/host", hostStatusRoute(deps))
     .post("/v1/passes/derive", derivePassesRoute(deps))
     .post("/v1/passes/relight", relightRoute(deps))
     .post("/v1/passes/light-transfer", lightTransferRoute(deps))

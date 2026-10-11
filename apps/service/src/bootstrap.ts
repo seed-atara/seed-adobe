@@ -1,3 +1,4 @@
+import { HostCommandQueue } from "./host/commands.js";
 import { MockAeHostAdapter, type AeHostAdapter } from "@seed-ae/ae-host";
 import {
   ArkAssetLibrary,
@@ -226,6 +227,13 @@ export async function bootstrap({
     generation,
     ingestor,
     aeHost: aeHost ?? new MockAeHostAdapter({ outputDir: workspace.originalsDir }),
+    /*
+     * Fresh per service, and in memory on purpose: a queued command only means
+     * anything while the panel that would run it is open, so surviving a
+     * restart would just mean replaying stale work into a project that has
+     * moved on.
+     */
+    hostCommands: new HostCommandQueue(),
     // Direction is optional: without a key the panel simply does not offer it.
     ...(config.director
       ? {

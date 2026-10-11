@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "seed-ae": {
+      "command": "node",
+      "args": [
+        "--env-file=.env",
+        "--import",
+        "tsx",
+        "apps/service/src/mcp/index.ts"
+      ]
+    }
+  }
+}
