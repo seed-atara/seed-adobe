@@ -1199,6 +1199,39 @@ function seedNextRegionName(comp) {
 }
 
 /** Creates a region guide, centred, sized to fit the plate. */
+/**
+ * The region shape layer itself, given a size and a centre.
+ *
+ * Shared by the two ways a region comes into being — dropped in the middle for
+ * an artist to drag, or placed on a layer's bounds for something that is not
+ * an artist — because a region the panel cannot recognise afterwards is worse
+ * than no region, and two constructions would eventually disagree about what
+ * one looks like.
+ */
+function seedAddRegionLayer(comp, dims, centre, aspect) {
+    var layer = comp.layers.addShape();
+    layer.name = seedNextRegionName(comp);
+
+    var group = layer.property("Contents").addProperty("ADBE Vector Group");
+    var contents = group.property("Contents");
+    var rect = contents.addProperty("ADBE Vector Shape - Rect");
+    rect.property("Size").setValue(dims);
+    rect.property("Position").setValue([0, 0]);
+
+    var stroke = contents.addProperty("ADBE Vector Graphic - Stroke");
+    stroke.property("Color").setValue([0, 1, 1]);
+    stroke.property("Stroke Width").setValue(4);
+
+    layer.property("Transform").property("Position").setValue(centre);
+    // Excluded from renders, so it can never be baked into a capture.
+    layer.guideLayer = true;
+    // The aspect is built into the rectangle; the lock is what keeps it
+    // through a corner drag.
+    seedApplyAspectLock(layer, seedParseAspect(aspect) !== null);
+
+    return layer;
+}
+
 function seedCreateRegion(size, aspect) {
     try {
         var comp = seedActiveComp();
@@ -1212,29 +1245,7 @@ function seedCreateRegion(size, aspect) {
         if (edge > limit) edge = limit;
 
         var dims = seedRectForAspect(edge, aspect);
-
-        var layer = comp.layers.addShape();
-        layer.name = seedNextRegionName(comp);
-
-        var group = layer.property("Contents").addProperty("ADBE Vector Group");
-        var contents = group.property("Contents");
-        var rect = contents.addProperty("ADBE Vector Shape - Rect");
-        rect.property("Size").setValue(dims);
-        rect.property("Position").setValue([0, 0]);
-
-        var stroke = contents.addProperty("ADBE Vector Graphic - Stroke");
-        stroke.property("Color").setValue([0, 1, 1]);
-        stroke.property("Stroke Width").setValue(4);
-
-        layer.property("Transform").property("Position").setValue([
-            comp.width / 2,
-            comp.height / 2
-        ]);
-        // Excluded from renders, so it can never be baked into a capture.
-        layer.guideLayer = true;
-        // The aspect is built into the rectangle; the lock is what keeps it
-        // through a corner drag.
-        seedApplyAspectLock(layer, seedParseAspect(aspect) !== null);
+        var layer = seedAddRegionLayer(comp, dims, [comp.width / 2, comp.height / 2], aspect);
 
         app.endUndoGroup();
         return seedOk({ region: seedDescribeRegion(comp, layer) });
@@ -2432,6 +2443,784 @@ function seedFailPlaceholder(label, message, compId, restoreItemId, restoreWidth
     }
 }
 
+// ---------------------------------------------------------------- structure
+
+/*
+ * What a composition is actually made of.
+ *
+ * Every other read in this file answers "what is After Effects showing right
+ * now" — one comp, one frame, one selection. That is enough to capture a plate
+ * and enough for a person who can see the timeline. It is not enough to decide
+ * anything, because the decisions in a built-up comp are about the *parts*:
+ * which sub-entity is soft, which one is animated, which one is a still that
+ * only looks like animation because something moves over it.
+ *
+ * A projection built from sub-comps is the case where this matters most. The
+ * master is enormous, the parts are not, and whether a part holds up is a
+ * question about the ratio between its own pixels and the pixels it has to
+ * cover — `pixelRatio` below. Nothing in After Effects' UI shows that number,
+ * and eyeballing a 6688-pixel comp zoomed to fit is exactly how a soft layer
+ * reaches a wall.
+ *
+ * Read-only throughout. Nothing here opens an undo group, because nothing here
+ * changes anything.
+ */
+
+/** How many layers of one comp are described before the answer is truncated. */
+var SEED_TREE_MAX_LAYERS = 160;
+
+function seedLayerKind(layer) {
+    if (layer instanceof CameraLayer) return "camera";
+    if (layer instanceof LightLayer) return "light";
+    if (layer instanceof TextLayer) return "text";
+    if (layer instanceof ShapeLayer) return "shape";
+    if (layer instanceof AVLayer) {
+        if (layer.nullLayer) return "null";
+        if (layer.adjustmentLayer) return "adjustment";
+        var source = layer.source;
+        if (source instanceof CompItem) return "comp";
+        if (source instanceof FootageItem) {
+            var main = source.mainSource;
+            if (main instanceof SolidSource) return "solid";
+            if (main instanceof PlaceholderSource) return "placeholder";
+            return "footage";
+        }
+        return "av";
+    }
+    return "other";
+}
+
+/**
+ * The media behind a layer, as its own dimensions rather than the layer's.
+ *
+ * The distinction is the whole point: a layer's size on screen is its source
+ * size times its scale, and only one of those two numbers is visible in the
+ * timeline.
+ */
+function seedSourceInfo(source) {
+    if (source instanceof CompItem) {
+        return {
+            kind: "comp",
+            compId: String(source.id),
+            width: source.width,
+            height: source.height,
+            fps: source.frameRate,
+            durationSeconds: source.duration,
+            layerCount: source.numLayers
+        };
+    }
+    if (source instanceof FootageItem) {
+        var info = { kind: "footage", width: source.width, height: source.height };
+        if (source.duration > 0) info.durationSeconds = source.duration;
+        else info.still = true;
+        if (source.frameRate > 0) info.fps = source.frameRate;
+        var main = source.mainSource;
+        if (main instanceof FileSource) {
+            info.kind = "file";
+            try { info.file = main.file.name; } catch (ignored) {}
+        } else if (main instanceof SolidSource) {
+            info.kind = "solid";
+        } else if (main instanceof PlaceholderSource) {
+            info.kind = "placeholder";
+        }
+        return info;
+    }
+    return null;
+}
+
+/**
+ * Which transform properties move, by name.
+ *
+ * A count would not do. "the position is animated" and "the scale is
+ * animated" lead to different decisions about whether a generated replacement
+ * can stand in for the layer, and an expression counts as movement even with
+ * no keyframes at all.
+ */
+function seedAnimatedProps(layer) {
+    var names = [];
+    try {
+        var group = layer.property("ADBE Transform Group");
+        if (!group) return names;
+        for (var i = 1; i <= group.numProperties; i++) {
+            var prop = group.property(i);
+            if (!prop) continue;
+            var moving = false;
+            try {
+                moving = prop.numKeys > 0 || prop.expressionEnabled === true;
+            } catch (ignored) {}
+            if (moving) names.push(prop.name);
+        }
+    } catch (error) {
+        // A layer type without a transform group is not an error worth losing
+        // the rest of the tree over.
+    }
+    return names;
+}
+
+function seedEffectNames(layer) {
+    var names = [];
+    try {
+        var parade = layer.property("ADBE Effect Parade");
+        if (!parade) return names;
+        for (var i = 1; i <= parade.numProperties; i++) {
+            names.push(parade.property(i).name);
+        }
+    } catch (error) {}
+    return names;
+}
+
+function seedDescribeLayer(layer, depth, maxDepth, seen) {
+    var node = {
+        index: layer.index,
+        name: layer.name,
+        kind: seedLayerKind(layer),
+        enabled: layer.enabled ? true : false
+    };
+
+    try { if (layer.shy) node.shy = true; } catch (ignored) {}
+    try { if (layer.locked) node.locked = true; } catch (ignored) {}
+    try {
+        node.inSeconds = Math.round(layer.inPoint * 1000) / 1000;
+        node.outSeconds = Math.round(layer.outPoint * 1000) / 1000;
+    } catch (ignored) {}
+
+    var isAv = layer instanceof AVLayer;
+    if (isAv) {
+        try { if (layer.threeDLayer) node.threeD = true; } catch (ignored) {}
+        /*
+         * Collapsed transformations change what a scale number means. A
+         * collapsed comp of shapes and text re-renders at the scaled size and
+         * stays sharp; a collapsed comp containing footage does not. So the
+         * flag travels with pixelRatio, because reading one without the other
+         * gives the wrong answer in both directions.
+         */
+        try { if (layer.collapseTransformation) node.collapsed = true; } catch (ignored) {}
+        try { if (layer.timeRemapEnabled) node.timeRemapped = true; } catch (ignored) {}
+        try { if (layer.stretch !== 100) node.stretchPercent = layer.stretch; } catch (ignored) {}
+        try {
+            if (layer.blendingMode !== BlendingMode.NORMAL) {
+                node.blendModeId = Number(layer.blendingMode);
+            }
+        } catch (ignored) {}
+        try {
+            if (layer.hasTrackMatte) node.hasTrackMatte = true;
+        } catch (ignored) {}
+        try {
+            var opacity = layer.transform.opacity.value;
+            if (opacity !== 100) node.opacityPercent = Math.round(opacity * 10) / 10;
+        } catch (ignored) {}
+
+        var scale = null;
+        try { scale = layer.transform.scale.value; } catch (ignored) {}
+        if (scale) {
+            node.scalePercent = [
+                Math.round(scale[0] * 100) / 100,
+                Math.round(scale[1] * 100) / 100
+            ];
+        }
+
+        var info = null;
+        try { info = seedSourceInfo(layer.source); } catch (ignored) {}
+        if (info) {
+            node.source = info;
+            if (info.width > 0) {
+                var factorX = scale ? scale[0] / 100 : 1;
+                var factorY = scale ? scale[1] / 100 : 1;
+                var screenW = info.width * factorX;
+                var screenH = info.height * factorY;
+                node.screenWidth = Math.round(screenW);
+                node.screenHeight = Math.round(screenH);
+                if (screenW > 0) {
+                    /*
+                     * Source pixels per screen pixel. 1 is native, above 1 is
+                     * headroom, and below 1 is the layer being enlarged to
+                     * cover more than it has — 0.5 means every screen pixel is
+                     * carrying half a source pixel.
+                     */
+                    node.pixelRatio = Math.round((info.width / screenW) * 1000) / 1000;
+                }
+            }
+        }
+    }
+
+    var animated = seedAnimatedProps(layer);
+    if (animated.length > 0) node.animated = animated;
+
+    var effects = seedEffectNames(layer);
+    if (effects.length > 0) node.effects = effects;
+
+    if (isAv && depth < maxDepth && layer.source instanceof CompItem) {
+        var childId = String(layer.source.id);
+        if (seen[childId]) {
+            /*
+             * Described once already, elsewhere in this tree. Saying so beats
+             * repeating it: a comp used in eight places would otherwise be
+             * eight copies of the same answer, and the reuse is itself the
+             * interesting fact.
+             */
+            node.describedAbove = true;
+        } else {
+            seen[childId] = true;
+            var child = seedDescribeComp(layer.source, depth + 1, maxDepth, seen);
+            node.children = child.layers;
+            if (child.truncatedAfter !== undefined) node.truncatedAfter = child.truncatedAfter;
+        }
+    }
+
+    return node;
+}
+
+function seedDescribeComp(comp, depth, maxDepth, seen) {
+    var layers = [];
+    var count = comp.numLayers;
+    var limit = count > SEED_TREE_MAX_LAYERS ? SEED_TREE_MAX_LAYERS : count;
+    for (var i = 1; i <= limit; i++) {
+        layers.push(seedDescribeLayer(comp.layer(i), depth, maxDepth, seen));
+    }
+    var node = { layers: layers };
+    if (limit < count) node.truncatedAfter = limit;
+    return node;
+}
+
+function seedFindCompById(compId) {
+    var wanted = Number(compId);
+    for (var i = 1; i <= app.project.numItems; i++) {
+        var item = app.project.item(i);
+        if (item instanceof CompItem && item.id === wanted) return item;
+    }
+    return null;
+}
+
+/** The structure of one composition, down to `maxDepth` levels of sub-comps. */
+function seedCompTree(compId, maxDepth) {
+    try {
+        if (!app.project) return seedFail("no project is open");
+
+        var comp = null;
+        if (compId !== undefined && compId !== null && String(compId) !== "") {
+            comp = seedFindCompById(compId);
+            if (!comp) return seedFail("no composition has id " + String(compId));
+        } else {
+            comp = seedActiveComp();
+            if (!comp) return seedFail("no active composition");
+        }
+
+        var depth = Number(maxDepth);
+        if (!(depth >= 1)) depth = 2;
+        if (depth > 4) depth = 4;
+
+        var seen = {};
+        seen[String(comp.id)] = true;
+
+        var tree = seedDescribeComp(comp, 1, depth, seen);
+
+        return seedOk({
+            comp: {
+                id: String(comp.id),
+                name: comp.name,
+                width: comp.width,
+                height: comp.height,
+                fps: comp.frameRate,
+                durationSeconds: comp.duration,
+                pixelAspect: comp.pixelAspect,
+                layerCount: comp.numLayers
+            },
+            maxDepth: depth,
+            layers: tree.layers,
+            truncatedAfter: tree.truncatedAfter
+        });
+    } catch (error) {
+        return seedFail(error);
+    }
+}
+
+/**
+ * Every composition in the project.
+ *
+ * `topLevel` is the useful column: a comp nothing else contains is something
+ * somebody renders — a side of the projection, a deliverable — while a comp
+ * used elsewhere is a part. For a project built as sides assembled from
+ * entities, that one boolean separates the two populations without anybody
+ * having to know the naming convention.
+ */
+function seedProjectComps(match) {
+    try {
+        if (!app.project) return seedFail("no project is open");
+
+        var needle = match === undefined || match === null ? "" : String(match).toLowerCase();
+        var comps = [];
+        for (var i = 1; i <= app.project.numItems; i++) {
+            var item = app.project.item(i);
+            if (!(item instanceof CompItem)) continue;
+            if (needle !== "" && String(item.name).toLowerCase().indexOf(needle) < 0) continue;
+
+            var entry = {
+                id: String(item.id),
+                name: item.name,
+                width: item.width,
+                height: item.height,
+                fps: item.frameRate,
+                durationSeconds: item.duration,
+                layerCount: item.numLayers
+            };
+            try {
+                var used = item.usedIn;
+                entry.usedInCount = used.length;
+                entry.topLevel = used.length === 0;
+            } catch (ignored) {}
+            try {
+                var folder = item.parentFolder;
+                if (folder && folder.name !== "Root") entry.folder = folder.name;
+            } catch (ignored) {}
+            comps.push(entry);
+        }
+
+        return seedOk({ count: comps.length, comps: comps });
+    } catch (error) {
+        return seedFail(error);
+    }
+}
+
+// ------------------------------------------------------------ sub-entities
+
+/*
+ * Grouping part of a comp, finding where it sits, and framing it.
+ *
+ * A projection assembled from entities — a rooftop crowd, a mariachi trio, a
+ * cafe table — is worked on one entity at a time: group its layers, find the
+ * rectangle it occupies, capture that rectangle, animate it, bring it back.
+ * Every step of that except the grouping and the framing already existed.
+ *
+ * The framing matters more than it sounds. A generated clip is produced at an
+ * aspect, and an entity captured in the wrong one either arrives letterboxed
+ * or arrives with the model having invented what to put in the margins. The
+ * right aspect is a property of where the entity actually is, which is a
+ * number nobody has had until now.
+ */
+
+/**
+ * One layer's own 2D transform, as the affine [a, b, c, d, tx, ty] that maps
+ * its coordinates into its parent's.
+ *
+ * Built by hand because After Effects exposes no matrix. Anchor, scale,
+ * rotation and position in the order the host applies them, so a rotated or
+ * parented layer lands where it is actually drawn rather than where its
+ * position property alone would suggest.
+ */
+function seedLayer2d(layer, time) {
+    var group = layer.property("ADBE Transform Group");
+    var anchor = group.property("ADBE Anchor Point").valueAtTime(time, false);
+    var position = group.property("ADBE Position").valueAtTime(time, false);
+    var scale = group.property("ADBE Scale").valueAtTime(time, false);
+
+    var rotation = 0;
+    try {
+        rotation = Number(group.property("ADBE Rotate Z").valueAtTime(time, false)) || 0;
+    } catch (ignored) {}
+
+    var sx = scale[0] / 100;
+    var sy = scale[1] / 100;
+    var radians = rotation * Math.PI / 180;
+    var cos = Math.cos(radians);
+    var sin = Math.sin(radians);
+
+    var a = cos * sx;
+    var b = sin * sx;
+    var c = -sin * sy;
+    var d = cos * sy;
+
+    return [a, b, c, d,
+        position[0] - (a * anchor[0] + c * anchor[1]),
+        position[1] - (b * anchor[0] + d * anchor[1])];
+}
+
+/** `m` then `n`. */
+function seedMat2dMul(m, n) {
+    return [
+        m[0] * n[0] + m[1] * n[2],
+        m[0] * n[1] + m[1] * n[3],
+        m[2] * n[0] + m[3] * n[2],
+        m[2] * n[1] + m[3] * n[3],
+        m[4] * n[0] + m[5] * n[2] + n[4],
+        m[4] * n[1] + m[5] * n[3] + n[5]
+    ];
+}
+
+function seedMat2dApply(m, x, y) {
+    return [m[0] * x + m[2] * y + m[4], m[1] * x + m[3] * y + m[5]];
+}
+
+/**
+ * Where a layer actually sits in its composition, as a rectangle.
+ *
+ * `sourceRectAtTime` answers in the layer's own coordinates, which is the
+ * wrong space for everything anybody wants to do with the answer. This walks
+ * the four corners out through the layer's transform and every parent above
+ * it, and reports the axis-aligned box that contains them.
+ *
+ * A 3D layer is reported as `exact: false` rather than guessed at. The 2D
+ * affine above cannot express a perspective projection, and a bounding box
+ * that is quietly wrong is worse than one that says so — it would be used to
+ * frame a capture, and the error would turn up as a cropped entity in a
+ * finished clip rather than here.
+ */
+function seedLayerBounds(layerIndex, atSeconds, includeExtents) {
+    try {
+        var comp = seedActiveComp();
+        if (!comp) return seedFail("no active composition");
+
+        var index = Number(layerIndex);
+        if (!(index >= 1 && index <= comp.numLayers)) {
+            return seedFail(
+                "layer " + String(layerIndex) + " is not in " + comp.name +
+                ", which has " + comp.numLayers + " layers");
+        }
+
+        var layer = comp.layer(index);
+        var time = atSeconds === undefined || atSeconds === null
+            ? comp.time
+            : Number(atSeconds);
+
+        var rect = null;
+        try {
+            rect = layer.sourceRectAtTime(time, includeExtents === true);
+        } catch (error) {
+            return seedFail(
+                layer.name + " has no source rectangle — cameras, lights and " +
+                "nulls have no extent to measure.");
+        }
+
+        var exact = true;
+        var reason;
+
+        var matrix = seedLayer2d(layer, time);
+        try { if (layer.threeDLayer) { exact = false; reason = "the layer is 3D"; } } catch (ignored) {}
+
+        var parent = null;
+        try { parent = layer.parent; } catch (ignored) {}
+        var guard = 0;
+        while (parent && guard < 32) {
+            try { if (parent.threeDLayer) { exact = false; reason = "a parent layer is 3D"; } } catch (ignored) {}
+            matrix = seedMat2dMul(matrix, seedLayer2d(parent, time));
+            try { parent = parent.parent; } catch (error) { parent = null; }
+            guard++;
+        }
+
+        var x0 = rect.left;
+        var y0 = rect.top;
+        var x1 = rect.left + rect.width;
+        var y1 = rect.top + rect.height;
+
+        var corners = [
+            seedMat2dApply(matrix, x0, y0),
+            seedMat2dApply(matrix, x1, y0),
+            seedMat2dApply(matrix, x1, y1),
+            seedMat2dApply(matrix, x0, y1)
+        ];
+
+        var minX = corners[0][0], maxX = corners[0][0];
+        var minY = corners[0][1], maxY = corners[0][1];
+        for (var i = 1; i < corners.length; i++) {
+            if (corners[i][0] < minX) minX = corners[i][0];
+            if (corners[i][0] > maxX) maxX = corners[i][0];
+            if (corners[i][1] < minY) minY = corners[i][1];
+            if (corners[i][1] > maxY) maxY = corners[i][1];
+        }
+
+        var width = maxX - minX;
+        var height = maxY - minY;
+
+        return seedOk({
+            layer: { index: layer.index, name: layer.name },
+            atSeconds: time,
+            bounds: {
+                left: Math.round(minX * 100) / 100,
+                top: Math.round(minY * 100) / 100,
+                width: Math.round(width * 100) / 100,
+                height: Math.round(height * 100) / 100,
+                centreX: Math.round((minX + width / 2) * 100) / 100,
+                centreY: Math.round((minY + height / 2) * 100) / 100,
+                aspect: height > 0 ? Math.round((width / height) * 1000) / 1000 : null
+            },
+            compWidth: comp.width,
+            compHeight: comp.height,
+            /** False when the box is a 2D approximation of a 3D layer. */
+            exact: exact,
+            reason: reason
+        });
+    } catch (error) {
+        return seedFail(error);
+    }
+}
+
+/**
+ * Puts a region exactly over a layer, so a capture can be framed on an entity
+ * rather than on the middle of the composition.
+ *
+ * `padPercent` is a fraction of the longest edge, and it is not decoration: a
+ * box drawn tight to the artwork gives a video model no room, and the first
+ * thing it does with no room is move something out of frame. The region is
+ * grown to the requested aspect rather than cropped to it, for the same
+ * reason — losing part of the entity to satisfy a ratio defeats the framing.
+ *
+ * Clamped to the composition, because a region hanging over the edge cannot
+ * be captured from it.
+ */
+function seedRegionFromLayer(layerIndex, aspect, padPercent, atSeconds) {
+    try {
+        var comp = seedActiveComp();
+        if (!comp) return seedFail("no active composition");
+
+        var measured = seedJsonParseOk(seedLayerBounds(layerIndex, atSeconds, true));
+        if (!measured) return seedFail("could not measure layer " + String(layerIndex));
+        if (measured.ok === false) return seedJson(measured);
+
+        var bounds = measured.result.bounds;
+        if (!(bounds.width > 0) || !(bounds.height > 0)) {
+            return seedFail(
+                measured.result.layer.name + " measures " + bounds.width + "x" +
+                bounds.height + " — there is nothing visible to frame at this time.");
+        }
+
+        var pad = Number(padPercent);
+        if (!(pad >= 0)) pad = 6;
+        var longest = Math.max(bounds.width, bounds.height);
+        var grow = longest * (pad / 100);
+
+        var width = bounds.width + grow * 2;
+        var height = bounds.height + grow * 2;
+
+        var ratio = seedParseAspect(aspect);
+        if (ratio) {
+            // Grow the short side. Never shrink the long one.
+            if (width / height < ratio) width = height * ratio;
+            else height = width / ratio;
+        }
+
+        if (width > comp.width) width = comp.width;
+        if (height > comp.height) height = comp.height;
+
+        var centreX = bounds.centreX;
+        var centreY = bounds.centreY;
+        if (centreX - width / 2 < 0) centreX = width / 2;
+        if (centreX + width / 2 > comp.width) centreX = comp.width - width / 2;
+        if (centreY - height / 2 < 0) centreY = height / 2;
+        if (centreY + height / 2 > comp.height) centreY = comp.height - height / 2;
+
+        app.beginUndoGroup("SEED: frame region on layer");
+        var layer;
+        try {
+            layer = seedAddRegionLayer(
+                comp,
+                [Math.round(width), Math.round(height)],
+                [Math.round(centreX), Math.round(centreY)],
+                aspect);
+        } finally {
+            app.endUndoGroup();
+        }
+
+        return seedOk({
+            region: seedDescribeRegion(comp, layer),
+            framedOn: measured.result.layer,
+            exact: measured.result.exact,
+            reason: measured.result.reason
+        });
+    } catch (error) {
+        try { app.endUndoGroup(); } catch (ignored) {}
+        return seedFail(error);
+    }
+}
+
+/**
+ * Reads back one of this file's own JSON answers.
+ *
+ * Only used where a host function builds on another, which is rare and worth
+ * keeping rare. ExtendScript has no JSON parser; `eval` on a string this file
+ * produced two lines earlier is not the hazard the rule about executing model
+ * output is written against, and the alternative is splitting every one of
+ * these functions into a value half and a serialising half.
+ */
+function seedJsonParseOk(text) {
+    try {
+        return eval("(" + String(text) + ")");
+    } catch (error) {
+        return null;
+    }
+}
+
+/** Unused names, so two entities grouped in a row do not collide. */
+function seedUniqueCompName(base) {
+    var wanted = String(base || "SEED precomp");
+    var taken = {};
+    for (var i = 1; i <= app.project.numItems; i++) {
+        var item = app.project.item(i);
+        if (item instanceof CompItem) taken[item.name] = true;
+    }
+    if (!taken[wanted]) return wanted;
+    for (var n = 2; n < 500; n++) {
+        var candidate = wanted + " " + n;
+        if (!taken[candidate]) return candidate;
+    }
+    return wanted + " " + String(new Date().getTime());
+}
+
+/**
+ * Groups layers into a composition of their own.
+ *
+ * `moveAllAttributes` is After Effects' own name for the difference between
+ * the two things "pre-compose" means, and it is not a detail:
+ *
+ * - **false** — the layers keep their transforms where they are and the new
+ *   comp is the size of the one above it. Everything stays registered in the
+ *   parent's coordinates, which is what grouping several layers into one
+ *   entity needs, and is the only choice After Effects allows for more than
+ *   one layer.
+ * - **true** — a single layer's transform moves up into the new comp's layer,
+ *   and the comp takes the layer's own size. A tight box around one piece of
+ *   artwork.
+ *
+ * So the default follows the count rather than being a fixed value, because
+ * either fixed value is wrong half the time.
+ */
+function seedPrecompose(layerIndexes, name, moveAllAttributes) {
+    try {
+        var comp = seedActiveComp();
+        if (!comp) return seedFail("no active composition");
+
+        var wanted = [];
+        var already = {};
+
+        if (layerIndexes instanceof Array && layerIndexes.length > 0) {
+            for (var i = 0; i < layerIndexes.length; i++) {
+                var index = Number(layerIndexes[i]);
+                if (!(index >= 1 && index <= comp.numLayers)) {
+                    return seedFail(
+                        "layer " + String(layerIndexes[i]) + " is not in " + comp.name +
+                        ", which has " + comp.numLayers + " layers");
+                }
+                if (already[index]) continue;
+                already[index] = true;
+                wanted.push(index);
+            }
+        } else {
+            // Nothing named: group what the artist has selected, which is how
+            // they would have done it by hand.
+            for (var s = 0; s < comp.selectedLayers.length; s++) {
+                wanted.push(comp.selectedLayers[s].index);
+            }
+            if (wanted.length === 0) {
+                return seedFail(
+                    "no layers given and none selected in " + comp.name +
+                    " — pass layerIndexes, or select the layers to group.");
+            }
+        }
+
+        var all = moveAllAttributes === undefined || moveAllAttributes === null
+            ? wanted.length === 1
+            : moveAllAttributes === true;
+        if (all && wanted.length !== 1) {
+            return seedFail(
+                "moveAllAttributes applies to a single layer only; " + wanted.length +
+                " were given. After Effects refuses the combination.");
+        }
+
+        var grouped = [];
+        for (var g = 0; g < wanted.length; g++) {
+            grouped.push({ index: wanted[g], name: comp.layer(wanted[g]).name });
+        }
+
+        var compName = seedUniqueCompName(name);
+
+        app.beginUndoGroup("SEED: pre-compose");
+        var created;
+        try {
+            created = comp.layers.precompose(wanted, compName, all);
+        } finally {
+            app.endUndoGroup();
+        }
+
+        if (!created) return seedFail("After Effects returned no composition");
+
+        // Where it landed in the parent, found by source rather than by index:
+        // precompose places the new layer at the topmost grouped index, and
+        // trusting that would be an assumption where a search is cheap.
+        var placedAt = null;
+        for (var p = 1; p <= comp.numLayers; p++) {
+            var candidate = comp.layer(p);
+            if (candidate instanceof AVLayer && candidate.source === created) {
+                placedAt = p;
+                break;
+            }
+        }
+
+        return seedOk({
+            comp: {
+                id: String(created.id),
+                name: created.name,
+                width: created.width,
+                height: created.height,
+                fps: created.frameRate,
+                durationSeconds: created.duration,
+                layerCount: created.numLayers
+            },
+            grouped: grouped,
+            movedAllAttributes: all,
+            placedAtIndex: placedAt,
+            parentComp: { id: String(comp.id), name: comp.name }
+        });
+    } catch (error) {
+        try { app.endUndoGroup(); } catch (ignored) {}
+        return seedFail(error);
+    }
+}
+
+/**
+ * Solos a layer, or clears every solo in the comp.
+ *
+ * The cheapest way to capture one entity on its own: solo it, capture, clear.
+ * Soloing rather than hiding everything else because it is one flag to set and
+ * one to clear — a capture that failed half way through leaving forty layers
+ * switched off is a mess somebody has to undo by hand.
+ */
+function seedSetLayerSolo(layerIndex, solo) {
+    try {
+        var comp = seedActiveComp();
+        if (!comp) return seedFail("no active composition");
+
+        app.beginUndoGroup("SEED: solo");
+        var soloed = [];
+        try {
+            if (layerIndex === undefined || layerIndex === null || Number(layerIndex) === 0) {
+                // Clear everything. The way back from any isolation.
+                for (var i = 1; i <= comp.numLayers; i++) {
+                    // Cameras and lights may not carry the flag at all.
+                    try { if (comp.layer(i).solo) comp.layer(i).solo = false; } catch (ignored) {}
+                }
+            } else {
+                var index = Number(layerIndex);
+                if (!(index >= 1 && index <= comp.numLayers)) {
+                    return seedFail(
+                        "layer " + String(layerIndex) + " is not in " + comp.name +
+                        ", which has " + comp.numLayers + " layers");
+                }
+                comp.layer(index).solo = solo === false ? false : true;
+            }
+            for (var s = 1; s <= comp.numLayers; s++) {
+                try {
+                    if (comp.layer(s).solo) soloed.push({ index: s, name: comp.layer(s).name });
+                } catch (ignored) {}
+            }
+        } finally {
+            app.endUndoGroup();
+        }
+
+        return seedOk({ soloed: soloed, compName: comp.name });
+    } catch (error) {
+        try { app.endUndoGroup(); } catch (ignored) {}
+        return seedFail(error);
+    }
+}
+
 function seedPing() {
     try {
         return seedOk({
@@ -2477,6 +3266,12 @@ var seedAeft_reservePlaceholder = seedReservePlaceholder;
 var seedAeft_fillPlaceholder = seedFillPlaceholder;
 var seedAeft_failPlaceholder = seedFailPlaceholder;
 var seedAeft_selectedMedia = seedSelectedMedia;
+var seedAeft_compTree = seedCompTree;
+var seedAeft_projectComps = seedProjectComps;
+var seedAeft_layerBounds = seedLayerBounds;
+var seedAeft_precompose = seedPrecompose;
+var seedAeft_regionFromLayer = seedRegionFromLayer;
+var seedAeft_setLayerSolo = seedSetLayerSolo;
 var seedAeft_adoptPlaceholder = seedAdoptPlaceholder;
 
 var seedAeft_buildLookRig = seedBuildLookRig;

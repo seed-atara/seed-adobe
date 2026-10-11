@@ -106,6 +106,20 @@ const HOST_SPECIFIC: Record<string, { host: string; because: string }> = {
   seedInsertRegion: { host: "seed-host.jsx", because: "regions are compositions" },
   seedSetRegionAspect: { host: "seed-host.jsx", because: "regions are compositions" },
   seedSetRegionContain: { host: "seed-host.jsx", because: "regions are compositions" },
+  seedRegionFromLayer: { host: "seed-host.jsx", because: "regions are compositions" },
+  /*
+   * Reading a build apart, and grouping part of it. Premiere has sequences
+   * and clips, not compositions containing compositions, so none of this has
+   * an equivalent there rather than merely lacking one.
+   */
+  seedCompTree: { host: "seed-host.jsx", because: "nested compositions are an AE idea" },
+  seedProjectComps: { host: "seed-host.jsx", because: "nested compositions are an AE idea" },
+  seedPrecompose: { host: "seed-host.jsx", because: "nested compositions are an AE idea" },
+  seedLayerBounds: {
+    host: "seed-host.jsx",
+    because: "sourceRectAtTime and the transform chain are After Effects only",
+  },
+  seedSetLayerSolo: { host: "seed-host.jsx", because: "Premiere has no solo flag per clip" },
 };
 
 describe("panel to host contract", () => {

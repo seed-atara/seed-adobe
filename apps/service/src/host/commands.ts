@@ -74,6 +74,9 @@ export const HOST_READS = [
   "rangeInfo",
   "listRegions",
   "selectedMedia",
+  "compTree",
+  "projectComps",
+  "layerBounds",
 ] as const;
 
 export const HOST_WRITES = [
@@ -82,6 +85,11 @@ export const HOST_WRITES = [
   "setRegionAspect",
   "setRegionContain",
   "setProjectDepth",
+  "precompose",
+  "regionFromLayer",
+  "setLayerSolo",
+  "captureRegion",
+  "insertRegion",
 ] as const;
 
 export const HOST_COMMANDS: readonly string[] = [...HOST_READS, ...HOST_WRITES];

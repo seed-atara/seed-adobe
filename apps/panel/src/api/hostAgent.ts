@@ -70,6 +70,23 @@ export function dispatch(
       return bridge.listRegions();
     case "selectedMedia":
       return bridge.selectedMedia();
+    case "compTree":
+      return bridge.compTree(
+        args.compId === undefined || args.compId === null ? undefined : String(args.compId),
+        args.maxDepth === undefined ? 2 : Number(args.maxDepth),
+      );
+    case "projectComps":
+      return bridge.projectComps(
+        args.match === undefined || args.match === null ? undefined : String(args.match),
+      );
+    case "layerBounds":
+      return bridge.layerBounds(
+        Number(args.layerIndex),
+        args.atSeconds === undefined || args.atSeconds === null
+          ? undefined
+          : Number(args.atSeconds),
+        args.includeExtents === false ? false : true,
+      );
 
     // Writes — these change the artist's project.
     case "captureFrame":
@@ -82,10 +99,66 @@ export function dispatch(
       return bridge.setRegionContain(String(args.name), Boolean(args.contained));
     case "setProjectDepth":
       return bridge.setProjectDepth(depthOf(args.bits));
+    case "precompose":
+      return bridge.precompose(
+        indexList(args.layerIndexes),
+        String(args.name ?? "SEED precomp"),
+        args.moveAllAttributes === undefined ? undefined : Boolean(args.moveAllAttributes),
+      );
+    case "regionFromLayer":
+      return bridge.regionFromLayer(
+        Number(args.layerIndex),
+        args.aspect === undefined || args.aspect === null ? undefined : String(args.aspect),
+        args.padPercent === undefined ? 6 : Number(args.padPercent),
+        args.atSeconds === undefined || args.atSeconds === null
+          ? undefined
+          : Number(args.atSeconds),
+      );
+    case "setLayerSolo":
+      return bridge.setLayerSolo(
+        args.layerIndex === undefined || args.layerIndex === null
+          ? undefined
+          : Number(args.layerIndex),
+        args.solo === false ? false : true,
+      );
+    case "captureRegion":
+      return bridge.captureRegion(String(args.regionName), Number(args.featherPixels ?? 0), {
+        mode: args.mode === "clip" ? "clip" : "still",
+        quality: args.quality === "quality" ? "quality" : "delivery",
+      });
+    case "insertRegion":
+      return bridge.insertRegion(String(args.assetId), {
+        regionName: String(args.regionName),
+        featherPixels: Number(args.featherPixels ?? 0),
+        ...(args.startSeconds === undefined ? {} : { startSeconds: Number(args.startSeconds) }),
+        ...(args.stretchToSeconds === undefined
+          ? {}
+          : { stretchToSeconds: Number(args.stretchToSeconds) }),
+      });
 
     default:
       return undefined;
   }
+}
+
+/**
+ * Layer indexes, refused rather than coerced.
+ *
+ * `Number("Houses01")` is NaN and After Effects would answer a confusing
+ * complaint about a layer that is not there. A caller that sent names meant
+ * names, and should be told so here.
+ */
+function indexList(value: unknown): number[] {
+  if (!Array.isArray(value) || value.length === 0) {
+    throw new Error("precompose needs layerIndexes: an array of layer numbers from compTree.");
+  }
+  return value.map((entry) => {
+    const index = Number(entry);
+    if (!Number.isInteger(index) || index < 1) {
+      throw new Error(`${String(entry)} is not a layer index. compTree reports the numbers.`);
+    }
+    return index;
+  });
 }
 
 /** The three the host accepts, with 32 as the default this project prefers. */

@@ -596,6 +596,94 @@ export class CepAeBridge {
     return evalHost(`${hostPrefix()}listRegions()`);
   }
 
+  // --------------------------------------------------------- structure
+
+  /**
+   * What a comp is built from, down through its sub-comps.
+   *
+   * `getContext` answers for the comp as a whole and is enough to capture a
+   * plate from it. It is not enough to decide *what* to work on in a comp
+   * assembled from parts, which is the normal shape of a large build: the
+   * interesting facts are per-part, and the most interesting one — how many
+   * source pixels each part has per screen pixel it covers — is not shown
+   * anywhere in After Effects.
+   */
+  async compTree(
+    compId?: string,
+    maxDepth = 2,
+  ): Promise<Record<string, unknown>> {
+    await this.ensureHost();
+    return evalHost(
+      `${hostPrefix()}compTree(${compId ? quote(compId) : "null"}, ${Number(maxDepth)})`,
+    );
+  }
+
+  /** Every comp in the project, with the top-level ones marked. */
+  async projectComps(match?: string): Promise<Record<string, unknown>> {
+    await this.ensureHost();
+    return evalHost(`${hostPrefix()}projectComps(${match ? quote(match) : "null"})`);
+  }
+
+  /**
+   * Where a layer actually sits in the comp, as a rectangle.
+   *
+   * `sourceRectAtTime` answers in the layer's own coordinates; this one has
+   * walked the transform chain, so the numbers are in comp pixels and can be
+   * used to frame something.
+   */
+  async layerBounds(
+    layerIndex: number,
+    atSeconds?: number,
+    includeExtents = true,
+  ): Promise<Record<string, unknown>> {
+    await this.ensureHost();
+    return evalHost(
+      `${hostPrefix()}layerBounds(${Number(layerIndex)}, ${
+        atSeconds === undefined ? "null" : Number(atSeconds)
+      }, ${includeExtents ? "true" : "false"})`,
+    );
+  }
+
+  /** Groups layers into a composition of their own. */
+  async precompose(
+    layerIndexes: number[],
+    name: string,
+    moveAllAttributes?: boolean,
+  ): Promise<Record<string, unknown>> {
+    await this.ensureHost();
+    const list = `[${layerIndexes.map((index) => Number(index)).join(",")}]`;
+    return evalHost(
+      `${hostPrefix()}precompose(${list}, ${quote(name)}, ${
+        moveAllAttributes === undefined ? "null" : moveAllAttributes ? "true" : "false"
+      })`,
+    );
+  }
+
+  /** Puts a region exactly over a layer, padded and snapped to an aspect. */
+  async regionFromLayer(
+    layerIndex: number,
+    aspect?: string,
+    padPercent = 6,
+    atSeconds?: number,
+  ): Promise<Record<string, unknown>> {
+    await this.ensureHost();
+    return evalHost(
+      `${hostPrefix()}regionFromLayer(${Number(layerIndex)}, ${
+        aspect ? quote(aspect) : "null"
+      }, ${Number(padPercent)}, ${atSeconds === undefined ? "null" : Number(atSeconds)})`,
+    );
+  }
+
+  /** Solos one layer, or clears every solo when given no index. */
+  async setLayerSolo(layerIndex?: number, solo = true): Promise<Record<string, unknown>> {
+    await this.ensureHost();
+    return evalHost(
+      `${hostPrefix()}setLayerSolo(${layerIndex === undefined ? "null" : Number(layerIndex)}, ${
+        solo ? "true" : "false"
+      })`,
+    );
+  }
+
   /**
    * Renders just the region and registers it, region geometry and all.
    *

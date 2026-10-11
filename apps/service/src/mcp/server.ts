@@ -314,8 +314,13 @@ export function createSeedMcpServer(options: McpOptions): McpServer {
         "Drive the open project through the panel. NAMED OPERATIONS ONLY — this " +
         "is not an ExtendScript endpoint and will refuse anything outside the " +
         "allowlist. Reads: ping, getContext, rangeInfo, listRegions, " +
-        "selectedMedia. Writes (these change the artist's project): captureFrame, " +
-        "createRegion, setRegionAspect, setRegionContain, setProjectDepth. Call " +
+        "selectedMedia, compTree (what a comp is built from, with each part's " +
+        "source pixels per screen pixel), projectComps (every comp, top-level " +
+        "ones marked), layerBounds (where a layer sits, in comp pixels). " +
+        "Writes (these change the artist's project): captureFrame, createRegion, " +
+        "regionFromLayer (a region framed on one layer), captureRegion, " +
+        "insertRegion, precompose (group layers into a comp of their own), " +
+        "setLayerSolo, setRegionAspect, setRegionContain, setProjectDepth. Call " +
         "ae_status first to see the current list.",
       inputSchema: {
         name: z.string().min(1).describe("the operation, from the allowlist"),
