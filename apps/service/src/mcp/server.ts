@@ -393,6 +393,43 @@ export function createSeedMcpServer(options: McpOptions): McpServer {
     },
   );
 
+  server.registerTool(
+    "matte",
+    {
+      title: "Take the backing out, give it an alpha",
+      description:
+        "Turns a clip generated on a flat backing into a ProRes 4444 with a real " +
+        "alpha channel, ready to drop into a comp with no keying effects on the " +
+        "layer. Not a chroma key: it fills from the frame edge, so artwork that " +
+        "happens to BE the backing colour — green shorts, a cactus, guacamole — " +
+        "is kept, and backing trapped behind the subject is still removed. " +
+        "Defaults need no tuning. Read `backingSpread` in the report: above ~12 " +
+        "the backing was not flat and the edges are worth looking at.",
+      inputSchema: {
+        sourceAssetId: z.string().min(1).describe("the generated clip, backing and all"),
+        tolerance: z
+          .number()
+          .min(1)
+          .max(200)
+          .optional()
+          .describe("how far from the backing colour still counts as backing; default 60"),
+        pocketTolerance: z
+          .number()
+          .min(1)
+          .max(120)
+          .optional()
+          .describe("tighter test for backing trapped behind the subject; default 16"),
+        despill: z.boolean().optional().describe("un-premultiply edge pixels; on by default"),
+        backing: z
+          .tuple([z.number(), z.number(), z.number()])
+          .optional()
+          .describe("force the backing colour, 0-255, instead of sampling the corners"),
+        project: z.string().optional(),
+      },
+    },
+    async (args) => text(await call("/v1/matte", { method: "POST", body: args })),
+  );
+
   // ---- Watching work finish ---------------------------------------------
 
   server.registerTool(

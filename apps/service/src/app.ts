@@ -101,6 +101,7 @@ import {
   transformKeyframeRoute,
   transformPresetsRoute,
 } from "./routes/transform.js";
+import { matteRoute } from "./routes/matte.js";
 import { switchRoute } from "./routes/switch.js";
 import { exportPackRoute, importPackRoute } from "./routes/packs.js";
 import { healthRoute } from "./routes/health.js";
@@ -186,6 +187,7 @@ export function buildRouter(deps: AppDeps): Router {
     .get("/v1/transform/presets", transformPresetsRoute())
     .post("/v1/transform/keyframe", transformKeyframeRoute(deps))
     .post("/v1/transform/agreement", agreementRoute(deps))
+    .post("/v1/matte", matteRoute(deps))
     .post("/v1/host/run", runHostCommandRoute(deps))
     .get("/v1/host/next", nextHostCommandRoute(deps))
     .post("/v1/host/result/:id", hostCommandResultRoute(deps))

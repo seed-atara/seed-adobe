@@ -167,3 +167,45 @@ the entity the shape it actually is.
 - [TechNode on Seedance 2.0 pricing](https://technode.com/2026/03/05/bytedances-seedance-2-0-video-model-costs-about-0-14-per-second/)
 - [nxcode Seedance 2.0 API guide](https://www.nxcode.io/resources/news/seedance-2-0-api-guide-pricing-setup-2026)
 - [apimodels Seedance 2.0](https://apimodels.app/models/seedance-2.0)
+
+## Correction: 2.0 does not accept `output_format` — VERIFIED BY SUBMITTING (2026-10-12)
+
+Claimed to Johannes that `output_format: "mov"` was free quality on 2.0, on
+the strength of it being verified on 2.5. Wrong, and the adapter already said
+so. The real answer, from a fully-valid request:
+
+> The parameter `output_format` specified in the request is not valid: the
+> specified model does not support this output_format.
+
+Rejected at submit on `dreamina-seedance-2-0-260128`, so the test cost
+nothing. `seedanceOutputFormatsFor` returning `[]` for the 2.0 family is
+correct and should stay.
+
+**The method lesson is the valuable part, and it is the inverse of the one
+already recorded here.** Two free probes said `output_format` was accepted:
+poisoning `duration`, then poisoning `resolution`, and in neither case did
+the error name `output_format`. Both were false negatives, because
+**validation stops at the first bad field** — a poisoned field hides
+everything checked after it. The existing note warns that a poisoned request
+says nothing about what the *executor* honours; this adds that it also says
+nothing about what the *validator* checks later in its own order.
+
+A field is only proven absent from validation by a request where every other
+field is valid. That request may then bill, which is the real cost of the
+technique — though not here, since it was refused before execution.
+
+### What this means for keying
+
+| | reaches | chroma | for a matte |
+|---|---|---|---|
+| 2.5 + `mov` | 1080p | 4:4:4 10-bit | chroma at 1920×1080 |
+| 2.0 + mp4 | 4K | 4:2:0 8-bit | chroma at 1920×1080 |
+
+The same chroma resolution either way at the top of each model's range — 4:2:0
+at 4K subsamples to exactly 1080p chroma. So 2.0 at 4K buys 4× the luma detail
+for 4× the price and no better colour edge, while 2.5 at 1080p gives a
+genuinely clean edge and cannot go higher.
+
+Neither is a reason to key better, which is what `media/floodMatte.ts` is for:
+it reads the backing as a connected region rather than a colour, so chroma
+subsampling costs edge softness instead of whole holes.
