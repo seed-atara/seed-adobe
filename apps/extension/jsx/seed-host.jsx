@@ -3335,8 +3335,12 @@ function seedAddSolid(color, name, atBottom) {
  */
 var SEED_EFFECT_ALIASES = {
     "color range": ["Color Range", "ADBE Color Range"],
-    "refine hard matte": ["Refine Hard Matte", "ADBE Refine Matte"],
-    "advanced spill suppressor": ["Advanced Spill Suppressor", "ADBE Advanced Spill Suppressor"],
+    // Both measured in AE 26.0 rather than guessed — the first guesses here
+    // were "ADBE Refine Matte" and "ADBE Advanced Spill Suppressor", and both
+    // were wrong. The display name carried it; on a localised install it
+    // would not have.
+    "refine hard matte": ["Refine Hard Matte", "ADBE RefineRBMatte"],
+    "advanced spill suppressor": ["Advanced Spill Suppressor", "ADBE Spill2"],
     "extract": ["Extract", "ADBE Extract"],
     "matte choker": ["Matte Choker", "ADBE Matte Choker"],
     "simple choker": ["Simple Choker", "ADBE Simple Choker"],
