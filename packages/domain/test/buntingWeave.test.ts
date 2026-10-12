@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { bandPhases, buntingWeave, loopingWaveSpeed, WAVE_PINNING } from "../src/buntingWeave.js";
+import {
+  bandPhases,
+  buntingWeave,
+  cloudDrift,
+  loopingWaveSpeed,
+  WAVE_PINNING,
+} from "../src/buntingWeave.js";
 
 /**
  * The one number that decides whether a warp loops.
@@ -44,16 +50,49 @@ describe("a wave that comes back to where it started", () => {
 });
 
 describe("the weave itself", () => {
-  it("pins both ends, because a bunting string is tied at both ends", () => {
-    // Unpinned, the whole strand slides sideways off the brickwork it is
-    // nailed to — which is worse than no animation at all.
-    expect(buntingWeave().Pinning).toBe(WAVE_PINNING.leftAndRight);
+  it("does not pin, because the ends are behind the brick columns", () => {
+    /*
+     * Two guesses at the Pinning table were wrong and both looked almost
+     * right. `6` is the left edge alone — measured as 0px of travel at the
+     * left end against 3px at the right. `9` damps the top edge the bunting
+     * hangs from, so the flags barely move. The strands are nailed up behind
+     * the arcade columns, which sit on top of them in the comp, so there is
+     * nothing to pin.
+     */
+    expect(buntingWeave().Pinning).toBe(WAVE_PINNING.none);
+  });
+
+  it("keeps the wavelength long enough that the strand lifts as one piece", () => {
+    /*
+     * The number that separates a sway from a wobble is not the amplitude,
+     * it is how much the displacement varies across ONE pennant. After
+     * Effects' default 40px wavelength puts sixteen waves across a 644px
+     * strand, so each 60px flag shears against its neighbour and the whole
+     * thing looks like jelly. Measured: width 400 still wobbled, width 800
+     * made the strand lift together.
+     */
+    const flagWidth = 60;
+    expect(buntingWeave()["Wave Width"]).toBeGreaterThan(flagWidth * 10);
   });
 
   it("defaults to a breeze rather than a gale", () => {
     const weave = buntingWeave();
-    expect(weave["Wave Height"]).toBeLessThanOrEqual(8);
-    expect(weave["Wave Speed"] * 30).toBeCloseTo(Math.round(weave["Wave Speed"]! * 30), 2);
+    expect(weave["Wave Height"]).toBeLessThanOrEqual(3);
+    expect(weave["Wave Speed"]! * 30).toBeCloseTo(Math.round(weave["Wave Speed"]! * 30), 2);
+  });
+
+  it("drifts clouds sideways, over a wave longer than the sky they are in", () => {
+    /*
+     * Clouds drift, so horizontal. And the wavelength is deliberately longer
+     * than the 2083-wide bank: anything shorter sends one half left while
+     * the other goes right, and that differential squash reads as the
+     * picture breathing rather than the sky moving.
+     */
+    const sky = cloudDrift();
+    expect(sky.Direction).toBe(0);
+    expect(sky["Wave Width"]).toBeGreaterThan(2083);
+    expect(sky["Wave Speed"]!).toBeLessThan(buntingWeave()["Wave Speed"]!);
+    expect(sky["Wave Speed"]! * 30).toBeCloseTo(Math.round(sky["Wave Speed"]! * 30), 2);
   });
 
   it("gives a band shared wind and separate phases", () => {
