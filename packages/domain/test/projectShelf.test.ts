@@ -241,11 +241,11 @@ describe("footage", () => {
     );
   });
 
-  it("drawers plates, solids and footage that belongs to no element", () => {
+  it("drawers a loose plate, solid and orphan clip", () => {
     const items: ProjectItem[] = [
       ...base,
       { id: "903", name: "gyg_as_SIDES_left_1 copy.psd", kind: "footage", folder: "" },
-      { id: "904", name: "SEED backing", kind: "solid", folder: "Solids" },
+      { id: "904", name: "SEED backing", kind: "solid", folder: "" },
       { id: "905", name: "Coastal Countryside Panorama", kind: "footage", folder: "" },
     ];
     expect(destination(items, "gyg_as_SIDES_left_1 copy.psd")).toBe(`${SHELF.generic}/plates`);
@@ -304,5 +304,110 @@ describe("running it a second time", () => {
 describe("parentFirst", () => {
   it("dedupes and sorts shallowest first", () => {
     expect(parentFirst(["a/b/c", "a", "a/b", "a"])).toEqual(["a", "a/b", "a/b/c"]);
+  });
+});
+
+/**
+ * What the first dry run got wrong.
+ *
+ * Pointed at the real project, the rules above wanted 326 moves out of 333
+ * items -- because they treated every PSD layer and every generated clip as
+ * something to file. After Effects had already grouped the layers into
+ * `<PSD> Layers` folders and the host had already put the clips in `SEED`,
+ * and both are better than any drawer this could invent. Only 36 of those
+ * items were ever loose.
+ *
+ * A folder is moved by its handle. These are the tests that say so.
+ */
+describe("drawers somebody else already made", () => {
+  /** The eight folders that were actually at the root of the GYG project. */
+  const drawers: ProjectItem[] = [
+    { id: "502", name: "GYG_Sides-Left_v001 Layers", kind: "folder", folder: "" },
+    { id: "1080", name: "GYG_Sides-Left_v002 Layers", kind: "folder", folder: "" },
+    { id: "635", name: "GYG_Sides-Right_v001 Layers", kind: "folder", folder: "" },
+    { id: "250", name: "gyg_SIDES__Right_mural Layers", kind: "folder", folder: "" },
+    { id: "333", name: "SEED", kind: "folder", folder: "" },
+    { id: "336", name: "Solids", kind: "folder", folder: "" },
+  ];
+
+  const items: ProjectItem[] = [
+    ...projectComps(),
+    ...drawers,
+    // One of the sixty layers inside one of them, and one generated clip.
+    {
+      id: "7001",
+      name: "avocadotree1/GYG_Sides-Left_v002.psd",
+      kind: "footage",
+      folder: "GYG_Sides-Left_v002 Layers",
+    },
+    {
+      id: "7002",
+      name: "seedance-2-0_0d3c483e_00_alpha_001.mov",
+      kind: "footage",
+      folder: "SEED",
+      durationSeconds: 5,
+      file: "D:\\SEEDD\\seedance-2-0_0d3c483e_00_alpha_001.mov",
+    },
+    { id: "7003", name: "SEED backing", kind: "solid", folder: "Solids" },
+  ];
+
+  const plan = planProjectShelf(items);
+
+  it("moves a layer set into plates without touching the layers in it", () => {
+    expect(destination(items, "GYG_Sides-Left_v002 Layers")).toBe(`${SHELF.generic}/plates`);
+    expect(
+      plan.moves.find((move) => move.expectName === "avocadotree1/GYG_Sides-Left_v002.psd"),
+    ).toBeUndefined();
+  });
+
+  it("sends a superseded comp's layers wherever the comp went", () => {
+    // v001 is archived, so sixty layers that only exist for v001 are archived
+    // with it rather than filed as though they were current artwork.
+    expect(destination(items, "GYG_Sides-Left_v001 Layers")).toBe(SHELF.archive);
+    expect(destination(items, "GYG_Sides-Left_v001")).toBe(SHELF.archive);
+  });
+
+  it("keeps a layer set with no comp of its own as a plate", () => {
+    // The right-hand mural PSDs do not match any comp name, so there is
+    // nothing that says they are superseded.
+    expect(destination(items, "gyg_SIDES__Right_mural Layers")).toBe(`${SHELF.generic}/plates`);
+  });
+
+  it("leaves a generated clip in the inbox when its name names no element", () => {
+    /*
+     * `seedance-2-0_0d3c483e_00_alpha_001.mov` is a job hash. Which element
+     * it belongs to is in the asset library's lineage, not in the filename,
+     * and sweeping seventy of them into `20_GENERIC/footage` would move them
+     * out of the one folder that is at least honest about what they are.
+     */
+    expect(
+      plan.moves.find((move) => move.expectName === "seedance-2-0_0d3c483e_00_alpha_001.mov"),
+    ).toBeUndefined();
+    expect(destination(items, "SEED")).toBeUndefined();
+  });
+
+  it("counts what it left alone instead of calling it unsorted", () => {
+    // Three items were deliberately not moved. Reporting them as unsorted
+    // would read as three rules missing rather than three rules working.
+    expect(plan.leftInPlace).toBe(3);
+    expect(plan.unsorted).toEqual([]);
+  });
+
+  it("moves only what was loose", () => {
+    // 28 comps + 6 folders, of which SEED stays: 33 moves, not 37.
+    const loose = items.filter((item) => item.folder === "").length;
+    expect(loose).toBe(34);
+    expect(plan.moves).toHaveLength(33);
+  });
+
+  it("prints as a tree, with each subtree together", () => {
+    /*
+     * Sorted by depth, `10_ELEMENTS/Car01` and `10_ELEMENTS/Car01/01_source`
+     * end up separated by every other element's folder, and a plan nobody can
+     * read is a plan nobody checks before applying it.
+     */
+    const elements = plan.folders.filter((path) => path.startsWith(`${SHELF.elements}/Car01`));
+    const first = plan.folders.indexOf(elements[0]!);
+    expect(plan.folders.slice(first, first + elements.length)).toEqual(elements);
   });
 });

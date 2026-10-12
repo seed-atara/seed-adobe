@@ -75,6 +75,17 @@ export interface ShelfPlan {
   moves: ShelfMove[];
   /** Already where the rule wants them. */
   alreadySorted: number;
+  /**
+   * Left inside a folder somebody else already made.
+   *
+   * After Effects groups a layered PSD's layers into `<name> Layers` itself,
+   * and the host puts generated media in `SEED`. Both are better than any
+   * drawer this could invent, so items in them are only moved when they
+   * positively belong to an element. 297 of this project's 333 items are in
+   * that position, and the first version of these rules wanted to move all
+   * of them.
+   */
+  leftInPlace: number;
   /** No rule claimed these. Left exactly where they are. */
   unsorted: ProjectItem[];
 }
@@ -168,6 +179,7 @@ export function planProjectShelf(items: ProjectItem[]): ShelfPlan {
   const moves: ShelfMove[] = [];
   const unsorted: ProjectItem[] = [];
   let alreadySorted = 0;
+  let leftInPlace = 0;
 
   /** Element keys that have a live comp of their own, named exactly. */
   const liveComps = new Set(
@@ -209,13 +221,40 @@ export function planProjectShelf(items: ProjectItem[]): ShelfPlan {
   };
 
   for (const item of items) {
-    // Folders are the shelf, not things on it. The one exception is After
-    // Effects' own `Solids`, which it creates at the root and will keep
-    // creating; it is tidier to move the drawer than its contents.
+    /*
+     * Folders are mostly the shelf rather than things on it -- but the ones
+     * After Effects and the host made at the root are drawers, and a drawer
+     * is moved by its handle. Emptying `GYG_Sides-Left_v002 Layers` into a
+     * generic folder would turn sixty well-grouped layers into sixty loose
+     * ones, which is the problem rather than the fix.
+     */
     if (item.kind === "folder") {
-      if (item.name === "Solids" && item.folder === "") {
+      if (item.folder !== "") continue;
+      if (item.name === SHELF.inbox) continue; // the import inbox stays put
+      if (Object.values(SHELF).includes(item.name as never)) continue; // our own
+      if (item.name === "Solids") {
         place(item, SHELF.generic, "After Effects' own solids drawer");
+        continue;
       }
+      const layers = /^(.*) Layers$/.exec(item.name);
+      if (layers) {
+        // A layer set belongs with the comp it came from, so when that comp
+        // has been superseded the layers go to the same place it did.
+        const base = layers[1]!;
+        const version = versioned(base);
+        const superseded =
+          version !== undefined &&
+          (newest.get(version.base) ?? version.version) > version.version;
+        place(
+          item,
+          superseded ? SHELF.archive : `${SHELF.generic}/plates`,
+          superseded
+            ? `the layers of a superseded ${base}`
+            : "a layered PSD's own layer set",
+        );
+        continue;
+      }
+      unsorted.push(item);
       continue;
     }
 
@@ -275,6 +314,12 @@ export function planProjectShelf(items: ProjectItem[]): ShelfPlan {
 
     // --- footage ------------------------------------------------------
     if (item.kind === "solid") {
+      // The drawer itself is moved above; a solid already in it travels with
+      // it, and only a loose one needs placing.
+      if (item.folder === "Solids" || item.folder === `${SHELF.generic}/Solids`) {
+        leftInPlace++;
+        continue;
+      }
       place(item, `${SHELF.generic}/Solids`, "a solid");
       continue;
     }
@@ -292,6 +337,10 @@ export function planProjectShelf(items: ProjectItem[]): ShelfPlan {
     const source = item.file ?? item.name;
 
     if (/\.psd$/i.test(source)) {
+      if (item.folder !== "") {
+        leftInPlace++;
+        continue;
+      }
       place(item, `${SHELF.generic}/plates`, "a PSD plate");
       continue;
     }
@@ -304,6 +353,14 @@ export function planProjectShelf(items: ProjectItem[]): ShelfPlan {
         `${SHELF.elements}/${owner}/${clip ? STAGE.clips : STAGE.stills}`,
         clip ? `a generated clip for ${owner}` : `a still for ${owner}`,
       );
+      continue;
+    }
+
+    if (item.folder !== "") {
+      // Inside `SEED` or a `<PSD> Layers` folder and claimed by no element.
+      // Its name is a job hash or a layer name, so there is nothing to file
+      // it by -- and where it is is already better than `20_GENERIC/footage`.
+      leftInPlace++;
       continue;
     }
 
@@ -330,6 +387,7 @@ export function planProjectShelf(items: ProjectItem[]): ShelfPlan {
     folders: parentFirst([SHELF.delivery, SHELF.elements, SHELF.generic, SHELF.archive, ...folders]),
     moves,
     alreadySorted,
+    leftInPlace,
     unsorted,
   };
 }
@@ -342,8 +400,9 @@ export function planProjectShelf(items: ProjectItem[]): ShelfPlan {
  * if it arrives in tree order.
  */
 export function parentFirst(paths: Iterable<string>): string[] {
-  return [...new Set(paths)].sort((a, b) => {
-    const depth = a.split("/").length - b.split("/").length;
-    return depth !== 0 ? depth : a.localeCompare(b);
-  });
+  // Plain string order, not `localeCompare`, and not by depth. A parent is
+  // always a proper prefix of its children, so lexicographic order puts it
+  // first *and* keeps each subtree together -- which a depth-first sort does
+  // not, and the difference is the whole readability of a printed plan.
+  return [...new Set(paths)].sort((a, b) => (a === b ? 0 : a < b ? -1 : 1));
 }

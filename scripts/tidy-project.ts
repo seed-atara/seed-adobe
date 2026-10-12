@@ -62,7 +62,8 @@ const atRoot = inventory.items.filter((item) => item.folder === "").length;
 console.log(
   `${inventory.count} items, ${atRoot} of them loose in the root.\n` +
     `${plan.folders.length} folders, ${plan.moves.length} moves, ` +
-    `${plan.alreadySorted} already in place, ${plan.unsorted.length} unsorted.\n`,
+    `${plan.alreadySorted} already in place, ${plan.leftInPlace} left in drawers ` +
+    `somebody else made, ${plan.unsorted.length} unsorted.\n`,
 );
 
 /** The plan as a tree, which is the shape the Project panel will be in. */

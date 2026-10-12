@@ -77,6 +77,29 @@ Neither would have been visible in a project panel. Both were one assertion.
   should not be undone by one item somebody renamed while the plan was being
   printed.
 
+## What the first dry run caught
+
+Pointed at the real project, the first version of these rules wanted **326
+moves out of 333 items**. The flatness was never 333 items deep: only 36 were
+loose. The other 297 were already grouped -- After Effects puts a layered
+PSD's layers in a `<name> Layers` folder of its own, and the host puts
+generated media in `SEED`. Both are better than any drawer this could invent,
+and the rules were about to empty all of them into `20_GENERIC/footage` and
+`20_GENERIC/plates`.
+
+So a drawer is moved by its handle. Footage already inside a folder is only
+moved when it positively belongs to an element; a `<name> Layers` folder is
+placed as a unit, and goes to `90_ARCHIVE` when the comp it belongs to did.
+
+Applied to `..._leftwind_tidy_v007.aep`: 28 folders made, 35 items moved, 297
+left alone, 0 refused, 0 unsorted. A re-read afterwards wanted no further
+moves and found nothing but folders in the root.
+
+This is the argument for the dry run being the default, and for the plan
+printing the rule that placed each item -- "326 moves" was readable as wrong
+in about four seconds. Inside a project panel it would have been an afternoon
+of dragging things back.
+
 ## The property that matters
 
 Re-running it on a sorted project asks for nothing. That is tested
