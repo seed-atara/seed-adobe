@@ -95,6 +95,66 @@ describe("the cel-element prompt", () => {
     expect(blue).toBe(green.replace(/chroma-green/g, "chroma-blue"));
   });
 
+  it("can hold the subject on the spot so it can be moved by hand", () => {
+    /*
+     * The difference between this and `camera locked off` is the whole
+     * point: that one stops the frame moving, this stops the subject moving
+     * inside it. A walk cycle that walks across frame can be used once, at
+     * the speed and in the direction the model picked. One on the spot is a
+     * loop the artist drives with a Position keyframe.
+     */
+    const cycle = animatePrompt({ ...SHOT, inPlace: true });
+
+    expect(cycle).toContain("animated as a cycle on the spot");
+    expect(cycle).toContain("no travel across frame");
+    // Said twice, like the backdrop, and for the same measured reason.
+    expect(cycle.match(/on the spot/g)).toHaveLength(2);
+
+    // The locked camera is still on every beat. They are not alternatives.
+    expect(cycle.match(/camera locked off/g)).toHaveLength(SHOT.beats.length);
+  });
+
+  it("says where the subject must stay before the generic constraints", () => {
+    const cycle = animatePrompt({ ...SHOT, inPlace: true });
+    // The specific instruction outranks the boilerplate, and the last thing
+    // read carries least.
+    expect(cycle.indexOf("no travel across frame")).toBeLessThan(cycle.indexOf(ANIMATE_TAIL));
+  });
+
+  it("leaves it out entirely when the element is meant to travel", () => {
+    expect(animatePrompt(SHOT)).not.toContain("on the spot");
+  });
+
+  it("can hold the subject clear of every frame edge", () => {
+    /*
+     * Measured across eleven finished GYG elements: every one had opaque
+     * alpha running along at least one frame edge, because a plate captured
+     * from a PSD layer IS that layer's bounding box. The car lost its
+     * bumpers across 60% of the left edge. Invisible until the artist moves
+     * the layer, at which point the cut reads as a line across the artwork.
+     */
+    const framed = animatePrompt({ ...SHOT, margin: true });
+
+    expect(framed).toContain("clear empty space on all four sides");
+    expect(framed).toContain("must never touch, cross or be cropped by any edge");
+    // Stated twice, like the backdrop and the in-place note.
+    expect(framed.match(/clear empty/g)).toHaveLength(2);
+  });
+
+  it("does not ask for margin on an element meant to run off frame", () => {
+    // A balcony railing that continues behind an arch column, or a bag being
+    // handed out of shot, is supposed to touch the edge.
+    expect(animatePrompt(SHOT)).not.toContain("clear empty");
+  });
+
+  it("stacks the frame constraints in order of how specific they are", () => {
+    const both = animatePrompt({ ...SHOT, inPlace: true, margin: true });
+    expect(both.indexOf("no travel across frame"))
+      .toBeLessThan(both.indexOf("must never touch, cross or be cropped"));
+    expect(both.indexOf("must never touch, cross or be cropped"))
+      .toBeLessThan(both.indexOf(ANIMATE_TAIL));
+  });
+
   it("leaves the backdrop out cleanly rather than trailing an empty clause", () => {
     const prompt = animatePrompt({ ...SHOT, backdrop: "none" });
 
@@ -184,6 +244,31 @@ describe("what a render will cost", () => {
     expect(tierFor(825, 383).size).toBe("1080p"); // Cafe02 — they used 2120x984
     expect(tierFor(296, 367).size).toBe("720p"); // Cafe01 — a quarter the price
     expect(tierFor(952, 513).oversample).toBeCloseTo(2.02, 1);
+  });
+
+  it("treats a tier as a pixel budget, not a width", () => {
+    /*
+     * The correction that paid for itself. `aspectRatio: "adaptive"` spends
+     * a tier's pixels in the ELEMENT's shape, so a tier's nominal width only
+     * describes a 16:9 element.
+     *
+     * Measured: the mariachi element is 564x421, it was asked for at 1080p,
+     * and Ark returned 1664x1248 — 2,076,672 pixels against 1080p's
+     * 2,073,600, and nothing like 1920 wide. After Effects then reported a
+     * pixel ratio of 2.95 for that layer.
+     */
+    const mariachi = tierFor(564, 421);
+    expect(mariachi.size).toBe("1080p");
+    expect(mariachi.oversample).toBeCloseTo(2.95, 1);
+
+    /*
+     * And the case that was costing money. A bunting strand is 8:1. By
+     * nominal width 1920 "could not" cover 2103, so the old rule reached for
+     * 4K — four times the price — when 1080p at that aspect is 4080x508 and
+     * oversamples it nearly twice over.
+     */
+    expect(Math.sqrt(2073600 / (2103 * 262))).toBeCloseTo(1.94, 1);
+    expect(tierFor(2103, 262, 1.9).size).toBe("1080p");
   });
 
   it("admits when an element is too big to oversample at all", () => {

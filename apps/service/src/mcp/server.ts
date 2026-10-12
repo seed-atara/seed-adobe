@@ -312,7 +312,7 @@ export function createSeedMcpServer(options: McpOptions): McpServer {
           .default("adaptive")
           .describe("match the ELEMENT's shape, not the comp's — a forced aspect is what failed before"),
         backdrop: z
-          .enum(["green", "blue", "white", "none"])
+          .enum(["green", "blue", "magenta", "white", "none"])
           .default("green")
           .describe(
             "the colour the element stands on. Pick one the ARTWORK does not " +
@@ -322,6 +322,24 @@ export function createSeedMcpServer(options: McpOptions): McpServer {
           .boolean()
           .default(true)
           .describe("same still in both frame slots, so the shot ends where it began"),
+        margin: z
+          .boolean()
+          .default(false)
+          .describe(
+            "hold the subject clear of every frame edge. Needed by anything the " +
+              "artist will move: a plate cut to a PSD layer's bounding box is " +
+              "tangent to its own frame, and that straight cut shows as a line " +
+              "the moment the layer is translated. Pad the PLATE too — this only " +
+              "asks the model to keep margin it was given",
+          ),
+        inPlace: z
+          .boolean()
+          .default(false)
+          .describe(
+            "cycle on the spot with no travel across frame, so the element can be " +
+              "moved and timed by hand in After Effects afterwards. What a walk, " +
+              "cycle or wheel-spin loop needs; not the same as a locked camera",
+          ),
         providerId: z
           .enum(["seedance-2-0", "seedance-2-0-fast", "seedance-2-0-mini", "seedance-2-5"])
           .default("seedance-2-0")
@@ -336,6 +354,8 @@ export function createSeedMcpServer(options: McpOptions): McpServer {
         beats: args.beats,
         loop: args.loop,
         backdrop: args.backdrop,
+        inPlace: args.inPlace,
+        margin: args.margin,
       });
 
       const started = await call("/v1/generations", {

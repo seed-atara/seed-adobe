@@ -88,6 +88,20 @@ export const BACKDROPS = {
     closing:
       "Flat chroma-blue backdrop stays pure, even and unchanged for the whole shot",
   },
+  /*
+   * Magenta is the third because green and blue both run out. The delivery
+   * cyclist rides a green bike with a green backpack (47 from green) and
+   * wears blue jeans (92 from blue, against a softness ceiling of 90);
+   * magenta clears her by 126. Illustration reaches for magenta least, which
+   * is exactly what makes it useful and also why it is third rather than
+   * first — it is the one of the three a video model has seen fewest flat
+   * backdrops of.
+   */
+  magenta: {
+    opening: "isolated on a flat chroma-magenta background with no shadow spill",
+    closing:
+      "Flat chroma-magenta backdrop stays pure, even and unchanged for the whole shot",
+  },
   white: {
     opening: "isolated on a plain flat white background with no shadow spill",
     closing: "Flat white backdrop stays pure, even and unchanged for the whole shot",
@@ -96,6 +110,62 @@ export const BACKDROPS = {
 } as const;
 
 export type BackdropName = keyof typeof BACKDROPS;
+
+/**
+ * Holding the subject still, so the artist can move it.
+ *
+ * A separate idea from `camera locked off`, and the difference is the whole
+ * point. A locked camera stops the FRAME moving; this stops the SUBJECT
+ * moving within it. A walk cycle that actually walks across frame is a clip
+ * you can only use once, at the speed and in the direction the model chose.
+ * A walk cycle on the spot is a loop that can be laid anywhere on the
+ * timeline and driven by a Position keyframe — the artist decides where it
+ * goes, how fast, and whether it stops behind a column and comes back empty
+ * handed.
+ *
+ * Stated in the opening and again at the end, for the same reason the
+ * backdrop is: a single mention near the top gets outvoted by every beat
+ * that implies travel.
+ */
+export const IN_PLACE = {
+  opening: "animated as a cycle on the spot",
+  closing:
+    "The subject stays locked in exactly the same place in frame for the whole " +
+    "shot — the motion cycles on the spot with no travel across frame, no drift " +
+    "and no change of scale, like a walk cycle on a treadmill, so the clip can " +
+    "be repositioned and timed by hand afterwards",
+} as const;
+
+/**
+ * Keeping the subject off the edges of its own frame.
+ *
+ * Measured across eleven finished GYG elements: **every one of them** had
+ * opaque alpha running along at least one frame edge, and five had a lot of
+ * it — the car's bumpers were cut flat across 60% of the left edge and 43%
+ * of the right, the cyclist lost both wheels at 21% and 24%.
+ *
+ * The cause is upstream of the model. A plate captured from a PSD layer is
+ * that layer's exact bounding box, so the artwork is tangent to the frame
+ * before anything is generated, and the clip inherits it. Standing still in
+ * the plate it came from nobody notices. The moment the artist translates the
+ * layer, that straight cut reads as a line across the artwork.
+ *
+ * No amount of post-processing fixes it: the pixels beyond the edge were
+ * never drawn. The plate has to be padded with backing colour BEFORE
+ * generating, and the prompt has to ask for the margin to be kept, or the
+ * model composes to fill the frame again and the padding is wasted.
+ *
+ * Needed by anything the artist will move. Not wanted by an element whose
+ * artwork is genuinely meant to run off frame — a balcony railing that
+ * continues behind an arch column, a bag being handed out of shot.
+ */
+export const KEEP_MARGIN = {
+  opening: "sitting well inside the frame with clear empty space on all four sides",
+  closing:
+    "Keep a clear empty margin of plain backdrop all the way around the subject " +
+    "for the whole shot. The subject must never touch, cross or be cropped by any " +
+    "edge of the frame, and must not grow to fill the frame",
+} as const;
 
 /**
  * The constraint tail, verbatim from the generations that held.
@@ -136,6 +206,10 @@ export interface AnimateRequest {
   /** Same still in both frame slots — Ark's `flf2v`. */
   loop?: boolean;
   backdrop?: BackdropName;
+  /** Cycle on the spot rather than travelling. See `IN_PLACE`. */
+  inPlace?: boolean;
+  /** Hold the subject clear of every frame edge. See `KEEP_MARGIN`. */
+  margin?: boolean;
 }
 
 /**
@@ -150,22 +224,34 @@ export function animatePrompt(request: AnimateRequest): string {
   const backdrop = BACKDROPS[request.backdrop ?? "green"];
 
   const description = request.describe.trim().replace(/[.]+$/, "");
-  const opening = backdrop.opening
-    ? `${description}, ${backdrop.opening}.`
-    : `${description}.`;
+  const clauses = [description];
+  if (request.inPlace) clauses.push(IN_PLACE.opening);
+  if (request.margin) clauses.push(KEEP_MARGIN.opening);
+  if (backdrop.opening) clauses.push(backdrop.opening);
+  const opening = `${clauses.join(", ")}.`;
 
   const beats = request.beats.map((beat, at) =>
     beatLine(beat, at === request.beats.length - 1, loop),
   );
 
-  const closing = backdrop.closing ? `${backdrop.closing}; ` : "";
+  /*
+   * Where the subject must stay comes before the generic stability tail: it
+   * is the stronger and more specific instruction, and the last thing read
+   * carries least.
+   */
+  const closing = [
+    ...(backdrop.closing ? [backdrop.closing] : []),
+    ...(request.inPlace ? [IN_PLACE.closing] : []),
+    ...(request.margin ? [KEEP_MARGIN.closing] : []),
+    ANIMATE_TAIL,
+  ].join("; ");
 
   return [
     `Image 1 as the first frame, held exactly: ${opening}`,
     "",
     beats.join("\n"),
     "",
-    `${closing}${ANIMATE_TAIL}`,
+    closing,
   ].join("\n");
 }
 
@@ -222,42 +308,63 @@ export function estimateTokens(
 /**
  * Which tier to ask for, given how big the element will actually be.
  *
- * The target is **twice** the element's longest edge, not merely enough to
+ * The target is **twice** the element's linear size, not merely enough to
  * cover it, and that is a measurement rather than caution. Every clip in this
  * project runs between 2.0 and 4.2 source pixels per screen pixel, they are
  * all clean, and downscaling by half is what hides the softness and the
  * frame-to-frame wobble a generated clip arrives with. A tier chosen to just
  * cover would put every artefact on screen at full size.
  *
- * Checked against what was actually used here: Rooftop 952px wide → 1080p,
- * Cafe01 296px → 720p, Cafe02 825px → 1080p. Three of five exactly; the
- * other two were taken a tier higher still by hand.
- *
  * Generating above what is needed costs money. Generating below it cannot be
  * recovered at any price, which is why the asymmetry is deliberate.
+ *
+ * ## A tier is a pixel budget, not a width — corrected 2026-10-12
+ *
+ * This used to compare a tier's nominal width (1280, 1920, 3840) against the
+ * element's longest edge. That is only right for an element shaped 16:9, and
+ * wrong by a wide margin for anything else, because `aspectRatio: "adaptive"`
+ * spends the tier's pixels in the element's own shape.
+ *
+ * Measured, not reasoned: the mariachi element is 564x421, it was asked for
+ * at 1080p, and it came back **1664x1248** — 2,076,672 pixels against 1080p's
+ * 2,073,600. Not 1920 wide. The comp then reported a pixel ratio of 2.95, and
+ * `sqrt(2073600 / (564 * 421))` is 2.955.
+ *
+ * So the whole thing collapses to one line, and the aspect cancels out
+ * because the clip and the element are the same shape:
+ *
+ * ```
+ * oversample = sqrt(tier pixels / element pixels)
+ * ```
+ *
+ * The old rule cost real money in the only direction that matters. A 2103x262
+ * bunting strand is 8:1; by nominal width it "needed" 4K, when 1080p actually
+ * delivers 4080x508 and oversamples it 1.94x. That is a 4x overspend on a
+ * recommendation whose entire job is to not overspend. Across the thirteen
+ * elements of this side it was the difference between 9.7M tokens and 4.4M.
  */
 export function tierFor(
   screenWidth: number,
   screenHeight: number,
   minOversample = 2,
 ): { size: string; oversample: number; covers: boolean } {
-  const need = Math.max(screenWidth, screenHeight) * minOversample;
-  const tiers: Array<[string, number]> = [
-    ["720p", 1280],
-    ["1080p", 1920],
-    ["4k", 3840],
-  ];
-  const longest = Math.max(screenWidth, screenHeight);
-  for (const [size, width] of tiers) {
-    if (width >= need) {
-      return { size, oversample: Math.round((width / longest) * 100) / 100, covers: true };
-    }
+  const elementPixels = screenWidth * screenHeight;
+  /* Linear oversample, so a tier must hold minOversample^2 times the area. */
+  const want = elementPixels * minOversample * minOversample;
+
+  const ladder = ["480p", "720p", "1080p", "4k"] as const;
+  const ratio = (size: string): number =>
+    Math.round(Math.sqrt(TIER_PIXELS[size]! / elementPixels) * 100) / 100;
+
+  for (const size of ladder) {
+    if (TIER_PIXELS[size]! >= want) return { size, oversample: ratio(size), covers: true };
   }
+
   /*
    * Bigger than 4K can oversample. Reported with the real ratio rather than
    * rounded up to a comfortable-looking number — an element this large is a
    * reason to cut it into pieces, and hiding that would be the wrong help.
    */
-  const oversample = Math.round((3840 / longest) * 100) / 100;
+  const oversample = ratio("4k");
   return { size: "4k", oversample, covers: oversample >= 1 };
 }
