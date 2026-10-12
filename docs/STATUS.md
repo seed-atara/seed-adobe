@@ -1091,3 +1091,60 @@ not.
    woman, the takeaway worker, the drive-thru window, the clouds and the car.
 10. `saveVersion` writes a new file and After Effects then works in it. After
     the first call the open project is no longer `ANUAL_SUMMIT.aep`.
+
+## The left-hand side of the arcade, given wind
+
+`GYG_Sides-Left_v002`, comp 1081, 6688x1912 at 24fps, 30s. Forty layers,
+seven arches. Nineteen of them now carry a Wave Warp; nothing was generated
+and nothing cost anything.
+
+Three shapes of wind, all from `packages/domain/src/buntingWeave.ts`:
+
+| group | layers | direction | pinning | what it does |
+|---|---|---|---|---|
+| bunting, papel picado | 7 | 90 (lift) | none | strand lifts as one piece |
+| clouds | 2 | 0 (drift) | none | whole bank slides together |
+| flag | 1 | 90 (lift) | left edge | hoist held, fly ripples |
+| trees, shrubs, crops | 9 | 0 (sway) | bottom edge | roots held, canopy sways |
+
+Measured on what shipped: the flag's hoist travels **0.19 px** against the
+fly's **3.99 px** — it stays on its pole. The eucalyptus canopy travels
+**7.31 px** against **2.69 px** at the trunk. The lettuce bed, **2.00 px**
+against **1.36 px**. Bunting peaks at 2.5 px with **0.99 px** of shear
+across one 60 px pennant, which is calmer than the 2 px that was approved on
+the right-hand side.
+
+Speeds are co-prime cycle counts over the 30 s loop — three for the trees,
+five for the bushes, seven for the ground crops, fifteen for the flag — so
+the garden only ever re-synchronises at 0 s and 30 s, which is exactly where
+it must. Every speed is a whole number of cycles over the duration or the
+loop would not close.
+
+### The pinning table was wrong, and so was the probe
+
+See `docs/research/WAVE_WARP_PINNING.md`. Short version: `layerBounds` asks
+for `sourceRectAtTime` with extents, and that rectangle does not move when a
+Wave Warp is applied at any amplitude — a 300 px warp on a 1316x1647 layer
+returns byte-identical bounds. So the two earlier "measured" tables cannot
+have been measured. Re-done from rendered pixels, all eleven values, all four
+edges. `6` holds the **top** edge; left is `5`; **`8` holds the bottom**,
+which is the one a tree needs and the one no previous version of the table
+had.
+
+Nothing had shipped against the wrong value — every strand on the right-hand
+side is `none`.
+
+### Left alone, deliberately
+
+The truck and the aeroplane, because Johannes is animating those. The arcade,
+the coastal panorama, the city block and the market street scene, because
+they are the large areas. The signpost, the fences, the chicken coop, the
+road, the murals and the logos, because rigid things that sway read as
+rubber.
+
+### Still generative, if wanted
+
+Three elements on this side would need a model rather than a warp, because
+the motion is articulated rather than a displacement: the farmer
+(646x518), the chickens (257x163), and the crowd inside the market street
+scene. The two cows are 41x32 and 68x51 — too small on the wall to repay it.
