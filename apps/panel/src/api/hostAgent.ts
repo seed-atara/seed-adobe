@@ -156,6 +156,19 @@ export function dispatch(
       );
     case "replaceFootage":
       return bridge.replaceFootage(String(args.projectItemId), String(args.path));
+    case "setEffectParams":
+      return bridge.setEffectParams(
+        Number(args.layerIndex),
+        String(args.effectName),
+        (args.params ?? {}) as Record<string, number | number[]>,
+      );
+    case "deleteLayer":
+      return bridge.deleteLayer(
+        Number(args.layerIndex),
+        args.expectName === undefined || args.expectName === null
+          ? undefined
+          : String(args.expectName),
+      );
     case "saveVersion":
       return bridge.saveVersion(
         args.label === undefined || args.label === null ? undefined : String(args.label),

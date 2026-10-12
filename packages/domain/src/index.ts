@@ -11,4 +11,5 @@ export * from "./quality.js";
 export * from "./restore.js";
 export * from "./transform.js";
 export * from "./animate.js";
+export * from "./buntingWeave.js";
 export * from "./time.js";

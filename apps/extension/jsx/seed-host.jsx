@@ -3348,7 +3348,10 @@ var SEED_EFFECT_ALIASES = {
     "set channels": ["Set Channels", "ADBE Set Channels"],
     "levels": ["Levels", "ADBE Easy Levels2"],
     "curves": ["Curves", "ADBE CurvesCustom"],
-    "hue/saturation": ["Hue/Saturation", "ADBE HUE SATURATION"]
+    "hue/saturation": ["Hue/Saturation", "ADBE HUE SATURATION"],
+    "wave warp": ["Wave Warp", "ADBE Wave Warp"],
+    "turbulent displace": ["Turbulent Displace", "ADBE Turbulent Displace"],
+    "transform": ["Transform", "ADBE Geometry2"]
 };
 
 /** The green-screen chain this project already uses, in its working order. */
@@ -3585,6 +3588,155 @@ function seedRepeatToFill(layerIndex, untilSeconds) {
 }
 
 /**
+ * Sets named parameters on an effect already on a layer.
+ *
+ * The missing half of `applyEffects`. Adding a Wave Warp at its defaults is
+ * not animating bunting — the defaults are a 10px sine at speed 1, which on a
+ * string of pennants reads as a flag in a gale. The numbers ARE the work, and
+ * until now there was no way to send them.
+ *
+ * Why this and not a generated clip: bunting is flat geometric artwork, a row
+ * of hard-edged triangles, which is the kind of thing a video model redraws
+ * slightly differently on every frame. A warp moves the artist's own pixels
+ * and cannot invent a new flag. It is also free, exact, and loops perfectly —
+ * see `seedLoopingWaveSpeed` below for the one number that has to be right.
+ *
+ * Values are plain numbers, or arrays for multi-dimensional properties, or
+ * an integer for a dropdown. Never an expression and never a script: this
+ * takes a name and a typed value like every other command here.
+ */
+function seedSetEffectParams(layerIndex, effectName, params) {
+    try {
+        var comp = seedActiveComp();
+        if (!comp) return seedFail("no active composition");
+
+        var index = Number(layerIndex);
+        if (!(index >= 1 && index <= comp.numLayers)) {
+            return seedFail(
+                "layer " + String(layerIndex) + " is not in " + comp.name +
+                ", which has " + comp.numLayers + " layers");
+        }
+
+        var layer = comp.layer(index);
+        var effects = layer.property("ADBE Effect Parade");
+        if (!effects) return seedFail(layer.name + " cannot take effects");
+
+        // By display name first, then by match name — the same order, and for
+        // the same reason, as seedApplyEffects.
+        var effect = null;
+        for (var e = 1; e <= effects.numProperties; e++) {
+            var candidate = effects.property(e);
+            if (String(candidate.name) === String(effectName) ||
+                String(candidate.matchName) === String(effectName)) {
+                effect = candidate;
+                break;
+            }
+        }
+        if (!effect) {
+            var present = [];
+            for (var q = 1; q <= effects.numProperties; q++) {
+                present.push(String(effects.property(q).name));
+            }
+            return seedFail(
+                "no effect called " + String(effectName) + " on " + layer.name +
+                " (it has: " + (present.length ? present.join(", ") : "none") + ")");
+        }
+
+        var set = [];
+        var refused = [];
+
+        app.beginUndoGroup("SEED: set effect parameters");
+        try {
+            for (var key in params) {
+                if (!params.hasOwnProperty(key)) continue;
+                var prop = null;
+                try { prop = effect.property(key); } catch (lookupError) { prop = null; }
+                if (!prop) { refused.push({ name: key, why: "no such parameter" }); continue; }
+                /*
+                 * A property driven by an expression or already keyframed is
+                 * left alone rather than silently overwritten — that is
+                 * somebody's animation.
+                 */
+                if (prop.numKeys > 0) {
+                    refused.push({ name: key, why: "already has keyframes" });
+                    continue;
+                }
+                try {
+                    prop.setValue(params[key]);
+                    set.push({ name: String(prop.name), value: params[key] });
+                } catch (setError) {
+                    refused.push({ name: key, why: String(setError) });
+                }
+            }
+        } finally {
+            app.endUndoGroup();
+        }
+
+        return seedOk({
+            layer: { index: layer.index, name: layer.name },
+            effect: { name: String(effect.name), matchName: String(effect.matchName) },
+            set: set,
+            refused: refused
+        });
+    } catch (error) {
+        try { app.endUndoGroup(); } catch (ignored) {}
+        return seedFail(error);
+    }
+}
+
+/**
+ * Removes a layer.
+ *
+ * Added because every test and every revision so far has had to leave its
+ * working behind — a scratch layer nobody could clear, three superseded
+ * clips switched off rather than removed. Refuses by name as well as index,
+ * because an index is only true until the moment before.
+ */
+function seedDeleteLayer(layerIndex, expectName) {
+    try {
+        var comp = seedActiveComp();
+        if (!comp) return seedFail("no active composition");
+
+        var index = Number(layerIndex);
+        if (!(index >= 1 && index <= comp.numLayers)) {
+            return seedFail(
+                "layer " + String(layerIndex) + " is not in " + comp.name +
+                ", which has " + comp.numLayers + " layers");
+        }
+
+        var layer = comp.layer(index);
+        var name = String(layer.name);
+
+        /*
+         * The guard that makes this safe to call from a script: the caller
+         * says what it believes is there, and a mismatch is a refusal rather
+         * than a deletion. Layer indices move whenever anything is added.
+         */
+        if (expectName !== undefined && expectName !== null && String(expectName) !== name) {
+            return seedFail(
+                "layer " + index + " is \"" + name + "\", not \"" + String(expectName) +
+                "\" — indices move, so nothing was deleted");
+        }
+
+        app.beginUndoGroup("SEED: delete layer");
+        try {
+            layer.remove();
+        } finally {
+            app.endUndoGroup();
+        }
+
+        return seedOk({
+            deleted: { index: index, name: name },
+            compName: comp.name,
+            layersRemaining: comp.numLayers
+        });
+    } catch (error) {
+        try { app.endUndoGroup(); } catch (ignored) {}
+        return seedFail(error);
+    }
+}
+
+/**
  * Points a footage item at a different file.
  *
  * **Read this before using it on a layered PSD.** `FootageItem.replace` takes
@@ -3774,6 +3926,8 @@ var seedAeft_insertIntoComp = seedInsertIntoComp;
 var seedAeft_repeatToFill = seedRepeatToFill;
 var seedAeft_replaceFootage = seedReplaceFootage;
 var seedAeft_saveVersion = seedSaveVersion;
+var seedAeft_setEffectParams = seedSetEffectParams;
+var seedAeft_deleteLayer = seedDeleteLayer;
 var seedAeft_adoptPlaceholder = seedAdoptPlaceholder;
 
 var seedAeft_buildLookRig = seedBuildLookRig;

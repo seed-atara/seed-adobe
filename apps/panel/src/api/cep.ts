@@ -776,6 +776,32 @@ export class CepAeBridge {
   }
 
   /**
+   * Sets named parameters on an effect already on a layer.
+   *
+   * The values go across as JSON, which is the whole point: a name and a
+   * typed value, never an expression and never a line of script.
+   */
+  async setEffectParams(
+    layerIndex: number,
+    effectName: string,
+    params: Record<string, number | number[]>,
+  ): Promise<Record<string, unknown>> {
+    await this.ensureHost();
+    return evalHost(
+      `${hostPrefix()}setEffectParams(${layerIndex}, ${quote(effectName)}, ` +
+        `${JSON.stringify(params)})`,
+    );
+  }
+
+  /** Removes a layer, refusing if its name is not what the caller expected. */
+  async deleteLayer(layerIndex: number, expectName?: string): Promise<Record<string, unknown>> {
+    await this.ensureHost();
+    return evalHost(
+      `${hostPrefix()}deleteLayer(${layerIndex}, ${expectName ? quote(expectName) : "null"})`,
+    );
+  }
+
+  /**
    * Renders just the region and registers it, region geometry and all.
    *
    * `mode: "clip"` captures the work area as video instead of the playhead as a

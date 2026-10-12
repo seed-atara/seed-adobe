@@ -98,6 +98,8 @@ export const HOST_WRITES = [
   "repeatToFill",
   "replaceFootage",
   "saveVersion",
+  "setEffectParams",
+  "deleteLayer",
 ] as const;
 
 export const HOST_COMMANDS: readonly string[] = [...HOST_READS, ...HOST_WRITES];

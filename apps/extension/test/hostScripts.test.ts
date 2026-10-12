@@ -108,6 +108,19 @@ const HOST_SPECIFIC: Record<string, { host: string; because: string }> = {
   seedSetRegionContain: { host: "seed-host.jsx", because: "regions are compositions" },
   seedRegionFromLayer: { host: "seed-host.jsx", because: "regions are compositions" },
   /*
+   * Setting an effect's parameters needs the effect parade, which Premiere
+   * does not expose in its documented API — only through the undocumented QE
+   * DOM, the same reason `seedBuildLookRig` is After Effects only.
+   */
+  seedSetEffectParams: {
+    host: "seed-host.jsx",
+    because: "scriptable effect parameters are After Effects only",
+  },
+  seedDeleteLayer: {
+    host: "seed-host.jsx",
+    because: "Premiere has sequence clips, not comp layers addressed by index",
+  },
+  /*
    * Reading a build apart, and grouping part of it. Premiere has sequences
    * and clips, not compositions containing compositions, so none of this has
    * an equivalent there rather than merely lacking one.
