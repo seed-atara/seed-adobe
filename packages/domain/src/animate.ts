@@ -306,6 +306,58 @@ export function estimateTokens(
 }
 
 /**
+ * The widest and tallest shapes Seedance will actually produce.
+ *
+ * 21:9 is the end of the list, and `adaptive` does not escape it — it picks
+ * the nearest supported aspect and **crops to it**, which is not the same as
+ * letterboxing and is far worse.
+ *
+ * Found by spending it. The GYG cloud bank is 2083x591, which is 3.53:1.
+ * Asked for at `adaptive`, Ark returned 2206x946 — 21:9 — having zoomed into
+ * the middle of the plate and discarded most of the clouds. The clip was
+ * unusable and the money was gone before anything said the shape was out of
+ * range.
+ *
+ * So this is checked before submitting, not diagnosed afterwards. An element
+ * outside the range has to be split into pieces that are inside it, or
+ * animated in After Effects instead — which for the long flat things that
+ * trip this (a cloud strip, an 8:1 bunting run) is usually the better answer
+ * anyway.
+ */
+export const WIDEST_ASPECT = 21 / 9;
+export const TALLEST_ASPECT = 9 / 21;
+
+export function aspectFits(
+  width: number,
+  height: number,
+): { fits: boolean; aspect: number; nearest: string; why?: string } {
+  const aspect = Math.round((width / height) * 1000) / 1000;
+  const nearest = aspect > WIDEST_ASPECT ? "21:9" : aspect < TALLEST_ASPECT ? "9:16" : "adaptive";
+  if (aspect > WIDEST_ASPECT) {
+    return {
+      fits: false,
+      aspect,
+      nearest,
+      why:
+        `${width}x${height} is ${aspect}:1, wider than the widest shape Seedance ` +
+        `makes (21:9 = 2.333). \`adaptive\` will crop into the middle of the plate ` +
+        `rather than fit it. Split it, or animate it in After Effects.`,
+    };
+  }
+  if (aspect < TALLEST_ASPECT) {
+    return {
+      fits: false,
+      aspect,
+      nearest,
+      why:
+        `${width}x${height} is taller than 9:21, past what Seedance makes. ` +
+        `\`adaptive\` will crop it.`,
+    };
+  }
+  return { fits: true, aspect, nearest };
+}
+
+/**
  * Which tier to ask for, given how big the element will actually be.
  *
  * The target is **twice** the element's linear size, not merely enough to

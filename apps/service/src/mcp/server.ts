@@ -1,6 +1,6 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import { animatePrompt, estimateTokens, tierFor } from "@seed-ae/domain";
+import { animatePrompt, aspectFits, estimateTokens, tierFor } from "@seed-ae/domain";
 import { z } from "zod";
 
 /**
@@ -404,13 +404,20 @@ export function createSeedMcpServer(options: McpOptions): McpServer {
     },
     async ({ screenWidth, screenHeight, durationSeconds }) => {
       const recommended = tierFor(screenWidth, screenHeight);
+      /*
+       * Said first, because a tier is irrelevant if the shape cannot be made
+       * at all — and the way that failure arrives is a finished clip that
+       * cropped the plate, billed in full.
+       */
+      const shape = aspectFits(screenWidth, screenHeight);
       const options = ["720p", "1080p", "4K"].map((size) => ({
         size,
         tokens: estimateTokens(size, durationSeconds),
         withVideoReference: estimateTokens(size, durationSeconds, { hasVideoReference: true }),
       }));
       return text({
-        element: { screenWidth, screenHeight, aspect: Math.round((screenWidth / screenHeight) * 1000) / 1000 },
+        element: { screenWidth, screenHeight, aspect: shape.aspect },
+        ...(shape.fits ? {} : { cannotGenerate: shape.why }),
         recommended,
         options,
         typicalWallClock: { "720p": "~2.5 min", "1080p": "~4 min", "4K": "~6.5 min" },

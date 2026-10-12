@@ -5,6 +5,7 @@ import {
   defaultBeats,
   estimateTokens,
   tierFor,
+  aspectFits,
 } from "../src/animate.js";
 
 /**
@@ -281,5 +282,34 @@ describe("what a render will cost", () => {
     expect(huge.size).toBe("4k");
     expect(huge.covers).toBe(false);
     expect(huge.oversample).toBeLessThan(1);
+  });
+});
+
+describe("shapes Seedance will not make", () => {
+  it("turns down an element wider than 21:9 before it is paid for", () => {
+    /*
+     * The GYG cloud bank, 2083x591. Asked for at `adaptive`, Ark returned
+     * 2206x946 — 21:9 — having zoomed into the middle of the plate and
+     * thrown most of the clouds away. `adaptive` crops to the nearest
+     * supported aspect; it does not fit to it.
+     */
+    const clouds = aspectFits(2083, 591);
+    expect(clouds.fits).toBe(false);
+    expect(clouds.aspect).toBeCloseTo(3.525, 2);
+    expect(clouds.why).toContain("crop");
+
+    // And the case that makes the point: an 8:1 bunting strand was never
+    // generatable at its own shape, whatever tier it was sent at.
+    expect(aspectFits(2103, 262).fits).toBe(false);
+  });
+
+  it("passes the shapes that actually came back right", () => {
+    for (const [w, h] of [[564, 421], [952, 513], [354, 379], [875, 441], [244, 433]]) {
+      expect(aspectFits(w!, h!).fits).toBe(true);
+    }
+  });
+
+  it("turns down an element taller than 9:21 as well", () => {
+    expect(aspectFits(200, 900).fits).toBe(false);
   });
 });

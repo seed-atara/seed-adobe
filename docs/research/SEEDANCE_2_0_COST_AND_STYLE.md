@@ -209,3 +209,59 @@ genuinely clean edge and cannot go higher.
 Neither is a reason to key better, which is what `media/floodMatte.ts` is for:
 it reads the backing as a connected region rather than a colour, so chroma
 subsampling costs edge softness instead of whole holes.
+
+
+## Two shape limits, both found by spending money on them (2026-10-12)
+
+### `adaptive` crops; it does not fit
+
+21:9 is the end of the aspect list, and `adaptive` does not escape it. It
+picks the **nearest supported aspect and crops the plate to it**.
+
+Measured: the GYG cloud bank is 2083x591, which is 3.53:1. Sent at
+`adaptive`, Ark returned **2206x946** — exactly 21:9 — having zoomed into the
+middle of the plate and discarded most of the clouds. Unusable, and billed in
+full. The same is true of an 8:1 bunting strand, which was never generatable
+at its own shape at any tier.
+
+```
+widest   21:9  = 2.333
+tallest  9:21  = 0.429
+```
+
+`aspectFits()` in `packages/domain/src/animate.ts` refuses outside that range
+before submitting. An element past it has to be cut into pieces that fit, or
+animated in After Effects — which for the long flat things that trip it is
+usually the better answer anyway.
+
+### A tier is a pixel budget, not a width
+
+Inside the supported range, `adaptive` spends a tier's pixels in the
+element's own shape. The mariachi element is 564x421, was asked for at 1080p,
+and came back **1664x1248** — 2,076,672 pixels against 1080p's 2,073,600, and
+nothing like 1920 wide. After Effects then measured that layer at a pixel
+ratio of 2.95, and `sqrt(2073600 / (564 x 421))` is 2.955.
+
+So the whole oversample question is one line, and the aspect cancels because
+the clip and the element are the same shape:
+
+```
+oversample = sqrt(tier pixels / element pixels)
+```
+
+`tierFor` used to compare a tier's nominal width (1280 / 1920 / 3840) against
+the element's longest edge, which is only right for a 16:9 element. It sent
+a 2103x262 bunting strand to 4K — four times the price — where 1080p
+oversamples it 1.94x. Across the thirteen elements of this side it was the
+difference between 9.7M tokens and 4.4M.
+
+### What the whole GYG side cost
+
+| | tokens |
+|---|---|
+| 12 character and entity clips kept | ~3.4M |
+| 2 cloud clips, wasted on the aspect ceiling | ~1.0M |
+| 1 party-crew roll discarded (negative instructions) | ~0.5M |
+
+The two failures were worth about a third of the spend, and both are now
+guarded in code rather than remembered.
