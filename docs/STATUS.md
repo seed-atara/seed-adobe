@@ -1021,6 +1021,63 @@ where under 0.2% of pixels move, against 13 for mariachi. Eight characters at
 two tables is the most crowded of the four and the model held more than it
 animated. Worth a re-roll if it reads as stuttery on the wall.
 
+## Eight cycles, and the margin every element was missing (2026-10-12)
+
+Second pass on `GYG_Sides-Right_v001`. The party crew redone, plus seven new
+elements, all but one of them a **cycle on the spot** so the artist drives the
+movement himself with a Position keyframe.
+
+| comp | element | tier | backing | note |
+|---|---|---|---|---|
+| `PartyCrew01` | 952x513 | 1080p | blue | redo: dancing, out of step |
+| `Car01` | 875x441 | 1080p | green | wheels spinning, body still |
+| `DeliveryCyclist01` | 378x451 | 720p | **magenta** | green bike AND green backpack |
+| `WomanWalking01` | 244x433 | 720p | blue | walk cycle on the spot |
+| `Waiter01` | 335x380 | 720p | blue | two cycles, with and without tray |
+| `WindowWorker01` | 166x170 | 480p | green | idle cycle + give-bag cycle |
+
+### The tray-less waiter
+
+He swaps behind a column, so the two cycles must match in scale or he jumps.
+Seedream removed the tray but reframed him — smaller, feet together, stride
+gone. A sharper prompt kept the stride; the scale was then fixed by
+measurement rather than by eye: both figures' bounding boxes were measured,
+the edit scaled by the ratio of their heights and translated so the feet
+coincide, then cropped back to the plate's exact size
+(`scratchpad/align.mjs`, pattern worth keeping).
+
+### Every element was touching its own frame
+
+Eleven clips checked along all four edges across all 241 frames. **Eleven
+hits.** Five badly: the car's bumpers cut flat across 60% of the left edge and
+43% of the right; the cyclist losing both wheels at 21% and 24%; three heads
+flattened at 19-26% of the top edge.
+
+It is structural, not a model failure: a plate captured from a PSD layer IS
+that layer's bounding box, so the artwork is tangent before anything is
+generated. Invisible while the element sits where the artwork was; a straight
+line across it the moment the layer is translated.
+
+Fixed by padding the plate 12% per side with backing colour and asking the
+model to keep the margin (`KEEP_MARGIN`). Re-measured after: **0% on all four
+edges, all five clips.** The prompt clause is load-bearing — without it the
+model composes to fill the frame and the padding is wasted.
+
+The model keeps less margin than it is given (12% in, ~5% out), so the element
+comes back smaller than the artwork and the precomp layer needs scaling in the
+parent to restore it: Car01 110%, DeliveryCyclist01 112%, WomanWalking01 144%,
+Waiter01 121%. A `setCompSize` host command that resized the comp and
+compensated the parent anchor would remove that step.
+
+### Negative instructions backfire
+
+The first party-crew redo said *"no raising glasses together, no group cheer"*
+and the model read it as *lower the glasses*: everyone dropped their arms and
+stood around. Re-rolled with the same intent phrased positively — *"arms and
+drinks stay up above head height"*, *"each keeps their own tempo, so they are
+always out of step"* — and it held. Say what should happen, not what should
+not.
+
 ## Next engineering actions, continued
 
 6. Smoke-test the remaining host operations against a scratch comp, and add a
