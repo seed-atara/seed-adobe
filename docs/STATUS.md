@@ -1148,3 +1148,41 @@ Three elements on this side would need a model rather than a warp, because
 the motion is articulated rather than a displacement: the farmer
 (646x518), the chickens (257x163), and the crowd inside the market street
 scene. The two cows are 41x32 and 68x51 — too small on the wall to repay it.
+
+
+## The project shelf
+
+The GYG project had 28 compositions and every piece of footage loose in the
+root. Tidying it by hand would have lasted until the next import, so the shelf
+is a function instead: `planProjectShelf` in `packages/domain` turns an
+inventory into a set of moves, and `npx tsx scripts/tidy-project.ts` prints
+the plan and does nothing until it is given `--apply`.
+
+```
+00_DELIVERY/      the comps that get rendered, newest version of each surface
+10_ELEMENTS/
+    Car01/
+        Car01             the live comp
+        01_source/        the PSD grouping it was precomposed from
+        02_stills/        captured plates
+        03_clips/         generated footage
+20_GENERIC/       bunting, clouds, plates, solids, loose footage
+90_ARCHIVE/       superseded versions, kept rather than deleted
+SEED/             the host's import inbox, left at the root on purpose
+```
+
+Three host commands carry it out and decide nothing: **`projectItems`**
+reports every item and where it sits, **`createFolders`** makes folders by
+path idempotently, **`moveItems`** moves items into them and refuses one item
+rather than failing a batch. `projectComps` could only ever see
+compositions, which is half a project — the flatness an artist complains
+about is mostly footage.
+
+Re-running the plan on a sorted project asks for nothing, which is the
+difference between a convention and an afternoon. Two bugs were caught by the
+tests before it was pointed at a project: a placeholder called `Car01 pending`
+was being filed as a still of `Car01`, hiding that a render was still owed,
+and an element whose only item was its PSD grouping never got the folder above
+it created. See `docs/decisions/0022-the-project-shelf.md` for what it
+deliberately does not do — it never deletes, never guesses at a rename, and
+never sweeps an item it cannot place.

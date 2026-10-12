@@ -164,6 +164,18 @@ const HOST_SPECIFIC: Record<string, { host: string; because: string }> = {
     host: "seed-host.jsx",
     because: "a Premiere project is saved by the host, not to a path we choose",
   },
+  seedProjectItems: {
+    host: "seed-host.jsx",
+    because: "a Premiere bin tree is a different shape and none of it is measured yet",
+  },
+  seedCreateFolders: {
+    host: "seed-host.jsx",
+    because: "Premiere makes bins, not project folders, and that contract is unverified",
+  },
+  seedMoveItems: {
+    host: "seed-host.jsx",
+    because: "moving an item between Premiere bins is a different API nobody has measured",
+  },
 };
 
 describe("panel to host contract", () => {

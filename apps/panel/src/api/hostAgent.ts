@@ -79,6 +79,8 @@ export function dispatch(
       return bridge.projectComps(
         args.match === undefined || args.match === null ? undefined : String(args.match),
       );
+    case "projectItems":
+      return bridge.projectItems();
     case "layerBounds":
       return bridge.layerBounds(
         Number(args.layerIndex),
@@ -128,6 +130,10 @@ export function dispatch(
       });
     case "setActiveComp":
       return bridge.setActiveComp(String(args.compId));
+    case "createFolders":
+      return bridge.createFolders(folderPaths(args.paths));
+    case "moveItems":
+      return bridge.moveItems(itemMoves(args.moves));
     case "addSolid":
       return bridge.addSolid(
         rgbOf(args.color),
@@ -242,6 +248,46 @@ function fitOf(value: unknown): "cover" | "contain" | "stretch" | "none" {
 }
 
 /** The three the host accepts, with 32 as the default this project prefers. */
+
+/**
+ * Folder paths, as paths and nothing else.
+ *
+ * A path arrives from a plan computed elsewhere, so it is checked here rather
+ * than trusted: no empty segment, no `..`, nothing that would walk out of the
+ * shelf it is meant to build. The Project panel is not a filesystem, but a
+ * folder called `..` is a folder nobody can explain later.
+ */
+function folderPaths(value: unknown): string[] {
+  if (!Array.isArray(value)) throw new Error("paths must be an array of folder paths");
+  return value.map((entry) => {
+    const path = String(entry).trim();
+    if (!path) throw new Error("a folder path cannot be empty");
+    const parts = path.split("/").map((part) => part.trim());
+    if (parts.some((part) => part === "" || part === "." || part === ".."))
+      throw new Error(`${path} is not a folder path`);
+    return parts.join("/");
+  });
+}
+
+/** A move list, with the name guard carried through when the plan supplied one. */
+function itemMoves(value: unknown): Array<{ itemId: string; folder: string; expectName?: string }> {
+  if (!Array.isArray(value)) throw new Error("moves must be an array");
+  return value.map((entry) => {
+    const move = entry as Record<string, unknown>;
+    const itemId = String(move.itemId ?? "").trim();
+    if (!itemId) throw new Error("every move needs an itemId");
+    // An empty folder means the project root, which is a legitimate
+    // destination -- it is how something gets taken back out of a folder.
+    const raw = move.folder === undefined || move.folder === null ? "" : String(move.folder).trim();
+    const folder = raw === "" ? "" : folderPaths([raw])[0]!;
+    const expectName =
+      move.expectName === undefined || move.expectName === null
+        ? undefined
+        : String(move.expectName);
+    return expectName === undefined ? { itemId, folder } : { itemId, folder, expectName };
+  });
+}
+
 function depthOf(value: unknown): 8 | 16 | 32 {
   return value === 8 ? 8 : value === 16 ? 16 : 32;
 }

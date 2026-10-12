@@ -12,5 +12,6 @@ export * from "./restore.js";
 export * from "./transform.js";
 export * from "./animate.js";
 export * from "./buntingWeave.js";
+export * from "./projectShelf.js";
 export * from "./wheelSpin.js";
 export * from "./time.js";

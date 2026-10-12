@@ -625,6 +625,38 @@ export class CepAeBridge {
   }
 
   /**
+   * Every item in the project, not only the compositions.
+   *
+   * `projectComps` answers with comps alone, and the flatness an artist
+   * complains about is mostly footage -- so a tidying plan made from it would
+   * be a plan that cannot see most of what needs tidying.
+   */
+  async projectItems(): Promise<Record<string, unknown>> {
+    await this.ensureHost();
+    return evalHost(`${hostPrefix()}projectItems()`);
+  }
+
+  /** Makes folders by path ("ELEMENTS/Car01"), idempotently. */
+  async createFolders(paths: string[]): Promise<Record<string, unknown>> {
+    await this.ensureHost();
+    return evalHost(`${hostPrefix()}createFolders(${JSON.stringify(paths)})`);
+  }
+
+  /**
+   * Moves items into folders, one refusal per item rather than a failed batch.
+   *
+   * `expectName` is the guard that makes this safe to run from a plan: an item
+   * id is a project-session number, so if the id now points at something else
+   * the project changed underneath and that move is refused instead of guessed.
+   */
+  async moveItems(
+    moves: Array<{ itemId: string; folder: string; expectName?: string }>,
+  ): Promise<Record<string, unknown>> {
+    await this.ensureHost();
+    return evalHost(`${hostPrefix()}moveItems(${JSON.stringify(moves)})`);
+  }
+
+  /**
    * Where a layer actually sits in the comp, as a rectangle.
    *
    * `sourceRectAtTime` answers in the layer's own coordinates; this one has

@@ -2781,6 +2781,292 @@ function seedProjectComps(match) {
     }
 }
 
+// ------------------------------------------------------------ project shelf
+
+/*
+ * Where things live in the Project panel.
+ *
+ * A projection assembled over weeks arrives flat. Every entity comp, every
+ * PSD, every generated clip sits loose in the root in whatever order After
+ * Effects happened to add it -- nothing is wrong with the project and
+ * everything is hard to find.
+ *
+ * These three are deliberately stupid. They report what is there, make
+ * folders by path, and move items into them. They decide nothing. Which item
+ * belongs where is a rule, the rule has to be the same next month as it is
+ * today, and a rule written in ExtendScript is a rule nobody can test. So it
+ * lives in `packages/domain/src/projectShelf.ts` and this end only carries it
+ * out.
+ */
+
+/** The slash-separated folder an item sits in; "" for the project root. */
+function seedFolderPath(item) {
+    var parts = [];
+    var folder = null;
+    try { folder = item.parentFolder; } catch (ignored) { return ""; }
+
+    // Root is the one folder that is not a location. The depth guard is not
+    // paranoia: the root folder reports *itself* as its own parent, so a loop
+    // that only tested for null would hang After Effects rather than fail.
+    var guard = 0;
+    while (folder && folder.name !== "Root" && guard < 32) {
+        parts.unshift(folder.name);
+        var up = null;
+        try { up = folder.parentFolder; } catch (ignored) {}
+        if (!up || up.id === folder.id) break;
+        folder = up;
+        guard++;
+    }
+    return parts.join("/");
+}
+
+/** Comp, folder, footage, solid or placeholder. */
+function seedItemKind(item) {
+    if (item instanceof CompItem) return "comp";
+    if (item instanceof FolderItem) return "folder";
+    if (item instanceof FootageItem) {
+        var main = null;
+        try { main = item.mainSource; } catch (ignored) {}
+        if (main instanceof SolidSource) return "solid";
+        if (main instanceof PlaceholderSource) return "placeholder";
+        return "footage";
+    }
+    return "other";
+}
+
+/**
+ * Every item in the project, and where it currently sits.
+ *
+ * `projectComps` reports compositions only, which is half a project: the
+ * flatness an artist complains about is mostly footage. This reports all of
+ * it, because a plan for tidying a project cannot be made from a list that
+ * leaves out most of what is in it.
+ */
+function seedProjectItems() {
+    try {
+        if (!app.project) return seedFail("no project is open");
+
+        var items = [];
+        for (var i = 1; i <= app.project.numItems; i++) {
+            var item = app.project.item(i);
+            var entry = {
+                id: String(item.id),
+                name: item.name,
+                kind: seedItemKind(item),
+                folder: seedFolderPath(item)
+            };
+            try {
+                if (item instanceof CompItem || item instanceof FootageItem) {
+                    entry.width = item.width;
+                    entry.height = item.height;
+                    entry.durationSeconds = item.duration;
+                }
+            } catch (ignored) {}
+            try {
+                if (item instanceof CompItem) entry.layerCount = item.numLayers;
+            } catch (ignored) {}
+            try {
+                if (item instanceof FolderItem) entry.childCount = item.numItems;
+            } catch (ignored) {}
+            // usedIn belongs to AVItem, so a folder does not have one. How
+            // many comps use an item is what says whether it is live work or
+            // a leftover, which is most of what sorting it needs to know.
+            try { entry.usedInCount = item.usedIn.length; } catch (ignored) {}
+            try {
+                if (item instanceof FootageItem) {
+                    var main = item.mainSource;
+                    if (main instanceof FileSource && main.file) entry.file = main.file.fsName;
+                }
+            } catch (ignored) {}
+            items.push(entry);
+        }
+
+        return seedOk({ count: items.length, items: items });
+    } catch (error) {
+        return seedFail(error);
+    }
+}
+
+/** A direct child folder by name; `parent` null means the project root. */
+function seedChildFolder(parent, name) {
+    if (!parent) {
+        for (var i = 1; i <= app.project.numItems; i++) {
+            var root = app.project.item(i);
+            if (root instanceof FolderItem && root.name === name &&
+                seedFolderPath(root) === "") return root;
+        }
+        return null;
+    }
+    for (var j = 1; j <= parent.numItems; j++) {
+        var child = parent.item(j);
+        if (child instanceof FolderItem && child.name === name) return child;
+    }
+    return null;
+}
+
+/** The folder at a path, making the parts that do not exist yet. */
+function seedFolderAt(path, create) {
+    var parts = String(path).split("/");
+    var parent = null;
+    for (var i = 0; i < parts.length; i++) {
+        var name = parts[i].replace(/^\s+|\s+$/g, "");
+        if (name === "") continue;
+        var found = seedChildFolder(parent, name);
+        if (!found) {
+            if (!create) return null;
+            found = app.project.items.addFolder(name);
+            if (parent) found.parentFolder = parent;
+        }
+        parent = found;
+    }
+    return parent;
+}
+
+/**
+ * Makes folders, by path, idempotently.
+ *
+ * Idempotent because this gets run again -- on the next version of the
+ * project, after the next batch of imports. A command that doubled its
+ * folders on a second run is a command nobody dares re-run, and a tidying
+ * convention that can only be applied once is not a convention.
+ */
+function seedCreateFolders(paths) {
+    try {
+        if (!app.project) return seedFail("no project is open");
+        if (!paths || !paths.length) return seedFail("no folder paths were given");
+
+        app.beginUndoGroup("SEED: project folders");
+
+        var made = [];
+        var existing = [];
+        for (var i = 0; i < paths.length; i++) {
+            var path = String(paths[i]);
+            var before = seedFolderAt(path, false);
+            var folder = seedFolderAt(path, true);
+            if (!folder) {
+                app.endUndoGroup();
+                return seedFail("could not make a folder at " + path);
+            }
+            (before ? existing : made).push({ path: path, id: String(folder.id) });
+        }
+
+        app.endUndoGroup();
+        return seedOk({ made: made, existing: existing });
+    } catch (error) {
+        try { app.endUndoGroup(); } catch (ignored) {}
+        return seedFail(error);
+    }
+}
+
+/** Any item by id. */
+function seedFindItemById(itemId) {
+    var wanted = Number(itemId);
+    for (var i = 1; i <= app.project.numItems; i++) {
+        var item = app.project.item(i);
+        if (item.id === wanted) return item;
+    }
+    return null;
+}
+
+/** True when `folder` sits anywhere inside `maybeAncestor`. */
+function seedInsideFolder(folder, maybeAncestor) {
+    var walk = folder;
+    var guard = 0;
+    while (walk && guard < 64) {
+        if (walk.id === maybeAncestor.id) return true;
+        var up = null;
+        try { up = walk.parentFolder; } catch (ignored) {}
+        if (!up || up.id === walk.id || up.name === "Root") return false;
+        walk = up;
+        guard++;
+    }
+    return false;
+}
+
+/**
+ * Moves items into folders.
+ *
+ * A refusal is reported per item instead of failing the batch. A plan built
+ * from an inventory taken a minute ago can name an item that has since been
+ * deleted or renamed, and one stale id should not undo thirty good moves.
+ *
+ * Folders can be moved too, which is how a nested shelf gets rearranged --
+ * but never into their own descendant. Whether After Effects refuses that is
+ * not something a project file should find out, so it is refused here.
+ */
+function seedMoveItems(moves) {
+    try {
+        if (!app.project) return seedFail("no project is open");
+        if (!moves || !moves.length) return seedFail("no moves were given");
+
+        app.beginUndoGroup("SEED: tidy project");
+
+        var moved = [];
+        var refused = [];
+        var alreadyThere = 0;
+
+        for (var i = 0; i < moves.length; i++) {
+            var move = moves[i];
+            var id = String(move.itemId);
+            var path = move.folder === undefined || move.folder === null
+                ? "" : String(move.folder);
+
+            var item = seedFindItemById(id);
+            if (!item) {
+                refused.push({ itemId: id, reason: "no item has id " + id });
+                continue;
+            }
+            if (move.expectName !== undefined && move.expectName !== null &&
+                String(move.expectName) !== String(item.name)) {
+                // The id is a project-session number, not a name. If the item
+                // it points at is not the one the plan was built from, the
+                // project has changed underneath and guessing is worse than
+                // stopping.
+                refused.push({
+                    itemId: id, name: item.name,
+                    reason: "id " + id + " is now " + item.name +
+                            ", not " + String(move.expectName)
+                });
+                continue;
+            }
+
+            var from = seedFolderPath(item);
+            if (from === path) {
+                alreadyThere++;
+                continue;
+            }
+
+            var target = path === "" ? app.project.rootFolder : seedFolderAt(path, true);
+            if (!target) {
+                refused.push({ itemId: id, name: item.name, reason: "no folder at " + path });
+                continue;
+            }
+            if (item instanceof FolderItem && seedInsideFolder(target, item)) {
+                refused.push({
+                    itemId: id, name: item.name,
+                    reason: "a folder cannot be moved inside itself"
+                });
+                continue;
+            }
+
+            item.parentFolder = target;
+            moved.push({ itemId: id, name: item.name, from: from, to: path });
+        }
+
+        app.endUndoGroup();
+        return seedOk({
+            moved: moved,
+            refused: refused,
+            alreadyThere: alreadyThere,
+            movedCount: moved.length,
+            refusedCount: refused.length
+        });
+    } catch (error) {
+        try { app.endUndoGroup(); } catch (ignored) {}
+        return seedFail(error);
+    }
+}
+
 // ------------------------------------------------------------ sub-entities
 
 /*
@@ -4066,6 +4352,9 @@ var seedAeft_failPlaceholder = seedFailPlaceholder;
 var seedAeft_selectedMedia = seedSelectedMedia;
 var seedAeft_compTree = seedCompTree;
 var seedAeft_projectComps = seedProjectComps;
+var seedAeft_projectItems = seedProjectItems;
+var seedAeft_createFolders = seedCreateFolders;
+var seedAeft_moveItems = seedMoveItems;
 var seedAeft_layerBounds = seedLayerBounds;
 var seedAeft_precompose = seedPrecompose;
 var seedAeft_regionFromLayer = seedRegionFromLayer;

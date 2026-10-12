@@ -110,3 +110,88 @@ describe("the panel's half of the allowlist", () => {
     expect(calls[1]).toEqual(["projectComps", [undefined]]);
   });
 });
+
+/**
+ * The shelf commands, where the arguments are lists rather than numbers.
+ *
+ * Every other command takes a handful of scalars and the coercion is
+ * uninteresting. These two take a plan computed somewhere else, which makes
+ * the panel the last place that can object to it -- so the checking happens
+ * here rather than in ExtendScript, where a bad path becomes a folder called
+ * `..` that nobody can explain a month later.
+ */
+describe("putting the project on a shelf", () => {
+  it("passes folder paths through, trimmed", async () => {
+    const { bridge, calls } = recordingBridge();
+
+    await dispatch(bridge, {
+      id: "c",
+      name: "createFolders",
+      args: { paths: ["00_DELIVERY", " 10_ELEMENTS / Car01 "] },
+    });
+    expect(calls[0]).toEqual(["createFolders", [["00_DELIVERY", "10_ELEMENTS/Car01"]]]);
+  });
+
+  it("refuses a path that would walk out of the shelf", () => {
+    const { bridge } = recordingBridge();
+
+    for (const path of ["..", "10_ELEMENTS/../..", "10_ELEMENTS//Car01", "", "   "]) {
+      expect(() =>
+        dispatch(bridge, { id: "c", name: "createFolders", args: { paths: [path] } }),
+      ).toThrow();
+    }
+  });
+
+  it("refuses paths that are not a list at all", () => {
+    const { bridge } = recordingBridge();
+
+    expect(() =>
+      dispatch(bridge, { id: "c", name: "createFolders", args: { paths: "00_DELIVERY" } }),
+    ).toThrow(/array/);
+  });
+
+  it("carries the name guard through when the plan supplied one", async () => {
+    const { bridge, calls } = recordingBridge();
+
+    await dispatch(bridge, {
+      id: "c",
+      name: "moveItems",
+      args: {
+        moves: [
+          { itemId: "820", folder: "10_ELEMENTS/Car01", expectName: "Car01" },
+          { itemId: "993", folder: "20_GENERIC/bunting" },
+        ],
+      },
+    });
+    expect(calls[0]).toEqual([
+      "moveItems",
+      [
+        [
+          { itemId: "820", folder: "10_ELEMENTS/Car01", expectName: "Car01" },
+          { itemId: "993", folder: "20_GENERIC/bunting" },
+        ],
+      ],
+    ]);
+  });
+
+  it("treats an empty folder as the project root, which is a real destination", async () => {
+    const { bridge, calls } = recordingBridge();
+
+    // How something gets taken back *out* of a folder. Rejecting it would
+    // make the shelf one-way.
+    await dispatch(bridge, {
+      id: "c",
+      name: "moveItems",
+      args: { moves: [{ itemId: "820", folder: "" }] },
+    });
+    expect(calls[0]).toEqual(["moveItems", [[{ itemId: "820", folder: "" }]]]);
+  });
+
+  it("refuses a move with no item", () => {
+    const { bridge } = recordingBridge();
+
+    expect(() =>
+      dispatch(bridge, { id: "c", name: "moveItems", args: { moves: [{ folder: "00_DELIVERY" }] } }),
+    ).toThrow(/itemId/);
+  });
+});
