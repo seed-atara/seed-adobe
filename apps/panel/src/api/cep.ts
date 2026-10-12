@@ -793,6 +793,28 @@ export class CepAeBridge {
     );
   }
 
+  /** A layer's position over time, resolved through easing and expressions. */
+  async samplePosition(
+    layerIndex: number,
+    fromSeconds: number,
+    toSeconds: number,
+    stepSeconds: number,
+  ): Promise<Record<string, unknown>> {
+    await this.ensureHost();
+    return evalHost(
+      `${hostPrefix()}samplePosition(${layerIndex}, ${fromSeconds}, ${toSeconds}, ${stepSeconds})`,
+    );
+  }
+
+  /** Drives a pre-comp layer's internal clock from [seconds, value] keyframes. */
+  async setTimeRemap(
+    layerIndex: number,
+    keys: Array<[number, number]>,
+  ): Promise<Record<string, unknown>> {
+    await this.ensureHost();
+    return evalHost(`${hostPrefix()}setTimeRemap(${layerIndex}, ${JSON.stringify(keys)})`);
+  }
+
   /** Removes a layer, refusing if its name is not what the caller expected. */
   async deleteLayer(layerIndex: number, expectName?: string): Promise<Record<string, unknown>> {
     await this.ensureHost();

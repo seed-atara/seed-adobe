@@ -156,6 +156,18 @@ export function dispatch(
       );
     case "replaceFootage":
       return bridge.replaceFootage(String(args.projectItemId), String(args.path));
+    case "samplePosition":
+      return bridge.samplePosition(
+        Number(args.layerIndex),
+        Number(args.fromSeconds ?? 0),
+        Number(args.toSeconds ?? 0),
+        Number(args.stepSeconds ?? 0),
+      );
+    case "setTimeRemap":
+      return bridge.setTimeRemap(
+        Number(args.layerIndex),
+        (args.keys ?? []) as Array<[number, number]>,
+      );
     case "setEffectParams":
       return bridge.setEffectParams(
         Number(args.layerIndex),

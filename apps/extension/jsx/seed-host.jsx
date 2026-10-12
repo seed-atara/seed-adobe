@@ -3737,6 +3737,158 @@ function seedDeleteLayer(layerIndex, expectName) {
 }
 
 /**
+ * A layer's position, sampled over time.
+ *
+ * Exists because the alternative is asking for one frame at a time. Driving
+ * a wheel from the distance a car travels needs the position at every frame
+ * of a thirty-second shot; over the panel bridge that is seven hundred round
+ * trips, and the question is not hard enough to deserve them.
+ *
+ * `valueAtTime` is asked rather than the keyframes read, so easing,
+ * expressions and hold frames all come back already resolved — what the
+ * layer DOES, not what it was told to do.
+ *
+ * Reports `parented` rather than silently resolving the chain: a parented
+ * layer's own position is not where it is on screen, and a caller measuring
+ * travel needs to know the difference instead of being handed a plausible
+ * wrong number.
+ */
+function seedSamplePosition(layerIndex, fromSeconds, toSeconds, stepSeconds) {
+    try {
+        var comp = seedActiveComp();
+        if (!comp) return seedFail("no active composition");
+
+        var index = Number(layerIndex);
+        if (!(index >= 1 && index <= comp.numLayers)) {
+            return seedFail(
+                "layer " + String(layerIndex) + " is not in " + comp.name +
+                ", which has " + comp.numLayers + " layers");
+        }
+
+        var layer = comp.layer(index);
+        var position = layer.property("ADBE Transform Group")
+            ? layer.property("ADBE Transform Group").property("ADBE Position")
+            : null;
+        if (!position) return seedFail(layer.name + " has no position property");
+
+        var from = Number(fromSeconds);
+        var to = Number(toSeconds);
+        var step = Number(stepSeconds);
+        if (!(from >= 0)) from = 0;
+        if (!(to > from)) to = comp.duration;
+        if (!(step > 0)) step = 1 / comp.frameRate;
+
+        // A bound on the work, not on the caller. Thirty seconds at 24fps is
+        // 720, and nothing here wants more than a frame's resolution.
+        var maxSamples = 4000;
+        var samples = [];
+        var t = from;
+        while (t <= to + 1e-9 && samples.length < maxSamples) {
+            var v = position.valueAtTime(t, false);
+            samples.push([
+                Math.round(t * 1000) / 1000,
+                Math.round(Number(v[0]) * 100) / 100,
+                Math.round(Number(v[1]) * 100) / 100
+            ]);
+            t += step;
+        }
+
+        return seedOk({
+            layer: { index: layer.index, name: layer.name },
+            parented: layer.parent ? String(layer.parent.name) : null,
+            hasKeyframes: position.numKeys > 0,
+            keyCount: position.numKeys,
+            fromSeconds: from,
+            toSeconds: to,
+            stepSeconds: Math.round(step * 100000) / 100000,
+            /** [seconds, x, y] per sample. */
+            samples: samples
+        });
+    } catch (error) {
+        return seedFail(error);
+    }
+}
+
+/**
+ * Drives a pre-comp layer's internal clock from a list of keyframes.
+ *
+ * What this is for: a wheel that turns because the car moved, rather than
+ * because time passed. Time remapping is the only honest way to do that
+ * without regenerating anything — the clip already holds a turning wheel,
+ * and the question is just how fast to read it.
+ *
+ * Keyframes rather than an expression, deliberately. An expression would be
+ * a line of script crossing the bridge, and this host takes a name and typed
+ * values only. It also means the result is ordinary keyframes the artist can
+ * see, drag and delete, instead of a black box with the agent's name on it.
+ *
+ * Every key is linear: a smooth curve between two of these would make the
+ * wheel ease when the car did not.
+ */
+function seedSetTimeRemap(layerIndex, keys) {
+    try {
+        var comp = seedActiveComp();
+        if (!comp) return seedFail("no active composition");
+
+        var index = Number(layerIndex);
+        if (!(index >= 1 && index <= comp.numLayers)) {
+            return seedFail(
+                "layer " + String(layerIndex) + " is not in " + comp.name +
+                ", which has " + comp.numLayers + " layers");
+        }
+        if (!(keys instanceof Array) || keys.length < 2) {
+            return seedFail("time remapping needs at least two keyframes");
+        }
+
+        var layer = comp.layer(index);
+        if (!(layer instanceof AVLayer)) {
+            return seedFail(layer.name + " is not a footage or composition layer");
+        }
+
+        app.beginUndoGroup("SEED: time remap");
+        var remap;
+        var applied = 0;
+        try {
+            // Enabling it seeds two keys of its own, at the layer's ends.
+            if (!layer.timeRemapEnabled) layer.timeRemapEnabled = true;
+            remap = layer.property("ADBE Time Remapping");
+            if (!remap) return seedFail(layer.name + " has no time remap property");
+
+            while (remap.numKeys > 0) remap.removeKey(1);
+
+            for (var i = 0; i < keys.length; i++) {
+                var at = Number(keys[i][0]);
+                var value = Number(keys[i][1]);
+                if (!(at >= 0) || !(value >= 0)) continue;
+                remap.setValueAtTime(at, value);
+                applied++;
+            }
+
+            for (var k = 1; k <= remap.numKeys; k++) {
+                remap.setInterpolationTypeAtKey(
+                    k,
+                    KeyframeInterpolationType.LINEAR,
+                    KeyframeInterpolationType.LINEAR);
+            }
+        } finally {
+            app.endUndoGroup();
+        }
+
+        return seedOk({
+            layer: { index: layer.index, name: layer.name },
+            keysApplied: applied,
+            keysOnProperty: remap ? remap.numKeys : 0,
+            firstValue: remap && remap.numKeys ? remap.keyValue(1) : null,
+            lastValue: remap && remap.numKeys ? remap.keyValue(remap.numKeys) : null,
+            outSeconds: Math.round(layer.outPoint * 1000) / 1000
+        });
+    } catch (error) {
+        try { app.endUndoGroup(); } catch (ignored) {}
+        return seedFail(error);
+    }
+}
+
+/**
  * Points a footage item at a different file.
  *
  * **Read this before using it on a layered PSD.** `FootageItem.replace` takes
@@ -3928,6 +4080,8 @@ var seedAeft_replaceFootage = seedReplaceFootage;
 var seedAeft_saveVersion = seedSaveVersion;
 var seedAeft_setEffectParams = seedSetEffectParams;
 var seedAeft_deleteLayer = seedDeleteLayer;
+var seedAeft_samplePosition = seedSamplePosition;
+var seedAeft_setTimeRemap = seedSetTimeRemap;
 var seedAeft_adoptPlaceholder = seedAdoptPlaceholder;
 
 var seedAeft_buildLookRig = seedBuildLookRig;

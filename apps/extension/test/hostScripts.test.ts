@@ -120,6 +120,14 @@ const HOST_SPECIFIC: Record<string, { host: string; because: string }> = {
     host: "seed-host.jsx",
     because: "Premiere has sequence clips, not comp layers addressed by index",
   },
+  seedSamplePosition: {
+    host: "seed-host.jsx",
+    because: "Premiere clips have no keyframed transform property to sample",
+  },
+  seedSetTimeRemap: {
+    host: "seed-host.jsx",
+    because: "time remapping a nested composition is After Effects only",
+  },
   /*
    * Reading a build apart, and grouping part of it. Premiere has sequences
    * and clips, not compositions containing compositions, so none of this has

@@ -77,6 +77,7 @@ export const HOST_READS = [
   "compTree",
   "projectComps",
   "layerBounds",
+  "samplePosition",
 ] as const;
 
 export const HOST_WRITES = [
@@ -100,6 +101,7 @@ export const HOST_WRITES = [
   "saveVersion",
   "setEffectParams",
   "deleteLayer",
+  "setTimeRemap",
 ] as const;
 
 export const HOST_COMMANDS: readonly string[] = [...HOST_READS, ...HOST_WRITES];
