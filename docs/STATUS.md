@@ -1186,3 +1186,72 @@ and an element whose only item was its PSD grouping never got the folder above
 it created. See `docs/decisions/0022-the-project-shelf.md` for what it
 deliberately does not do — it never deletes, never guesses at a rename, and
 never sweeps an item it cannot place.
+
+
+## The chickens, the market street, and two things a scene does that an entity does not (2026-10-13)
+
+Two elements on `GYG_Sides-Left_v002` taken from still to looping precomp:
+`Chickens01` (257x163, green backing, 720p, 16:9) and `MarketStreet01`
+(1494x1152, blue backing, 4K, 4:3). Both by the house recipe. The chickens
+went through it unchanged. The street found two holes in it.
+
+### Registering the clip by measurement instead of by hand
+
+The right-hand side left four precomp layers needing a scale typed in by eye —
+Car01 110%, DeliveryCyclist01 112%, WomanWalking01 144%, Waiter01 121% —
+because the model keeps less margin than the padded plate gives it and nobody
+measured how much.
+
+It does not need a judgement. With `flf2v`, frame 0 *is* the plate, so the
+alpha bounding box of frame 0 is the artwork's own rectangle however the model
+chose to compose the frame. Crop to that box, scale to the element's exact
+pixel size, insert with `fit: "none"`: both elements went in at 100% with
+nothing to nudge. Measured on the chickens — the model placed the artwork at
+866x547 inside a 1280x720 frame, which is a 1.7% margin where 12% was given.
+
+### A model draws outside the silhouette, and the matte keeps it
+
+`floodMatte` asks whether a pixel is the backing colour *and* connected to the
+frame edge. That is the right question for a cut-out entity and the wrong one
+for a scene with a sky.
+
+The market street is 27% transparent — the sky above its rooftops. The model
+filled that with a papel picado garland strung across the frame and a long
+ribbon of griddle steam. Neither is the backing colour, so both survived the
+matte as opaque artwork sitting in the region that has to stay empty, and both
+would have composited over the arcade behind the arch.
+
+The fix is free and exact: **the plate's alpha is authoritative.** Intersect
+the clip's alpha with the still's (`blend=all_mode=darken` on the two extracted
+alphas, then `alphamerge`) and everything the model invented outside the
+artwork's own silhouette is gone. Measured after: edge alpha 0.0% top, 0.0%
+left, 0.0% right, 91.8% bottom — and the bottom is the cobblestone ground,
+which runs to the element's edge in the artwork too.
+
+Worth folding into `/v1/matte` as an optional `clampToAssetId`, with the plate
+as the reference. It is the difference between a keyer that is nearly right and
+one that cannot be wrong about the shape.
+
+### Asking a flat illustration to move something with nothing behind it
+
+The first street roll was faithful at both ends and wrong in the middle. The
+TAQUERIA CALIFORNIA sign, measured as mean absolute level difference from the
+plate over the band it occupies:
+
+| t | 0-1.5s | 2.0s | 2.5-7.5s | 8.0-10s |
+|---|---|---|---|---|
+| difference | ~30 (baseline) | 59 | **72-101** | ~30 |
+
+Sustained through nearly six of the ten seconds, peaking at 5s, where the sign
+became a dark band. The cause was in the prompt, not the model: the beat asked
+the red and white striped awning to ripple, the awning overlaps that sign, and
+in a flat illustration there is nothing drawn behind either of them. Asked to
+move it, the model had to invent the gap.
+
+Re-rolled with the awning and its sign declared still and rigid, the steam
+dropped, and the backdrop above the rooftops stated as empty — motion left to
+the greenery, the musicians, the cook, the fruit seller and the figures.
+
+**The rule this gives, which is narrower than "not a scene":** an element may
+only be asked to move where the artwork has something drawn behind it. A
+pennant against sky can fly; an awning over its own signboard cannot.
