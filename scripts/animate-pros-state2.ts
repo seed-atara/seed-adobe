@@ -61,6 +61,8 @@ interface Shot {
   aspectRatio: string;
   durationSeconds: number;
   describe: string;
+  /** Overrides the regions' chroma-blue; the background plate has none. */
+  backdrop?: "blue" | "none";
   rigid: string[];
   /**
    * An idle rather than a performance. On by default.
@@ -78,7 +80,7 @@ const SHOTS: Shot[] = [
   {
     key: "r1",
     label: "SEED Region 1 — bottom-left planter and lantern",
-    assetId: "ast_ca664f8b-05c9-4b3a-a751-f8bfb1b76277",
+    assetId: "ast_704c506c-aeaf-4366-b6cf-953c46c65073",
     screen: [1141, 1141],
     size: "1080p",
     aspectRatio: "1:1",
@@ -88,37 +90,36 @@ const SHOTS: Shot[] = [
       "with a black wrought-iron lantern mounted on it, its glass lit by a small " +
       "warm flame, and a raised marble planter below holding a dense bank of " +
       "ferns, split-leaf philodendron and crotons, rim-lit gold by a low sun " +
-      "over the sea behind",
+      "from the left",
     rigid: [
       "the marble column",
       "the arch",
       "the planter wall",
       "the lantern's iron frame and glass panes",
-      "the sea, the sky and the palms behind",
     ],
     beats: [
       {
         from: 0,
-        to: 3.5,
+        to: 4,
         action:
-          "the fern fronds and philodendron leaves drift slowly, each " +
-          "rocking a little on its own stem at its own speed, the " +
-          "thinnest tips travelling furthest; the flame in the lantern " +
-          "wavers very slightly",
+          "the fern and philodendron leaves lean very slowly a few " +
+          "degrees, the thinnest tips travelling furthest but no more " +
+          "than a leaf’s width; the flame behind the lantern glass " +
+          "flickers small and quick",
       },
       {
-        from: 3.5,
-        to: 7,
+        from: 4,
+        to: 7.5,
         action:
-          "the drift carries on and eases the other way, one or two " +
-          "leaves turning a fraction to catch the light; the flame keeps " +
-          "its small steady waver",
+          "the same leaves drift just as slowly back through where they " +
+          "started and a touch past it; the flame keeps its small " +
+          "flicker",
       },
       {
-        from: 7,
+        from: 7.5,
         to: 10,
         action:
-          "the drift brings every leaf back to exactly its opening " +
+          "the drift settles every leaf back to exactly its opening " +
           "position and the flame to its opening height",
       },
     ],
@@ -126,7 +127,7 @@ const SHOTS: Shot[] = [
   {
     key: "r2",
     label: "SEED Region 2 — bottom-right planter and lantern",
-    assetId: "ast_9e8435b3-7b3b-43ee-8fb8-57c2119cfdc9",
+    assetId: "ast_29f6d6e6-8fc2-488e-9eb9-67e4cc9a59d7",
     screen: [1191, 1191],
     size: "1080p",
     aspectRatio: "1:1",
@@ -136,37 +137,36 @@ const SHOTS: Shot[] = [
       "carrying a black wrought-iron lantern with a small warm flame behind its " +
       "glass, and a raised marble planter below holding a tall spiky rosette of " +
       "banana-like leaves over a low clipped hedge, all rim-lit gold by a low " +
-      "sun over the sea behind",
+      "sun from the right",
     rigid: [
       "the marble column",
       "the arch",
       "the planter wall",
       "the lantern's iron frame and glass panes",
-      "the sea, the sky, the distant headland and the palms behind",
     ],
     beats: [
       {
         from: 0,
-        to: 3.5,
+        to: 4,
         action:
-          "the tall spiky leaves drift slowly, each swaying a little at " +
-          "its own speed with the tips travelling furthest, and the hedge " +
-          "surface stirs faintly; the flame in the lantern wavers very " +
-          "slightly",
+          "the tall spiky leaves lean very slowly a few degrees and the " +
+          "hedge surface barely stirs, the leaf tips travelling no more " +
+          "than a leaf’s width; the flame behind the lantern glass " +
+          "flickers small and quick",
       },
       {
-        from: 3.5,
-        to: 7,
+        from: 4,
+        to: 7.5,
         action:
-          "the drift carries on and eases the other way, the rosette " +
-          "breathing open and closed by a hair; the flame keeps its small " +
-          "steady waver",
+          "the same leaves drift just as slowly back through where they " +
+          "started and a touch past it; the flame keeps its small " +
+          "flicker",
       },
       {
-        from: 7,
+        from: 7.5,
         to: 10,
         action:
-          "the drift brings every leaf back to exactly its opening " +
+          "the drift settles every leaf back to exactly its opening " +
           "position and the flame to its opening height",
       },
     ],
@@ -174,7 +174,7 @@ const SHOTS: Shot[] = [
   {
     key: "r3",
     label: "SEED Region 3 — monstera vine, left inner column",
-    assetId: "ast_0f36e5f8-b106-4aee-bc37-37d9b46087d4",
+    assetId: "ast_5ecd04f9-9be0-4aa7-ace7-b7303d5a53c5",
     screen: [1024, 1820],
     size: "1080p",
     aspectRatio: "9:16",
@@ -183,80 +183,78 @@ const SHOTS: Shot[] = [
       "A painted golden-hour scene: a tall cream marble column carrying three " +
       "nested arches, with a split-leaf monstera vine climbing it from a marble " +
       "planter at its foot — large glossy slotted leaves at intervals up the " +
-      "shaft and finer trailing creeper between them, every leaf edged in gold " +
-      "by a low sun over the sea behind",
+      "shaft and finer trailing creeper between them, every leaf deeply slotted " +
+      "and split, each one edged in gold by a low sun",
     rigid: [
       "the marble column",
       "all three stone arches",
       "the planter box",
-      "the sea, the sky and the clouds behind",
     ],
     beats: [
       {
         from: 0,
-        to: 3.5,
+        to: 4,
         action:
-          "the monstera leaves drift slowly, each tilting a little on its " +
-          "own stem at its own speed, the trailing creeper swinging " +
-          "faintly at its loose ends",
+          "the monstera leaves tilt very slowly by a few degrees on " +
+          "their own stems and the trailing creeper sways faintly at " +
+          "its loose ends, nothing travelling more than a leaf’s width",
       },
       {
-        from: 3.5,
-        to: 7,
+        from: 4,
+        to: 7.5,
         action:
-          "the drift carries on and eases the other way, the same leaves " +
-          "rocking back through centre",
+          "the same leaves tilt just as slowly back through where they " +
+          "started and a touch past it",
       },
       {
-        from: 7,
+        from: 7.5,
         to: 10,
         action:
-          "the drift brings every leaf and tendril back to exactly where " +
-          "it began",
+          "the tilt settles every leaf and tendril back to exactly " +
+          "where it began",
       },
     ],
   },
   {
     key: "r4",
     label: "SEED Region 4 — ivy at the right inner column",
-    assetId: "ast_d96bb7de-d188-42d8-8a76-4644c7d3fd2f",
+    assetId: "ast_5f9171a8-717a-428f-872d-2b3afcfa5171",
     screen: [1046, 1860],
     size: "1080p",
     aspectRatio: "9:16",
     durationSeconds: 10,
     describe:
       "A painted golden-hour scene: a pair of tall cream marble columns carrying " +
-      "nested stone arches, open sea and sunset sky visible through the openings, " +
-      "with dense dark-green ivy and a low clipped hedge banked around the " +
-      "columns' feet in a marble planter, rim-lit gold by a low sun",
+      "nested stone arches, cut out with nothing behind them, with dense " +
+      "dark-green ivy and a low clipped hedge banked around the columns' feet in " +
+      "a marble planter, rim-lit gold by a low sun",
     rigid: [
       "both marble columns",
       "every stone arch and moulding",
       "the planter wall",
-      "the sea, the sky and the clouds seen through the arches",
     ],
     beats: [
       {
         from: 0,
-        to: 3.5,
+        to: 4,
         action:
-          "the ivy leaves stir slowly against the stone and the hedge " +
-          "surface shifts faintly, the loose trailing shoots moving " +
-          "furthest",
+          "the ivy leaves lift very slightly off the stone and the " +
+          "hedge surface barely stirs, the loose trailing shoots moving " +
+          "furthest but no more than a leaf’s width",
       },
       {
-        from: 3.5,
-        to: 7,
+        from: 4,
+        to: 7.5,
         action:
-          "the stirring carries on and eases the other way, the same " +
-          "leaves settling back against the columns",
+          "the same leaves settle just as slowly back against the stone " +
+          "and a touch past it",
       },
       {
-        from: 7,
+        from: 7.5,
         to: 10,
         action:
-          "the stirring brings every leaf and shoot back to exactly where " +
-          "it began",
+          "the stirring settles every leaf and shoot back to exactly " +
+          "where it began",
       },
     ],
   },
@@ -291,6 +289,7 @@ const SHOTS: Shot[] = [
       "dark rocks in the foreground, and tall coconut palms leaning in from both " +
       "sides with tropical planting at their feet",
     idle: false,
+    backdrop: "none",
     rigid: [
       "the sun",
       "the level ocean horizon line",
@@ -340,11 +339,23 @@ for (const shot of chosen) {
     describe: shot.describe,
     beats: shot.beats,
     loop: true,
-    backdrop: "none",
     rigid: shot.rigid,
     // Everything on this proscenium is scenery, not a performance — except
     // the sea, which has to be allowed to break.
     idle: shot.idle !== false,
+    /*
+     * The regions are re-captured with `BG_waves_Sunset` switched off, so each
+     * plate is `FG_Object` alone with its alpha, stood on flat chroma-blue.
+     *
+     * That is strictly better than cutting the region out of the assembled
+     * plate. A leaf can now sway past the silhouette it was traced from and
+     * still key cleanly, where an opaque crop had to be clamped to that
+     * silhouette and cut the motion off exactly where it was largest. Blue
+     * rather than green because the artwork is foliage: measured per region,
+     * the nearest artwork pixel is 167-175 from blue and 129-137 from green,
+     * against a matte tolerance of 60.
+     */
+    backdrop: shot.backdrop ?? "blue",
   });
   const estimate = estimateTokens(shot.size, shot.durationSeconds) ?? 0;
   tokens += estimate;
