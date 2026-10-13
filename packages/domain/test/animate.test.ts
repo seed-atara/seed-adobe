@@ -6,6 +6,8 @@ import {
   estimateTokens,
   tierFor,
   aspectFits,
+  adaptiveCrop,
+  rigidPhrase,
 } from "../src/animate.js";
 
 /**
@@ -311,5 +313,141 @@ describe("shapes Seedance will not make", () => {
 
   it("turns down an element taller than 9:21 as well", () => {
     expect(aspectFits(200, 900).fits).toBe(false);
+  });
+});
+
+/**
+ * Declaring part of the artwork still.
+ *
+ * The clause that recovered the market-street sign, so it is tested like the
+ * backdrop it sits next to: present in both the opening and the closing,
+ * because one mention near the top is outvoted by the beats that follow.
+ */
+describe("rigid parts", () => {
+  it("names them in the opening and again at the end", () => {
+    const prompt = animatePrompt({
+      describe: "A stone arch with a monstera vine climbing it",
+      rigid: ["the stone arch", "the column", "the planter wall"],
+      backdrop: "none",
+      beats: [{ from: 0, to: 10, action: "the vine leaves lift and settle" }],
+    });
+
+    expect(prompt).toContain(
+      "with the stone arch, the column and the planter wall completely rigid and motionless",
+    );
+    expect(prompt).toContain("pixel-for-pixel identical to the first frame");
+    // Before the generic tail, which is the weaker and more general note.
+    expect(prompt.indexOf("must not move, sway")).toBeLessThan(
+      prompt.indexOf(ANIMATE_TAIL),
+    );
+  });
+
+  it("reads as a sentence whether there are one, two or many", () => {
+    expect(rigidPhrase(["the arch"])).toBe("the arch");
+    expect(rigidPhrase(["the arch", "the lamp"])).toBe("the arch and the lamp");
+    expect(rigidPhrase(["a", "b", "c"])).toBe("a, b and c");
+  });
+
+  it("says nothing at all when nothing was named", () => {
+    const bare = { describe: "A chicken", backdrop: "none" as const, beats: [
+      { from: 0, to: 10, action: "pecking" },
+    ] };
+    const prompt = animatePrompt(bare);
+    expect(prompt).not.toContain("rigid");
+    // Blank and whitespace-only entries are not a reason to emit an empty clause.
+    expect(animatePrompt({ ...bare, rigid: ["", "   "] })).toBe(prompt);
+  });
+});
+
+/**
+ * An idle, not a performance.
+ *
+ * The clause exists because a gust gets paid for by re-drawing the plant, so
+ * what is asserted here is the negative half: an idle prompt has to say what
+ * must not change, or it is just a quieter performance.
+ */
+describe("an idle loop", () => {
+  const request = {
+    describe: "A monstera vine on a stone column",
+    backdrop: "none" as const,
+    beats: [{ from: 0, to: 10, action: "the leaves rock on their stems" }],
+  };
+
+  it("forbids the plant redrawing itself, not merely moving less", () => {
+    const prompt = animatePrompt({ ...request, idle: true });
+    for (const word of ["grows", "multiplies", "appears or disappears", "silhouette"]) {
+      expect(prompt).toContain(word);
+    }
+    expect(prompt).toContain("in a gentle idle loop, barely moving");
+    expect(prompt).toContain("no gust, no event and no build-up");
+  });
+
+  it("comes after the rigid clause and before the generic tail", () => {
+    const prompt = animatePrompt({
+      ...request,
+      idle: true,
+      rigid: ["the stone column"],
+    });
+    expect(prompt.indexOf("must not move, sway")).toBeLessThan(
+      prompt.indexOf("This is an idle cycle"),
+    );
+    expect(prompt.indexOf("This is an idle cycle")).toBeLessThan(prompt.indexOf(ANIMATE_TAIL));
+  });
+
+  it("says nothing when it was not asked for", () => {
+    expect(animatePrompt(request)).not.toContain("idle");
+  });
+});
+
+/**
+ * What `adaptive` really does.
+ *
+ * The $12 correction. `aspectFits` passed the GYG proscenium background —
+ * 5750x2818, comfortably inside 21:9 — and Ark returned 3840x2160, having
+ * snapped to 16:9 and cropped 370px off each side. Being in range is not the
+ * same as being a shape the model returns.
+ */
+describe("the crop adaptive performs", () => {
+  it("names the shape the proscenium background was actually cropped to", () => {
+    const crop = adaptiveCrop(5750, 2818);
+    expect(crop.nearest).toBe("16:9");
+    expect(crop.axis).toBe("width");
+    // 5750 wide against 16:9 of 2818 tall is 5010 kept — 12.9% gone.
+    expect(crop.cropPercent).toBeCloseTo(12.9, 1);
+  });
+
+  it("reports no crop for a plate already at a listed ratio", () => {
+    for (const [w, h, name] of [
+      [1440, 1440, "1:1"],
+      [1080, 1920, "9:16"],
+      [5750, 3234, "16:9"],
+      [3840, 2160, "16:9"],
+    ] as Array<[number, number, string]>) {
+      const crop = adaptiveCrop(w, h);
+      expect(crop.nearest).toBe(name);
+      expect(crop.cropPercent).toBeLessThan(0.5);
+      expect(crop.axis).toBe("none");
+    }
+  });
+
+  it("warns on a shape that is in range but still gets cropped", () => {
+    const bg = aspectFits(5750, 2818);
+    expect(bg.fits).toBe(true);
+    expect(bg.warn).toContain("16:9");
+    expect(bg.warn).toContain("12.9%");
+    expect(bg.warn).toContain("Pad the plate");
+  });
+
+  it("stays quiet for the region shapes, which are exact", () => {
+    for (const [w, h] of [[1141, 1141], [1024, 1820], [1046, 1860]] as Array<[number, number]>) {
+      const result = aspectFits(w, h);
+      expect(result.fits).toBe(true);
+      expect(result.warn).toBeUndefined();
+    }
+  });
+
+  it("still reports the crop on the shapes it turns down outright", () => {
+    // The cloud bank: out of range AND nowhere near a listed ratio.
+    expect(aspectFits(2083, 591).crop.nearest).toBe("21:9");
   });
 });

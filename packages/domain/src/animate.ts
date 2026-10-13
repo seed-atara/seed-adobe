@@ -199,6 +199,82 @@ function beatLine(beat: Beat, isLast: boolean, loop: boolean): string {
   return `${beat.from}-${beat.to}s  ${action}${close}; ${CAMERA_NOTE}`;
 }
 
+/**
+ * Naming the parts of the artwork that must not move.
+ *
+ * The narrowest and most expensive lesson on this project. A market-street
+ * element was asked to ripple its awning; the awning overlaps a painted sign
+ * and **nothing is drawn behind it**, so the model had to invent the sign
+ * every frame and the lettering degraded from a baseline of 31 to 101 over
+ * six seconds. Re-rolled with the awning declared rigid, it came back flat at
+ * 32.7. Declaring a thing still is what fixed it — the model honours it.
+ *
+ * Which gives the rule this exists to enforce:
+ *
+ * > An element may only be asked to move where the artwork has something
+ * > drawn behind it. Everywhere else, name it here.
+ *
+ * It is also the only control over the parts of a region that are not the
+ * subject. A region cut from a plate brings its neighbours with it — a stone
+ * arch, a column, a planter wall — and those are not optional scenery the
+ * model may reinterpret. They are the registration between the clip and the
+ * plate it goes back into, so a column that breathes by two pixels is a seam.
+ *
+ * Stated twice for the reason the backdrop is: one mention near the top is
+ * outvoted by every beat that follows it, and this one has to outlast them.
+ */
+export const RIGID = {
+  opening: (what: string): string =>
+    `with ${what} completely rigid and motionless`,
+  closing: (what: string): string =>
+    `${what} must not move, sway, bend, ripple, wobble, scale or change shape ` +
+    `at all — they stay pixel-for-pixel identical to the first frame for the ` +
+    `whole shot, as if photographed`,
+} as const;
+
+/** Joins names the way a sentence would, so the clause reads as English. */
+export function rigidPhrase(parts: readonly string[]): string {
+  const names = parts.map((part) => part.trim()).filter((part) => part.length > 0);
+  if (names.length === 0) return "";
+  if (names.length === 1) return names[0]!;
+  return `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]!}`;
+}
+
+/**
+ * An idle, as opposed to a performance.
+ *
+ * Most of a projection is not doing anything. A planter of ferns, a vine on a
+ * column, bunting over a street: the brief is "alive, not moving", and the
+ * distance between those two is where this project keeps losing clips.
+ *
+ * Asked for a gust that arrives and passes, a video model writes a little
+ * drama — and on anything with large distinct leaves it pays for the drama by
+ * **re-drawing the plant**. Measured on the GYG proscenium: the monstera vine
+ * on Region 3 grew its dark-foliage area to 106.6% of the first frame by 3.8s
+ * before coming back to 100.4%, while the three fine-leaved regions beside it,
+ * given the same beat sheet, held inside 2%. The big leaves were the tell —
+ * a model treats a recognisable shape as content to regenerate and a texture
+ * as something to displace.
+ *
+ * So an idle is specified by what must NOT change — the silhouette, the count,
+ * the shape of each part — leaving only displacement. Stated twice, in the
+ * opening and again at the end, for the reason the backdrop is.
+ *
+ * Narrower than `camera locked off`, which stops the frame moving, and than
+ * `IN_PLACE`, which stops the subject travelling. Both of those still leave a
+ * plant free to reinvent itself on the spot.
+ */
+export const IDLE = {
+  opening: "in a gentle idle loop, barely moving",
+  closing:
+    "This is an idle cycle, not a performance: the motion is small, slow, " +
+    "continuous and even, with no gust, no event and no build-up. Nothing " +
+    "grows, sprouts, unfurls, multiplies, appears or disappears; no part " +
+    "changes its shape, size, length or outline; the silhouette and the number " +
+    "of leaves, fronds and stems stay exactly as they are in the first frame. " +
+    "Only the parts already in the first frame move, and only slightly",
+} as const;
+
 export interface AnimateRequest {
   /** What the artwork is. Holds the design; does not describe the motion. */
   describe: string;
@@ -210,6 +286,22 @@ export interface AnimateRequest {
   inPlace?: boolean;
   /** Hold the subject clear of every frame edge. See `KEEP_MARGIN`. */
   margin?: boolean;
+  /**
+   * Parts of the artwork that must not move at all. See `RIGID`.
+   *
+   * Named positively — "the stone arch", "the planter wall" — not as a
+   * negation of the motion. The model is being told what the still parts of
+   * its own first frame are, which is a different instruction from being
+   * told to animate less.
+   */
+  rigid?: readonly string[];
+  /**
+   * A gentle idle rather than a performance. See `IDLE`.
+   *
+   * Wanted by nearly everything in a projection, and the one option that
+   * stops a model re-drawing an element instead of moving it.
+   */
+  idle?: boolean;
 }
 
 /**
@@ -225,6 +317,9 @@ export function animatePrompt(request: AnimateRequest): string {
 
   const description = request.describe.trim().replace(/[.]+$/, "");
   const clauses = [description];
+  const rigid = rigidPhrase(request.rigid ?? []);
+  if (request.idle) clauses.push(IDLE.opening);
+  if (rigid) clauses.push(RIGID.opening(rigid));
   if (request.inPlace) clauses.push(IN_PLACE.opening);
   if (request.margin) clauses.push(KEEP_MARGIN.opening);
   if (backdrop.opening) clauses.push(backdrop.opening);
@@ -241,6 +336,10 @@ export function animatePrompt(request: AnimateRequest): string {
    */
   const closing = [
     ...(backdrop.closing ? [backdrop.closing] : []),
+    ...(rigid ? [RIGID.closing(rigid)] : []),
+    // Last of the specific clauses, because it is the strongest note about
+    // how much to move and the last specific thing read carries most.
+    ...(request.idle ? [IDLE.closing] : []),
     ...(request.inPlace ? [IN_PLACE.closing] : []),
     ...(request.margin ? [KEEP_MARGIN.closing] : []),
     ANIMATE_TAIL,
@@ -324,20 +423,113 @@ export function estimateTokens(
  * trip this (a cloud strip, an 8:1 bunting run) is usually the better answer
  * anyway.
  */
+/**
+ * The aspects Seedance has actually been observed to return.
+ *
+ * **Observed on this account, not read from a contract.** Every ratio here is
+ * one a finished clip came back at; the list is used to predict what
+ * `adaptive` will do, never sent as a parameter unless it is also what the
+ * plate measures.
+ */
+export const SEEDANCE_ASPECTS: Record<string, number> = {
+  "21:9": 21 / 9,
+  "16:9": 16 / 9,
+  "4:3": 4 / 3,
+  "1:1": 1,
+  "3:4": 3 / 4,
+  "9:16": 9 / 16,
+  "9:21": 9 / 21,
+};
+
+/**
+ * What `adaptive` will actually do to a plate of this shape.
+ *
+ * The correction that cost $12. `aspectFits` was checking the only thing it
+ * knew to check — whether a shape is inside 21:9..9:21 — and the GYG
+ * proscenium background is 5750x2818, which is 2.04:1 and comfortably inside
+ * it. Sent at `adaptive` it came back **3840x2160**, having snapped to 16:9
+ * and centre-cropped 370px off each side. Measured, not inferred: normalised
+ * correlation 0.92 against a centre 5010px crop and 0.71 against a squeeze.
+ *
+ * So `adaptive` does not mean "the plate's own shape". It means **the nearest
+ * shape on the list, cropped to**. The note that used to be here claimed
+ * otherwise on the strength of the mariachi element — 564x421, asked for at
+ * 1080p, returned 1664x1248 — and read that as the element's own shape. It was
+ * 4:3 exactly. The element simply happened to be within half a percent of a
+ * listed ratio, so a crop of nothing looked like a fit.
+ *
+ * Being inside the range only means `adaptive` will not reach for a wildly
+ * wrong shape. It still crops to the nearest listed one, and the fix is to pad
+ * the plate out to a named ratio before sending it — which costs nothing when
+ * the artwork extends past the frame, as a projection plate usually does.
+ */
+export function adaptiveCrop(
+  width: number,
+  height: number,
+): { nearest: string; ratio: number; cropPercent: number; axis: "width" | "height" | "none" } {
+  const aspect = width / height;
+  let nearest = "1:1";
+  let ratio = 1;
+  let best = Infinity;
+  /*
+   * Linear distance between ratios, not the ratio between them — decided by
+   * the measurement, not by taste. The proscenium background is 2.0405, which
+   * sits between 16:9 (1.7778) and 21:9 (2.3333). In log space 21:9 is the
+   * nearer of the two; linearly 16:9 is. Ark returned 16:9, so linear is what
+   * it does, and a tidier-looking metric here would mispredict the one case
+   * this function exists for.
+   */
+  for (const [name, candidate] of Object.entries(SEEDANCE_ASPECTS)) {
+    const distance = Math.abs(aspect - candidate);
+    if (distance < best) {
+      best = distance;
+      nearest = name;
+      ratio = candidate;
+    }
+  }
+
+  /*
+   * Cropping happens on the axis the plate has too much of. A plate wider than
+   * the target loses width; a taller one loses height. Reported as a
+   * percentage of that axis, because that is the number somebody has to decide
+   * whether they can live with.
+   */
+  const keptFraction = aspect > ratio ? ratio / aspect : aspect / ratio;
+  const cropPercent = Math.round((1 - keptFraction) * 1000) / 10;
+  const axis = cropPercent < 0.05 ? "none" : aspect > ratio ? "width" : "height";
+  return { nearest, ratio: Math.round(ratio * 1000) / 1000, cropPercent, axis };
+}
+
 export const WIDEST_ASPECT = 21 / 9;
 export const TALLEST_ASPECT = 9 / 21;
 
 export function aspectFits(
   width: number,
   height: number,
-): { fits: boolean; aspect: number; nearest: string; why?: string } {
+): {
+  fits: boolean;
+  aspect: number;
+  nearest: string;
+  why?: string;
+  /** What `adaptive` would crop. Present whether or not the shape fits. */
+  crop: ReturnType<typeof adaptiveCrop>;
+  /**
+   * Set when the shape is in range but `adaptive` would still crop it.
+   *
+   * A separate field from `why` so that `fits: true` can carry it: the shape
+   * is generatable, and sending it unpadded would still lose pixels.
+   */
+  warn?: string;
+} {
   const aspect = Math.round((width / height) * 1000) / 1000;
+  const crop = adaptiveCrop(width, height);
   const nearest = aspect > WIDEST_ASPECT ? "21:9" : aspect < TALLEST_ASPECT ? "9:16" : "adaptive";
   if (aspect > WIDEST_ASPECT) {
     return {
       fits: false,
       aspect,
       nearest,
+      crop,
       why:
         `${width}x${height} is ${aspect}:1, wider than the widest shape Seedance ` +
         `makes (21:9 = 2.333). \`adaptive\` will crop into the middle of the plate ` +
@@ -349,12 +541,32 @@ export function aspectFits(
       fits: false,
       aspect,
       nearest,
+      crop,
       why:
         `${width}x${height} is taller than 9:21, past what Seedance makes. ` +
         `\`adaptive\` will crop it.`,
     };
   }
-  return { fits: true, aspect, nearest };
+
+  /*
+   * In range, and that is not the same as safe. Half a percent is the
+   * rounding on a plate measured in whole pixels; past that, `adaptive` takes
+   * real artwork off the edge.
+   */
+  if (crop.cropPercent > 0.5) {
+    return {
+      fits: true,
+      aspect,
+      nearest,
+      crop,
+      warn:
+        `${width}x${height} is ${aspect}:1, which is in range but is not a shape ` +
+        `Seedance returns. \`adaptive\` will pick ${crop.nearest} and crop ` +
+        `${crop.cropPercent}% off the ${crop.axis}. Pad the plate out to ` +
+        `${crop.nearest} and ask for it by name instead.`,
+    };
+  }
+  return { fits: true, aspect, nearest, crop };
 }
 
 /**

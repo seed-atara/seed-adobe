@@ -236,8 +236,9 @@ usually the better answer anyway.
 
 ### A tier is a pixel budget, not a width
 
-Inside the supported range, `adaptive` spends a tier's pixels in the
-element's own shape. The mariachi element is 564x421, was asked for at 1080p,
+Inside the supported range, `adaptive` spends a tier's pixels in the shape it
+picks — see the correction below; it is the *nearest listed* shape, not the
+element's own. The mariachi element is 564x421, was asked for at 1080p,
 and came back **1664x1248** — 2,076,672 pixels against 1080p's 2,073,600, and
 nothing like 1920 wide. After Effects then measured that layer at a pixel
 ratio of 2.95, and `sqrt(2073600 / (564 x 421))` is 2.955.
@@ -265,3 +266,46 @@ difference between 9.7M tokens and 4.4M.
 
 The two failures were worth about a third of the spend, and both are now
 guarded in code rather than remembered.
+
+## Correction: `adaptive` snaps to the nearest LISTED aspect — MEASURED (2026-10-13)
+
+The note above said that inside the supported range `adaptive` spends a tier's
+pixels in the element's own shape, on the evidence of the mariachi element:
+564x421, asked for at 1080p, returned **1664x1248**. That is 1.333 — and the
+element is 1.340. The conclusion drawn was "its own shape". The truth is
+**4:3**, and the element happened to be within half a percent of it, so a crop
+of nothing looked like a fit.
+
+Found by sending the GYG golden-hour proscenium background, which is
+**5750x2818 = 2.04:1** — comfortably inside 21:9, and passed by `aspectFits`.
+It came back **3840x2160**:
+
+| hypothesis | normalised correlation against the returned frame |
+|---|---|
+| **centre-cropped width** (keep 5010 of 5750) | **0.92** |
+| squeezed to 16:9 | 0.71 |
+| centre-cropped height | 0.45 |
+| zoomed 70% into the middle | 0.53 |
+
+So `adaptive` picked **16:9** and centre-cropped **370px off each side** —
+12.9% of the width, gone, billed in full at $12.
+
+Two things follow:
+
+1. **Being inside 21:9..9:21 is necessary and not sufficient.** The range check
+   only says `adaptive` will not reach for a wildly wrong shape. It still crops
+   to the nearest listed one. `adaptiveCrop()` in `packages/domain/src/animate.ts`
+   now predicts which, and on which axis, and `aspectFits` returns it as `crop`
+   plus a `warn` when a shape that is in range would still lose pixels.
+2. **The nearest is measured linearly, not logarithmically.** 2.0405 sits
+   between 16:9 (1.7778) and 21:9 (2.3333). In log space 21:9 is nearer; in
+   linear space 16:9 is. Ark returned 16:9. The tidier metric would have
+   mispredicted the only case that mattered.
+
+### The fix costs nothing when the artwork is oversized
+
+Pad the plate to a listed ratio and ask for that ratio **by name**. A projection
+plate usually has the pixels: this background layer is 16080x5721 and only
+5750x2818 of it is ever on screen, so a true 16:9 plate of 5750x3234 was cut
+from the real artwork — 208px of it above and below the window, nothing
+invented, nothing cropped, and a 1.4974x uniform scale back into the comp.
