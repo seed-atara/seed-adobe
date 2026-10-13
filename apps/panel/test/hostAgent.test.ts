@@ -195,3 +195,133 @@ describe("putting the project on a shelf", () => {
     ).toThrow(/itemId/);
   });
 });
+
+/**
+ * The travel half of an element.
+ *
+ * Every generated element here is a cycle on the spot, so the clip never
+ * moves and a Position keyframe does. That makes this the command that
+ * finishes an element, and the one that can quietly ruin one: the wall's
+ * truck and aeroplane are hand-keyframed, and overwriting those would be
+ * indistinguishable from a bug until somebody scrubbed the timeline.
+ */
+describe("moving a layer", () => {
+  it("passes a static value through", async () => {
+    const { bridge, calls } = recordingBridge();
+
+    await dispatch(bridge, {
+      id: "c",
+      name: "setTransform",
+      args: { layerIndex: 22, property: "Scale", value: [110, 110] },
+    });
+    expect(calls[0]).toEqual([
+      "setTransform",
+      [22, "Scale", { value: [110, 110], interpolation: "linear", replace: false }],
+    ]);
+  });
+
+  it("accepts the property however it is capitalised, and refuses the rest", () => {
+    const { bridge, calls } = recordingBridge();
+
+    dispatch(bridge, { id: "c", name: "setTransform", args: { layerIndex: 1, property: "position", value: [0, 0] } });
+    expect((calls[0]![1] as unknown[])[1]).toBe("Position");
+
+    for (const property of ["Positon", "", "Time Remap", "Effects"]) {
+      expect(() =>
+        dispatch(bridge, { id: "c", name: "setTransform", args: { layerIndex: 1, property, value: 0 } }),
+      ).toThrow(/property must be one of/);
+    }
+  });
+
+  it("sorts keyframes into time order", async () => {
+    const { bridge, calls } = recordingBridge();
+
+    /*
+     * `setValueAtTime` does not care what order it is called in, but
+     * `setInterpolationTypeAtKey` indexes by time — so an out-of-order list
+     * eases the wrong keyframes and nothing says so.
+     */
+    await dispatch(bridge, {
+      id: "c",
+      name: "setTransform",
+      args: {
+        layerIndex: 22,
+        property: "Position",
+        keyframes: [
+          { atSeconds: 25, value: [7000, 1639] },
+          { atSeconds: 1, value: [-50, 1639] },
+          { atSeconds: 0, value: [-50, 1639] },
+        ],
+      },
+    });
+    const spec = (calls[0]![1] as unknown[])[2] as {
+      keyframes: Array<{ atSeconds: number }>;
+    };
+    expect(spec.keyframes.map((k) => k.atSeconds)).toEqual([0, 1, 25]);
+  });
+
+  it("refuses a value After Effects would accept and never recover from", () => {
+    const { bridge } = recordingBridge();
+
+    // NaN assigns without complaint and the layer disappears to nowhere.
+    for (const value of ["banana", [0, "x"], Number.POSITIVE_INFINITY, [NaN, 0]]) {
+      expect(() =>
+        dispatch(bridge, {
+          id: "c",
+          name: "setTransform",
+          args: { layerIndex: 1, property: "Position", value },
+        }),
+      ).toThrow(/is not a number/);
+    }
+  });
+
+  it("refuses an empty or absurd value, and a negative keyframe time", () => {
+    const { bridge } = recordingBridge();
+
+    expect(() =>
+      dispatch(bridge, { id: "c", name: "setTransform", args: { layerIndex: 1, property: "Scale", value: [] } }),
+    ).toThrow(/1 to 3 numbers/);
+    expect(() =>
+      dispatch(bridge, { id: "c", name: "setTransform", args: { layerIndex: 1, property: "Position", keyframes: [] } }),
+    ).toThrow(/non-empty/);
+    expect(() =>
+      dispatch(bridge, {
+        id: "c",
+        name: "setTransform",
+        args: { layerIndex: 1, property: "Position", keyframes: [{ atSeconds: -1, value: [0, 0] }] },
+      }),
+    ).toThrow(/zero or more/);
+  });
+
+  it("defaults to linear and to leaving an existing animation alone", async () => {
+    const { bridge, calls } = recordingBridge();
+
+    await dispatch(bridge, {
+      id: "c",
+      name: "setTransform",
+      args: { layerIndex: 1, property: "Opacity", value: 100, interpolation: "nonsense" },
+    });
+    const spec = (calls[0]![1] as unknown[])[2] as { interpolation: string; replace: boolean };
+    expect(spec.interpolation).toBe("linear");
+    expect(spec.replace).toBe(false);
+  });
+
+  it("carries hold through, which is how a cut is made rather than a fade", async () => {
+    const { bridge, calls } = recordingBridge();
+
+    await dispatch(bridge, {
+      id: "c",
+      name: "setTransform",
+      args: {
+        layerIndex: 1,
+        property: "Opacity",
+        keyframes: [{ atSeconds: 0, value: 0 }, { atSeconds: 2, value: 100 }],
+        interpolation: "hold",
+        replace: true,
+      },
+    });
+    const spec = (calls[0]![1] as unknown[])[2] as { interpolation: string; replace: boolean };
+    expect(spec.interpolation).toBe("hold");
+    expect(spec.replace).toBe(true);
+  });
+});

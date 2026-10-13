@@ -134,6 +134,19 @@ export function dispatch(
       return bridge.createFolders(folderPaths(args.paths));
     case "moveItems":
       return bridge.moveItems(itemMoves(args.moves));
+    case "moveLayer":
+      return bridge.moveLayer(layerPosition(args.layerIndex), layerPosition(args.toIndex));
+    case "setTransform":
+      return bridge.setTransform(Number(args.layerIndex), transformProperty(args.property), {
+        ...(args.value === undefined || args.value === null
+          ? {}
+          : { value: transformValue(args.value) }),
+        ...(args.keyframes === undefined || args.keyframes === null
+          ? {}
+          : { keyframes: transformKeyframes(args.keyframes) }),
+        interpolation: interpolationOf(args.interpolation),
+        replace: args.replace === true,
+      });
     case "addSolid":
       return bridge.addSolid(
         rgbOf(args.color),
@@ -248,6 +261,73 @@ function fitOf(value: unknown): "cover" | "contain" | "stretch" | "none" {
 }
 
 /** The three the host accepts, with 32 as the default this project prefers. */
+
+
+
+/**
+ * A layer index, which is 1-based in After Effects and has no upper bound here.
+ *
+ * The host knows how many layers the comp has and refuses the rest; this only
+ * catches what would be nonsense in any comp, so a zero or a fraction cannot
+ * reach `comp.layer()` and come back as something unhelpful about undefined.
+ */
+function layerPosition(value: unknown): number {
+  const index = Number(value);
+  if (!Number.isInteger(index) || index < 1) {
+    throw new Error(`${String(value)} is not a layer index (they start at 1)`);
+  }
+  return index;
+}
+
+/** The transforms this will set, spelled as the host spells them. */
+const TRANSFORMS = ["Position", "Scale", "Rotation", "Opacity", "Anchor Point"] as const;
+
+function transformProperty(value: unknown): string {
+  const wanted = String(value ?? "").trim().toLowerCase();
+  const found = TRANSFORMS.find((name) => name.toLowerCase() === wanted);
+  if (!found) throw new Error(`property must be one of ${TRANSFORMS.join(", ")}`);
+  return found;
+}
+
+/** One or several finite numbers — never a NaN, which After Effects accepts. */
+function transformValue(value: unknown): number | number[] {
+  if (Array.isArray(value)) {
+    if (!value.length || value.length > 3) throw new Error("a transform takes 1 to 3 numbers");
+    return value.map((part) => {
+      const n = Number(part);
+      if (!Number.isFinite(n)) throw new Error(`${String(part)} is not a number`);
+      return n;
+    });
+  }
+  const n = Number(value);
+  if (!Number.isFinite(n)) throw new Error(`${String(value)} is not a number`);
+  return n;
+}
+
+/**
+ * Keyframes, in time order.
+ *
+ * Sorted here rather than trusted, because `setValueAtTime` does not care
+ * about the order it is called in but `setInterpolationTypeAtKey` indexes by
+ * time — so an out-of-order list silently eases the wrong keyframes.
+ */
+function transformKeyframes(
+  value: unknown,
+): Array<{ atSeconds: number; value: number | number[] }> {
+  if (!Array.isArray(value) || !value.length) throw new Error("keyframes must be a non-empty array");
+  const keys = value.map((entry) => {
+    const key = entry as Record<string, unknown>;
+    const atSeconds = Number(key.atSeconds);
+    if (!Number.isFinite(atSeconds) || atSeconds < 0)
+      throw new Error("every keyframe needs an atSeconds of zero or more");
+    return { atSeconds, value: transformValue(key.value) };
+  });
+  return keys.sort((a, b) => a.atSeconds - b.atSeconds);
+}
+
+function interpolationOf(value: unknown): "linear" | "hold" | "ease" {
+  return value === "hold" || value === "ease" ? value : "linear";
+}
 
 /**
  * Folder paths, as paths and nothing else.

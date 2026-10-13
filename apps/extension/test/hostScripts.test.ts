@@ -176,6 +176,14 @@ const HOST_SPECIFIC: Record<string, { host: string; because: string }> = {
     host: "seed-host.jsx",
     because: "moving an item between Premiere bins is a different API nobody has measured",
   },
+  seedSetTransform: {
+    host: "seed-host.jsx",
+    because: "a Premiere clip has motion effects, not a layer transform group",
+  },
+  seedMoveLayer: {
+    host: "seed-host.jsx",
+    because: "Premiere orders clips by track, which is not a layer stack at all",
+  },
 };
 
 describe("panel to host contract", () => {

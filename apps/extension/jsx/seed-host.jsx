@@ -2781,6 +2781,236 @@ function seedProjectComps(match) {
     }
 }
 
+// ------------------------------------------------------------ transforms
+
+/*
+ * Moving a layer, over time, without writing a script to do it.
+ *
+ * Every generated element in this project is a cycle on the spot -- a walk, a
+ * pedal, a wheel turning -- and that is deliberate: the model produces the
+ * performance and the artist produces the travel, so the same clip can be
+ * re-timed and re-routed by hand. The travel is a Position keyframe.
+ *
+ * Which meant that until now the last step of every element could not be
+ * done from here. `setEffectParams` cannot do it: it writes effect
+ * parameters, not transforms, and it explicitly refuses a property that
+ * already has keyframes rather than overwrite somebody's animation.
+ *
+ * This is that step, and it keeps the same refusal. A transform that is
+ * already animated belongs to whoever animated it -- the truck and the
+ * aeroplane on this wall are hand-keyframed -- so it is left alone unless the
+ * caller says `replace` and means it.
+ */
+
+/** The transform properties this will touch, by match name. */
+var SEED_TRANSFORM_PROPS = {
+    "position": "ADBE Position",
+    "scale": "ADBE Scale",
+    "rotation": "ADBE Rotate Z",
+    "opacity": "ADBE Opacity",
+    "anchor point": "ADBE Anchor Point",
+    "anchorpoint": "ADBE Anchor Point"
+};
+
+/** Linear unless asked otherwise; `hold` steps, which is how a cut is made. */
+function seedInterpolationType(name) {
+    var wanted = String(name || "linear").toLowerCase();
+    if (wanted === "hold") return KeyframeInterpolationType.HOLD;
+    if (wanted === "bezier" || wanted === "ease") return KeyframeInterpolationType.BEZIER;
+    return KeyframeInterpolationType.LINEAR;
+}
+
+/**
+ * A transform value, checked against the shape the property actually has.
+ *
+ * Position is two numbers in a 2D comp and three in a 3D one, Scale the same,
+ * Rotation and Opacity are one. Handing a property the wrong arity throws
+ * somewhere inside After Effects with a message about nothing, so the arity
+ * is checked here where the answer can name the property.
+ */
+function seedTransformValue(prop, value) {
+    var current = prop.value;
+    var wantsArray = current instanceof Array;
+    if (!wantsArray) {
+        var single = value instanceof Array ? value[0] : value;
+        if (single === undefined || single === null || isNaN(Number(single))) return null;
+        return Number(single);
+    }
+    if (!(value instanceof Array)) return null;
+    var out = [];
+    for (var i = 0; i < current.length; i++) {
+        // A shorter array keeps the dimensions it did not mention, so a
+        // caller can move something horizontally without restating its depth.
+        var part = i < value.length ? value[i] : current[i];
+        if (part === undefined || part === null || isNaN(Number(part))) return null;
+        out.push(Number(part));
+    }
+    return out;
+}
+
+/**
+ * Sets a layer transform, as a value or as keyframes.
+ *
+ * Reports the property's value back at each keyframe time, read out of After
+ * Effects rather than echoed from the request -- the only claim worth making
+ * is what the project now holds.
+ */
+function seedSetTransform(layerIndex, property, value, keyframes, interpolation, replace) {
+    try {
+        var comp = seedActiveComp();
+        if (!comp) return seedFail("no active composition");
+
+        var index = Number(layerIndex);
+        if (!(index >= 1 && index <= comp.numLayers)) {
+            return seedFail(
+                "layer " + String(layerIndex) + " is not in " + comp.name +
+                ", which has " + comp.numLayers + " layers");
+        }
+        var layer = comp.layer(index);
+
+        var key = String(property || "").toLowerCase();
+        var match = SEED_TRANSFORM_PROPS[key];
+        if (!match) {
+            var names = [];
+            for (var n in SEED_TRANSFORM_PROPS) {
+                if (SEED_TRANSFORM_PROPS.hasOwnProperty(n)) names.push(n);
+            }
+            return seedFail(
+                String(property) + " is not a transform this sets (it does: " +
+                names.join(", ") + ")");
+        }
+
+        var group = layer.property("ADBE Transform Group");
+        var prop = group ? group.property(match) : null;
+        if (!prop) return seedFail(layer.name + " has no " + String(property));
+
+        var hadKeys = prop.numKeys;
+        var expression = "";
+        try { expression = String(prop.expression || ""); } catch (ignored) {}
+        if ((hadKeys > 0 || expression !== "") && replace !== true) {
+            return seedFail(
+                layer.name + "'s " + String(property) + " is already animated (" +
+                hadKeys + " keyframes" + (expression !== "" ? " and an expression" : "") +
+                "). That is somebody's animation; pass replace to overwrite it.");
+        }
+
+        app.beginUndoGroup("SEED: set " + String(property));
+
+        if (hadKeys > 0) {
+            while (prop.numKeys > 0) prop.removeKey(1);
+        }
+
+        var wrote = [];
+        if (keyframes && keyframes.length) {
+            for (var k = 0; k < keyframes.length; k++) {
+                var at = Number(keyframes[k].atSeconds);
+                var v = seedTransformValue(prop, keyframes[k].value);
+                if (v === null) {
+                    app.endUndoGroup();
+                    return seedFail(
+                        "keyframe " + k + " does not fit " + String(property) +
+                        ", which takes " + (prop.value instanceof Array ? prop.value.length : 1) +
+                        " number(s)");
+                }
+                prop.setValueAtTime(at, v);
+            }
+            var type = seedInterpolationType(interpolation);
+            for (var i = 1; i <= prop.numKeys; i++) {
+                try { prop.setInterpolationTypeAtKey(i, type, type); } catch (easeError) {}
+            }
+            for (var r = 0; r < keyframes.length; r++) {
+                var t = Number(keyframes[r].atSeconds);
+                wrote.push({ atSeconds: t, value: prop.valueAtTime(t, false) });
+            }
+        } else {
+            var still = seedTransformValue(prop, value);
+            if (still === null) {
+                app.endUndoGroup();
+                return seedFail(
+                    String(value) + " does not fit " + String(property) + ", which takes " +
+                    (prop.value instanceof Array ? prop.value.length : 1) + " number(s)");
+            }
+            prop.setValue(still);
+            wrote.push({ atSeconds: null, value: prop.value });
+        }
+
+        app.endUndoGroup();
+        return seedOk({
+            layer: { index: index, name: layer.name },
+            comp: comp.name,
+            property: String(property),
+            replaced: hadKeys,
+            numKeys: prop.numKeys,
+            interpolation: keyframes && keyframes.length ? String(interpolation || "linear") : null,
+            wrote: wrote
+        });
+    } catch (error) {
+        try { app.endUndoGroup(); } catch (ignored) {}
+        return seedFail(error);
+    }
+}
+
+/**
+ * Where a layer sits in the stack, which is what occludes what.
+ *
+ * `comp.layers.add` always lands at index 1, so anything imported arrives in
+ * front of everything. Usually that is wrong and occasionally it is ruinous:
+ * the produce crates on this wall carry three sponsor logos on their labels
+ * as separate layers above them, so a crate layer placed at the top covers
+ * the client's logos, and a walking figure placed at the top walks across the
+ * front of the brick columns that are supposed to hide him.
+ *
+ * Reports the index After Effects ended up giving the layer rather than the
+ * one that was asked for -- a move past the end of the stack clamps, and the
+ * caller should hear about it from the host and not from a screenshot.
+ */
+function seedMoveLayer(layerIndex, toIndex) {
+    try {
+        var comp = seedActiveComp();
+        if (!comp) return seedFail("no active composition");
+
+        var from = Number(layerIndex);
+        var to = Number(toIndex);
+        if (!(from >= 1 && from <= comp.numLayers)) {
+            return seedFail(
+                "layer " + String(layerIndex) + " is not in " + comp.name +
+                ", which has " + comp.numLayers + " layers");
+        }
+        if (!(to >= 1 && to <= comp.numLayers)) {
+            return seedFail(
+                "index " + String(toIndex) + " is outside " + comp.name +
+                ", which has " + comp.numLayers + " layers");
+        }
+
+        var layer = comp.layer(from);
+        var name = layer.name;
+        if (from === to) {
+            return seedOk({
+                layer: { index: layer.index, name: name }, comp: comp.name, moved: false
+            });
+        }
+
+        app.beginUndoGroup("SEED: move layer");
+        // moveBefore puts it above the target, moveAfter below. Going down the
+        // stack the target keeps its index until the move completes, which is
+        // why this is two cases rather than an arithmetic offset.
+        if (to < from) layer.moveBefore(comp.layer(to));
+        else layer.moveAfter(comp.layer(to));
+        app.endUndoGroup();
+
+        return seedOk({
+            layer: { index: layer.index, name: name },
+            comp: comp.name,
+            moved: true,
+            from: from,
+            asked: to
+        });
+    } catch (error) {
+        try { app.endUndoGroup(); } catch (ignored) {}
+        return seedFail(error);
+    }
+}
+
 // ------------------------------------------------------------ project shelf
 
 /*
@@ -4355,6 +4585,8 @@ var seedAeft_projectComps = seedProjectComps;
 var seedAeft_projectItems = seedProjectItems;
 var seedAeft_createFolders = seedCreateFolders;
 var seedAeft_moveItems = seedMoveItems;
+var seedAeft_setTransform = seedSetTransform;
+var seedAeft_moveLayer = seedMoveLayer;
 var seedAeft_layerBounds = seedLayerBounds;
 var seedAeft_precompose = seedPrecompose;
 var seedAeft_regionFromLayer = seedRegionFromLayer;

@@ -636,10 +636,42 @@ export class CepAeBridge {
     return evalHost(`${hostPrefix()}projectItems()`);
   }
 
+
+  /** Where a layer sits in the stack, which is what occludes what. */
+  async moveLayer(layerIndex: number, toIndex: number): Promise<Record<string, unknown>> {
+    await this.ensureHost();
+    return evalHost(`${hostPrefix()}moveLayer(${layerIndex}, ${toIndex})`);
+  }
   /** Makes folders by path ("ELEMENTS/Car01"), idempotently. */
   async createFolders(paths: string[]): Promise<Record<string, unknown>> {
     await this.ensureHost();
     return evalHost(`${hostPrefix()}createFolders(${JSON.stringify(paths)})`);
+  }
+
+  /**
+   * A layer transform, as a value or as keyframes.
+   *
+   * The travel half of every element in this project: the model makes a cycle
+   * on the spot and this moves it. Refuses a property that is already
+   * animated unless `replace` is passed, because the truck and the aeroplane
+   * on this wall are somebody's hand-keyframed work.
+   */
+  async setTransform(
+    layerIndex: number,
+    property: string,
+    spec: {
+      value?: number | number[];
+      keyframes?: Array<{ atSeconds: number; value: number | number[] }>;
+      interpolation?: "linear" | "hold" | "ease";
+      replace?: boolean;
+    },
+  ): Promise<Record<string, unknown>> {
+    await this.ensureHost();
+    return evalHost(
+      `${hostPrefix()}setTransform(${layerIndex}, ${quote(property)}, ` +
+        `${JSON.stringify(spec.value ?? null)}, ${JSON.stringify(spec.keyframes ?? null)}, ` +
+        `${quote(spec.interpolation ?? "linear")}, ${spec.replace === true})`,
+    );
   }
 
   /**
