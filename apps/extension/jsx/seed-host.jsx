@@ -2781,6 +2781,153 @@ function seedProjectComps(match) {
     }
 }
 
+/**
+ * How much actual media is under a folder, however deep.
+ *
+ * The number that decides whether a folder is safe to delete. After Effects
+ * removes a folder's contents with it and does not ask, so "is it empty" has
+ * to mean "is there any footage or comp anywhere beneath it", not "does it
+ * have no children" -- a husk three folders deep still has children.
+ */
+function seedFolderMediaCount(folder) {
+    var total = 0;
+    for (var i = 1; i <= folder.numItems; i++) {
+        var child = folder.item(i);
+        if (child instanceof FolderItem) total += seedFolderMediaCount(child);
+        else total += 1;
+    }
+    return total;
+}
+
+/**
+ * Removes empty folders, and refuses every other kind.
+ *
+ * Restructuring a shelf leaves husks: move the items out of `20_GENERIC` into
+ * `STATE1/20_GENERIC` and the old one stays behind, with its old subfolders,
+ * holding nothing. Thirty of them after one restructure, which is not the
+ * clean project somebody asked for.
+ *
+ * A folder holding anything at all is refused rather than emptied. That is
+ * the whole safety story: this cannot destroy media, because the only folders
+ * it will touch are the ones with none. Deepest first, so a parent has had
+ * its children removed by the time it is reached.
+ */
+function seedDeleteFolders(paths) {
+    try {
+        if (!app.project) return seedFail("no project is open");
+        if (!paths || !paths.length) return seedFail("no folder paths were given");
+
+        var wanted = [];
+        for (var p = 0; p < paths.length; p++) wanted.push(String(paths[p]));
+        wanted.sort(function (a, b) {
+            return b.split("/").length - a.split("/").length;
+        });
+
+        app.beginUndoGroup("SEED: remove empty folders");
+
+        var deleted = [];
+        var refused = [];
+        for (var i = 0; i < wanted.length; i++) {
+            var path = wanted[i];
+            var folder = seedFolderAt(path, false);
+            if (!folder) {
+                refused.push({ path: path, reason: "no folder at " + path });
+                continue;
+            }
+            var media = seedFolderMediaCount(folder);
+            if (media > 0) {
+                refused.push({
+                    path: path,
+                    reason: "holds " + media + " item" + (media === 1 ? "" : "s") +
+                            " — only empty folders are removed"
+                });
+                continue;
+            }
+            folder.remove();
+            deleted.push(path);
+        }
+
+        app.endUndoGroup();
+        return seedOk({
+            deleted: deleted,
+            refused: refused,
+            deletedCount: deleted.length,
+            refusedCount: refused.length
+        });
+    } catch (error) {
+        try { app.endUndoGroup(); } catch (ignored) {}
+        return seedFail(error);
+    }
+}
+
+/**
+ * Renames layers, in bulk, with a guard on what is being renamed.
+ *
+ * A wall assembled from a PSD arrives with layers called `Layer 12` through
+ * `Layer 17` and two different fences both called `fence`. That is fine while
+ * one person holds the whole thing in their head and useless the moment new
+ * artwork has to be matched against it.
+ *
+ * `expectName` is what makes a bulk rename safe: a layer index is a position
+ * in a stack that somebody may have reordered since the list was written, and
+ * renaming the wrong layer produces a comp that lies about itself.
+ */
+function seedRenameLayers(renames) {
+    try {
+        var comp = seedActiveComp();
+        if (!comp) return seedFail("no active composition");
+        if (!renames || !renames.length) return seedFail("no renames were given");
+
+        app.beginUndoGroup("SEED: rename layers");
+
+        var renamed = [];
+        var refused = [];
+        for (var i = 0; i < renames.length; i++) {
+            var entry = renames[i];
+            var index = Number(entry.layerIndex);
+            if (!(index >= 1 && index <= comp.numLayers)) {
+                refused.push({
+                    layerIndex: entry.layerIndex,
+                    reason: "not a layer in " + comp.name + ", which has " + comp.numLayers
+                });
+                continue;
+            }
+            var layer = comp.layer(index);
+            var was = String(layer.name);
+            if (entry.expectName !== undefined && entry.expectName !== null &&
+                String(entry.expectName) !== was) {
+                refused.push({
+                    layerIndex: index, name: was,
+                    reason: "layer " + index + " is " + was + ", not " +
+                            String(entry.expectName)
+                });
+                continue;
+            }
+            var to = String(entry.name === undefined || entry.name === null ? "" : entry.name)
+                .replace(/^\s+|\s+$/g, "");
+            if (to === "") {
+                refused.push({ layerIndex: index, name: was, reason: "a layer name cannot be empty" });
+                continue;
+            }
+            if (to === was) continue;
+            layer.name = to;
+            renamed.push({ layerIndex: index, from: was, to: String(layer.name) });
+        }
+
+        app.endUndoGroup();
+        return seedOk({
+            comp: comp.name,
+            renamed: renamed,
+            refused: refused,
+            renamedCount: renamed.length,
+            refusedCount: refused.length
+        });
+    } catch (error) {
+        try { app.endUndoGroup(); } catch (ignored) {}
+        return seedFail(error);
+    }
+}
+
 // ------------------------------------------------------------ transforms
 
 /*
@@ -4587,6 +4734,8 @@ var seedAeft_createFolders = seedCreateFolders;
 var seedAeft_moveItems = seedMoveItems;
 var seedAeft_setTransform = seedSetTransform;
 var seedAeft_moveLayer = seedMoveLayer;
+var seedAeft_deleteFolders = seedDeleteFolders;
+var seedAeft_renameLayers = seedRenameLayers;
 var seedAeft_layerBounds = seedLayerBounds;
 var seedAeft_precompose = seedPrecompose;
 var seedAeft_regionFromLayer = seedRegionFromLayer;

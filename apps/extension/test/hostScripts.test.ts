@@ -184,6 +184,14 @@ const HOST_SPECIFIC: Record<string, { host: string; because: string }> = {
     host: "seed-host.jsx",
     because: "Premiere orders clips by track, which is not a layer stack at all",
   },
+  seedDeleteFolders: {
+    host: "seed-host.jsx",
+    because: "Premiere bins are not project folders and removal differs there",
+  },
+  seedRenameLayers: {
+    host: "seed-host.jsx",
+    because: "a Premiere sequence has track items rather than named layers",
+  },
 };
 
 describe("panel to host contract", () => {

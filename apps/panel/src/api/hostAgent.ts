@@ -134,6 +134,10 @@ export function dispatch(
       return bridge.createFolders(folderPaths(args.paths));
     case "moveItems":
       return bridge.moveItems(itemMoves(args.moves));
+    case "deleteFolders":
+      return bridge.deleteFolders(folderPaths(args.paths));
+    case "renameLayers":
+      return bridge.renameLayers(layerRenames(args.renames));
     case "moveLayer":
       return bridge.moveLayer(layerPosition(args.layerIndex), layerPosition(args.toIndex));
     case "setTransform":
@@ -263,6 +267,28 @@ function fitOf(value: unknown): "cover" | "contain" | "stretch" | "none" {
 /** The three the host accepts, with 32 as the default this project prefers. */
 
 
+
+
+/** A rename list, with the guard carried through when the caller supplied one. */
+function layerRenames(
+  value: unknown,
+): Array<{ layerIndex: number; name: string; expectName?: string }> {
+  if (!Array.isArray(value) || !value.length) throw new Error("renames must be a non-empty array");
+  return value.map((entry) => {
+    const rename = entry as Record<string, unknown>;
+    const layerIndex = layerPosition(rename.layerIndex);
+    const name = String(rename.name ?? "").trim();
+    if (!name) throw new Error("a layer name cannot be empty");
+    // After Effects accepts a newline in a layer name and then the timeline
+    // shows half of it, so the whole class goes out here.
+    if (/[\r\n\t]/.test(name)) throw new Error(`${name} cannot contain line breaks or tabs`);
+    const expectName =
+      rename.expectName === undefined || rename.expectName === null
+        ? undefined
+        : String(rename.expectName);
+    return expectName === undefined ? { layerIndex, name } : { layerIndex, name, expectName };
+  });
+}
 
 /**
  * A layer index, which is 1-based in After Effects and has no upper bound here.

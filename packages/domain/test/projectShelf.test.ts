@@ -7,6 +7,10 @@ import {
   planProjectShelf,
   SHELF,
   STAGE,
+  STATE_INBOX,
+  STATES,
+  stateOf,
+  stateSkeleton,
   type ProjectItem,
 } from "../src/projectShelf.js";
 
@@ -62,9 +66,21 @@ function projectComps(): ProjectItem[] {
   }));
 }
 
-/** Where the plan sends one item, by name. */
-function destination(items: ProjectItem[], name: string): string | undefined {
+/** Where the plan sends one item, by name, with its state. */
+function fullDestination(items: ProjectItem[], name: string): string | undefined {
   return planProjectShelf(items).moves.find((move) => move.expectName === name)?.folder;
+}
+
+/**
+ * Where the plan sends one item *within its state*.
+ *
+ * Every path is now under a state, and almost every rule below is about which
+ * drawer rather than which state — so the prefix is stripped here and tested
+ * on its own, instead of being repeated in forty assertions that do not care.
+ */
+function destination(items: ProjectItem[], name: string): string | undefined {
+  const folder = fullDestination(items, name);
+  return folder?.replace(/^STATE\d+\//, "");
 }
 
 describe("reading an element out of a name", () => {
@@ -178,11 +194,15 @@ describe("the shelf, on the real project", () => {
     }
   });
 
-  it("creates the four top-level drawers whatever is in the project", () => {
+  it("creates every state's drawers whatever is in the project", () => {
     for (const top of [SHELF.delivery, SHELF.elements, SHELF.generic, SHELF.archive]) {
-      expect(plan.folders).toContain(top);
+      expect(plan.folders).toContain(`STATE1/${top}`);
+      // And the states that have nothing in them yet are built out too, so
+      // there is somewhere to put the next look of the room.
+      expect(plan.folders).toContain(`STATE5/${top}`);
     }
-    expect(planProjectShelf([]).folders).toHaveLength(4);
+    // Five states, six folders each, and nothing else for an empty project.
+    expect(planProjectShelf([]).folders).toHaveLength(STATES.length * 6);
   });
 });
 
@@ -409,5 +429,132 @@ describe("drawers somebody else already made", () => {
     const elements = plan.folders.filter((path) => path.startsWith(`${SHELF.elements}/Car01`));
     const first = plan.folders.indexOf(elements[0]!);
     expect(plan.folders.slice(first, first + elements.length)).toEqual(elements);
+  });
+});
+
+/**
+ * Five looks of the same room.
+ *
+ * The projection plays the annual summit, golden hour, a night transition and
+ * party city, and they are not versions of each other -- each has its own
+ * artwork, delivery comps and elements. A flat shelf holding five states'
+ * worth of `Car01` is a shelf where nobody can tell which is which, so the
+ * state is the top of the tree.
+ */
+describe("the states", () => {
+  it("reads the state off the folder an item is already in", () => {
+    expect(stateOf("STATE2/10_ELEMENTS/Car01")).toBe("STATE2");
+    expect(stateOf("STATE2")).toBe("STATE2");
+    expect(stateOf("")).toBeUndefined();
+    expect(stateOf("20_GENERIC/plates")).toBeUndefined();
+    // Not a state this project has.
+    expect(stateOf("STATE9/00_DELIVERY")).toBeUndefined();
+  });
+
+  it("files a loose item into the state the caller named", () => {
+    const items: ProjectItem[] = [
+      { id: "1", name: "Car01", kind: "comp", folder: "", usedInCount: 1 },
+    ];
+    expect(fullDestination(items, "Car01")).toBe("STATE1/10_ELEMENTS/Car01");
+    expect(planProjectShelf(items, { state: "STATE3" }).moves[0]!.folder).toBe(
+      "STATE3/10_ELEMENTS/Car01",
+    );
+  });
+
+  it("keeps an item in the state it is already in, whatever the caller says", () => {
+    /*
+     * The project is a better record of what an item is for than a flag typed
+     * at a shell. Someone tidying STATE3 must not drag STATE2's artwork into
+     * it because they forgot to change the flag.
+     */
+    const items: ProjectItem[] = [
+      { id: "1", name: "Car01 Comp 1", kind: "comp", folder: "STATE2/_INBOX", usedInCount: 1 },
+      { id: "2", name: "Waiter01", kind: "comp", folder: "STATE4/00_DELIVERY", usedInCount: 1 },
+    ];
+    const plan = planProjectShelf(items, { state: "STATE1" });
+    expect(plan.moves.find((m) => m.expectName === "Car01 Comp 1")?.folder).toBe(
+      `STATE2/${SHELF.elements}/Car01/${STAGE.source}`,
+    );
+    expect(plan.moves.find((m) => m.expectName === "Waiter01")?.folder).toBe(
+      `STATE4/${SHELF.elements}/Waiter01`,
+    );
+  });
+
+  it("treats a state's inbox as loose, so what is dropped there gets filed", () => {
+    // The inbox is the one folder a human puts things into; everywhere else,
+    // being in a folder is the answer and the rules leave it alone.
+    const items: ProjectItem[] = [
+      { id: "1", name: "gyg_gh_SIDES_left_pano_4.psd", kind: "footage", folder: "STATE2/_INBOX" },
+      { id: "2", name: "some_layer.psd", kind: "footage", folder: "STATE2/20_GENERIC/plates" },
+    ];
+    const plan = planProjectShelf(items);
+    expect(plan.moves.map((m) => m.folder)).toEqual([`STATE2/${SHELF.generic}/plates`]);
+    expect(plan.leftInPlace).toBe(1);
+  });
+
+  it("never moves the shelf itself", () => {
+    const items: ProjectItem[] = [
+      { id: "1", name: "STATE1", kind: "folder", folder: "" },
+      { id: "2", name: STATE_INBOX, kind: "folder", folder: "STATE2" },
+      { id: "3", name: SHELF.delivery, kind: "folder", folder: "STATE1" },
+      { id: "4", name: SHELF.inbox, kind: "folder", folder: "" },
+    ];
+    const plan = planProjectShelf(items);
+    expect(plan.moves).toEqual([]);
+    expect(plan.unsorted).toEqual([]);
+  });
+
+  it("refuses a state it does not have, rather than inventing one", () => {
+    expect(() => planProjectShelf([], { state: "STATE9" })).toThrow(/not one of/);
+  });
+
+  it("moves a drawer that is already inside the old shelf, not just a loose one", () => {
+    /*
+     * The bug this caught: once the shelf moved under a state, every
+     * `<PSD> Layers` folder already sitting in the old root `20_GENERIC` was
+     * skipped as "not loose" and left behind in an empty husk. A drawer is
+     * identified by its name, not by where it happens to sit.
+     */
+    const items: ProjectItem[] = [
+      { id: "1", name: "GYG_Sides-Left_v002 Layers", kind: "folder", folder: "20_GENERIC/plates" },
+      { id: "2", name: "Solids", kind: "folder", folder: "20_GENERIC" },
+    ];
+    const plan = planProjectShelf(items);
+    expect(plan.moves.map((m) => m.folder)).toEqual([
+      `STATE1/${SHELF.generic}/plates`,
+      `STATE1/${SHELF.generic}`,
+    ]);
+  });
+
+  it("leaves a folder somebody else made where it is, wherever that is", () => {
+    const items: ProjectItem[] = [
+      { id: "1", name: "Johannes refs", kind: "folder", folder: "STATE1/10_ELEMENTS" },
+    ];
+    const plan = planProjectShelf(items);
+    expect(plan.moves).toEqual([]);
+    expect(plan.leftInPlace).toBe(1);
+  });
+
+  it("gives every state the same six folders", () => {
+    expect(stateSkeleton("STATE2")).toEqual([
+      "STATE2",
+      "STATE2/00_DELIVERY",
+      "STATE2/10_ELEMENTS",
+      "STATE2/20_GENERIC",
+      "STATE2/90_ARCHIVE",
+      "STATE2/_INBOX",
+    ]);
+  });
+
+  it("still asks for nothing on a second run, now per state", () => {
+    const items = projectComps();
+    const plan = planProjectShelf(items);
+    const sorted = items.map((item) => {
+      const move = plan.moves.find((entry) => entry.itemId === item.id);
+      return move ? { ...item, folder: move.folder } : item;
+    });
+    const again = planProjectShelf(sorted);
+    expect(again.moves).toEqual([]);
+    expect(again.alreadySorted).toBe(items.length);
   });
 });

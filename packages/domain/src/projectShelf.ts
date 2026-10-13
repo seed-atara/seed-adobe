@@ -107,6 +107,61 @@ export const STAGE = {
 } as const;
 
 /**
+ * The show's states, each a complete shelf of its own.
+ *
+ * The projection plays several looks of the same room -- the annual summit,
+ * golden hour, the night transition, party city -- and they are not versions
+ * of each other. Each has its own artwork, its own delivery comps and its own
+ * elements, and the only thing they share is the room.
+ *
+ * So the state is the top of the tree rather than a tag inside it. A flat
+ * shelf holding five states' worth of `Car01` is a shelf where nobody can
+ * tell which Car01 is which.
+ */
+export const STATES = ["STATE1", "STATE2", "STATE3", "STATE4", "STATE5"] as const;
+
+/**
+ * Where to drop new artwork for a state.
+ *
+ * The state of an item is read from the folder it is already in, which leaves
+ * one question: how does anything get into a state in the first place? It is
+ * imported here, and the next run files it. Underscored so it sorts above the
+ * numbered drawers -- it is the one folder a human puts things into.
+ */
+export const STATE_INBOX = "_INBOX";
+
+export interface ShelfOptions {
+  /**
+   * Which state loose items belong to.
+   *
+   * Only consulted for items that are not already inside a state. Anything
+   * under `STATE2/` is STATE2's whatever this says, because the project is a
+   * better record of what an item is for than a flag typed at the shell.
+   */
+  state?: string;
+  /** Every state to build an empty shelf for. */
+  states?: readonly string[];
+}
+
+/** The state an item already sits in, if any. */
+export function stateOf(folder: string, states: readonly string[] = STATES): string | undefined {
+  const head = folder.split("/")[0];
+  return head && states.includes(head) ? head : undefined;
+}
+
+/** The folders every state has, whether or not anything is in them yet. */
+export function stateSkeleton(state: string): string[] {
+  return [
+    state,
+    `${state}/${SHELF.delivery}`,
+    `${state}/${SHELF.elements}`,
+    `${state}/${SHELF.generic}`,
+    `${state}/${SHELF.archive}`,
+    `${state}/${STATE_INBOX}`,
+  ];
+}
+
+/**
  * Element families that are set dressing rather than entities.
  *
  * `Bunting03` is named like an element and is nothing like one: there are six
@@ -174,7 +229,23 @@ function versioned(name: string): { base: string; version: number } | undefined 
  * `misc` — a plan that can be read before it is applied is the whole point of
  * computing it here instead of in ExtendScript.
  */
-export function planProjectShelf(items: ProjectItem[]): ShelfPlan {
+export function planProjectShelf(items: ProjectItem[], options: ShelfOptions = {}): ShelfPlan {
+  const states = options.states ?? STATES;
+  const fallback = options.state ?? states[0]!;
+  if (!states.includes(fallback)) {
+    throw new Error(`${fallback} is not one of ${states.join(", ")}`);
+  }
+
+  /**
+   * Loose means "nothing has said which state this belongs to yet".
+   *
+   * The project root is loose, and so is a state's own inbox -- that is what
+   * an inbox is for. Everywhere else, being in a folder is itself the answer,
+   * and the rules leave the item where somebody put it.
+   */
+  const isLoose = (item: ProjectItem): boolean =>
+    item.folder === "" || /^[^/]+\/_INBOX$/.test(item.folder);
+
   const folders = new Set<string>();
   const moves: ShelfMove[] = [];
   const unsorted: ProjectItem[] = [];
@@ -211,7 +282,10 @@ export function planProjectShelf(items: ProjectItem[]): ShelfPlan {
     if (seen === undefined || version.version > seen) newest.set(version.base, version.version);
   }
 
-  const place = (item: ProjectItem, folder: string, reason: string): void => {
+  const place = (item: ProjectItem, within: string, reason: string): void => {
+    // Every path the rules below produce is relative to a state. They do not
+    // know which one, and should not: it is a property of where the item is.
+    const folder = `${stateOf(item.folder, states) ?? fallback}/${within}`;
     folders.add(folder);
     if (item.folder === folder) {
       alreadySorted++;
@@ -229,9 +303,22 @@ export function planProjectShelf(items: ProjectItem[]): ShelfPlan {
      * ones, which is the problem rather than the fix.
      */
     if (item.kind === "folder") {
-      if (item.folder !== "") continue;
       if (item.name === SHELF.inbox) continue; // the import inbox stays put
       if (Object.values(SHELF).includes(item.name as never)) continue; // our own
+      if (states.includes(item.name) || item.name === STATE_INBOX) continue; // the shelf
+      /*
+       * A drawer is identified by its name, not by where it currently sits.
+       * The first version of this only placed drawers at the project root,
+       * which was fine until the shelf itself moved under a state -- then
+       * every `<PSD> Layers` folder already inside the old `20_GENERIC` was
+       * skipped as "not loose" and left behind in a husk.
+       */
+      const drawer = item.name === "Solids" || /^(.*) Layers$/.test(item.name);
+      if (!drawer) {
+        if (isLoose(item)) unsorted.push(item);
+        else leftInPlace++;
+        continue;
+      }
       if (item.name === "Solids") {
         place(item, SHELF.generic, "After Effects' own solids drawer");
         continue;
@@ -254,7 +341,8 @@ export function planProjectShelf(items: ProjectItem[]): ShelfPlan {
         );
         continue;
       }
-      unsorted.push(item);
+      if (isLoose(item)) unsorted.push(item);
+      else leftInPlace++;
       continue;
     }
 
@@ -316,7 +404,7 @@ export function planProjectShelf(items: ProjectItem[]): ShelfPlan {
     if (item.kind === "solid") {
       // The drawer itself is moved above; a solid already in it travels with
       // it, and only a loose one needs placing.
-      if (item.folder === "Solids" || item.folder === `${SHELF.generic}/Solids`) {
+      if (/(^|\/)Solids$/.test(item.folder)) {
         leftInPlace++;
         continue;
       }
@@ -337,7 +425,7 @@ export function planProjectShelf(items: ProjectItem[]): ShelfPlan {
     const source = item.file ?? item.name;
 
     if (/\.psd$/i.test(source)) {
-      if (item.folder !== "") {
+      if (!isLoose(item)) {
         leftInPlace++;
         continue;
       }
@@ -356,7 +444,7 @@ export function planProjectShelf(items: ProjectItem[]): ShelfPlan {
       continue;
     }
 
-    if (item.folder !== "") {
+    if (!isLoose(item)) {
       // Inside `SEED` or a `<PSD> Layers` folder and claimed by no element.
       // Its name is a job hash or a layer name, so there is nothing to file
       // it by -- and where it is is already better than `20_GENERIC/footage`.
@@ -384,7 +472,7 @@ export function planProjectShelf(items: ProjectItem[]): ShelfPlan {
   }
 
   return {
-    folders: parentFirst([SHELF.delivery, SHELF.elements, SHELF.generic, SHELF.archive, ...folders]),
+    folders: parentFirst([...states.flatMap(stateSkeleton), ...folders]),
     moves,
     alreadySorted,
     leftInPlace,

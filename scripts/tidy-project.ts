@@ -18,11 +18,29 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { planProjectShelf, type ProjectItem } from "../packages/domain/src/projectShelf.js";
+import {
+  planProjectShelf,
+  STATE_INBOX,
+  STATES,
+  type ProjectItem,
+} from "../packages/domain/src/projectShelf.js";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const apply = process.argv.includes("--apply");
 const save = process.argv.includes("--save");
+
+/*
+ * Which state loose items belong to. Only consulted for items that are not
+ * already inside a state folder -- anything under STATE2/ is STATE2's
+ * whatever this says, because the project is a better record of what an item
+ * is for than a flag typed at a shell.
+ */
+const stateArg = process.argv.indexOf("--state");
+const state = stateArg >= 0 ? process.argv[stateArg + 1] : undefined;
+if (state !== undefined && !STATES.includes(state as never)) {
+  console.error(`--state must be one of ${STATES.join(", ")}`);
+  process.exit(2);
+}
 
 const env = Object.fromEntries(
   (await readFile(path.join(root, ".env"), "utf8"))
@@ -56,7 +74,7 @@ async function host(name: string, args: Record<string, unknown> = {}): Promise<a
 }
 
 const inventory = (await host("projectItems")) as { count: number; items: ProjectItem[] };
-const plan = planProjectShelf(inventory.items);
+const plan = planProjectShelf(inventory.items, state ? { state } : {});
 
 const atRoot = inventory.items.filter((item) => item.folder === "").length;
 console.log(
@@ -85,8 +103,16 @@ if (plan.unsorted.length) {
   for (const item of plan.unsorted) console.log(`    ${item.kind.padEnd(12)} ${item.name}`);
 }
 
+console.log(
+  `\nNew artwork for a state goes in its ${STATE_INBOX}: ` +
+    `${STATES.map((s) => `${s}/${STATE_INBOX}`).join(", ")}. ` +
+    `Import into one of those and re-run — the state is read from the folder ` +
+    `it is in, not from a flag, so nothing can be filed into the wrong look ` +
+    `by forgetting an argument.`,
+);
+
 if (!apply) {
-  console.log("\nNothing was moved. Re-run with --apply.");
+  console.log(`\nNothing was moved. Re-run with --apply${state ? ` --state ${state}` : ""}.`);
   process.exit(0);
 }
 

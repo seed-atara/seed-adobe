@@ -325,3 +325,80 @@ describe("moving a layer", () => {
     expect(spec.replace).toBe(true);
   });
 });
+
+/**
+ * Cleaning up after a restructure.
+ *
+ * Moving the shelf under a state left thirty empty folders behind, and a wall
+ * built from a PSD arrives with layers called `Layer 12` through `Layer 17`.
+ * Neither is a bug, both make a project unreadable, and the two commands that
+ * fix them are the ones that can do the most damage if their arguments are
+ * wrong — one deletes, the other rewrites what everything is called.
+ */
+describe("cleaning up after a restructure", () => {
+  it("checks folder paths to delete exactly as it checks ones to create", async () => {
+    const { bridge, calls } = recordingBridge();
+
+    await dispatch(bridge, {
+      id: "c",
+      name: "deleteFolders",
+      args: { paths: ["20_GENERIC/plates", " 10_ELEMENTS "] },
+    });
+    expect(calls[0]).toEqual(["deleteFolders", [["20_GENERIC/plates", "10_ELEMENTS"]]]);
+
+    for (const path of ["..", "10_ELEMENTS/../..", "", "a//b"]) {
+      expect(() =>
+        dispatch(bridge, { id: "c", name: "deleteFolders", args: { paths: [path] } }),
+      ).toThrow();
+    }
+  });
+
+  it("carries the name guard through on a rename", async () => {
+    const { bridge, calls } = recordingBridge();
+
+    await dispatch(bridge, {
+      id: "c",
+      name: "renameLayers",
+      args: {
+        renames: [
+          { layerIndex: 9, name: "cloud bank upper", expectName: "Layer 17" },
+          { layerIndex: 38, name: "cloud bank lower" },
+        ],
+      },
+    });
+    expect(calls[0]).toEqual([
+      "renameLayers",
+      [
+        [
+          { layerIndex: 9, name: "cloud bank upper", expectName: "Layer 17" },
+          { layerIndex: 38, name: "cloud bank lower" },
+        ],
+      ],
+    ]);
+  });
+
+  it("refuses an empty name, a line break, and a nonsense index", () => {
+    const { bridge } = recordingBridge();
+
+    /*
+     * A newline is accepted by After Effects and then the timeline shows only
+     * the first line, which reads as the rename having silently failed rather
+     * than as a bad name.
+     */
+    const bad = [
+      [{ layerIndex: 1, name: "   " }],
+      [{ layerIndex: 1, name: "two\nlines" }],
+      [{ layerIndex: 1, name: "tab\there" }],
+      [{ layerIndex: 0, name: "fine" }],
+      [{ layerIndex: 1.5, name: "fine" }],
+    ];
+    for (const renames of bad) {
+      expect(() =>
+        dispatch(bridge, { id: "c", name: "renameLayers", args: { renames } }),
+      ).toThrow();
+    }
+    expect(() =>
+      dispatch(bridge, { id: "c", name: "renameLayers", args: { renames: [] } }),
+    ).toThrow(/non-empty/);
+  });
+});

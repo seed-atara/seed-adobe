@@ -637,6 +637,20 @@ export class CepAeBridge {
   }
 
 
+
+  /** Removes empty folders; a folder holding anything is refused, not emptied. */
+  async deleteFolders(paths: string[]): Promise<Record<string, unknown>> {
+    await this.ensureHost();
+    return evalHost(`${hostPrefix()}deleteFolders(${JSON.stringify(paths)})`);
+  }
+
+  /** Renames layers in bulk, guarded by the name each index is expected to have. */
+  async renameLayers(
+    renames: Array<{ layerIndex: number; name: string; expectName?: string }>,
+  ): Promise<Record<string, unknown>> {
+    await this.ensureHost();
+    return evalHost(`${hostPrefix()}renameLayers(${JSON.stringify(renames)})`);
+  }
   /** Where a layer sits in the stack, which is what occludes what. */
   async moveLayer(layerIndex: number, toIndex: number): Promise<Record<string, unknown>> {
     await this.ensureHost();
