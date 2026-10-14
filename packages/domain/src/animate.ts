@@ -284,6 +284,32 @@ export function rigidPhrase(parts: readonly string[]): string {
  * `IN_PLACE`, which stops the subject travelling. Both of those still leave a
  * plant free to reinvent itself on the spot.
  */
+/**
+ * Keeping the artwork's own focus, against a model that treats blur as damage.
+ *
+ * Measured on the GYG party-city wall (2026-10-15): region 8 is a deliberately
+ * out-of-focus corner of the painting, and the clip generated from it climbed
+ * to **193%** of the plate's gradient energy by frame 151 before settling back
+ * — soft, then crisp, then soft, inside one ten-second loop. Composited into a
+ * window of a wall that stays soft around it, that reads as the patch snapping
+ * into focus and out again.
+ *
+ * "Soft painterly illustration, shallow focus" in the description did not stop
+ * it, and neither did "held exactly": a description says what the artwork is,
+ * and the model took enhancing it as help. This is the instruction stated where
+ * the strong ones live, and stated as what the blur IS — part of the artwork —
+ * rather than as a request for less sharpening.
+ */
+export const HOLD_DETAIL = {
+  opening: "keeping its own focus exactly as it is",
+  closing:
+    "The focus, blur, grain and level of detail in the first frame are part of " +
+    "the artwork, not faults in it. Keep them exactly as they are for the whole " +
+    "shot: do not sharpen, enhance, denoise, resolve or add detail to anything " +
+    "that is soft or out of focus in the first frame, and do not blur anything " +
+    "that is sharp in it",
+} as const;
+
 export const IDLE = {
   opening: "in a gentle idle loop, barely moving",
   closing:
@@ -323,6 +349,14 @@ export interface AnimateRequest {
    */
   idle?: boolean;
   /**
+   * Hold the plate's own focus and detail. See `HOLD_DETAIL`.
+   *
+   * Wanted by any plate cut from artwork with depth of field in it, and the
+   * cheapest insurance there is: a region whose sharpness pulses does not
+   * register with the static artwork around it however well it is keyed.
+   */
+  holdDetail?: boolean;
+  /**
    * The artwork's lamps are meant to flicker. See `ANIMATE_TAIL_LIGHTS`.
    *
    * Only set this when a light source in the first frame is supposed to vary,
@@ -348,6 +382,7 @@ export function animatePrompt(request: AnimateRequest): string {
   const clauses = [description];
   const rigid = rigidPhrase(request.rigid ?? []);
   if (request.idle) clauses.push(IDLE.opening);
+  if (request.holdDetail) clauses.push(HOLD_DETAIL.opening);
   if (rigid) clauses.push(RIGID.opening(rigid));
   if (request.inPlace) clauses.push(IN_PLACE.opening);
   if (request.margin) clauses.push(KEEP_MARGIN.opening);
@@ -369,6 +404,7 @@ export function animatePrompt(request: AnimateRequest): string {
     // Last of the specific clauses, because it is the strongest note about
     // how much to move and the last specific thing read carries most.
     ...(request.idle ? [IDLE.closing] : []),
+    ...(request.holdDetail ? [HOLD_DETAIL.closing] : []),
     ...(request.inPlace ? [IN_PLACE.closing] : []),
     ...(request.margin ? [KEEP_MARGIN.closing] : []),
     request.lights ? ANIMATE_TAIL_LIGHTS : ANIMATE_TAIL,

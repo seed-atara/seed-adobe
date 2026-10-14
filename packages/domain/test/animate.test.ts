@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   ANIMATE_TAIL,
+  HOLD_DETAIL,
   IDLE,
   animatePrompt,
   defaultBeats,
@@ -504,5 +505,55 @@ describe("artwork whose lamps are meant to flicker", () => {
 
   it("is off unless asked for, because it is a licence", () => {
     expect(animatePrompt(request)).toBe(animatePrompt({ ...request, lights: false }));
+  });
+});
+
+/*
+ * A model that reads soft focus as damage.
+ *
+ * Region 8 of the party-city wall is a deliberately out-of-focus corner of the
+ * painting. The clip generated from it reached 193% of the plate's gradient
+ * energy by frame 151 and settled back by the end: soft, crisp, soft, inside
+ * one loop. In a window of a wall that stays soft around it, that is the patch
+ * snapping into focus and out again.
+ */
+describe("holding the plate's own focus", () => {
+  const request = {
+    describe: "A softly out-of-focus night detail of a stone arch, shallow focus",
+    beats: [{ from: 0, to: 10, action: "the lantern flames breathe" }],
+  };
+
+  it("says the blur is part of the artwork, not a fault in it", () => {
+    const held = animatePrompt({ ...request, holdDetail: true });
+    expect(held).toContain("part of the artwork, not faults in it");
+    expect(held).toContain("do not sharpen");
+    // Both directions: a plate that is sharp must not be softened either.
+    expect(held).toContain("do not blur anything that is sharp");
+  });
+
+  it("is named in the opening too, where the artwork is described", () => {
+    const held = animatePrompt({ ...request, holdDetail: true });
+    expect(held).toContain(HOLD_DETAIL.opening);
+    // Before the beats, because it is a fact about the plate and not an action.
+    expect(held.indexOf(HOLD_DETAIL.opening)).toBeLessThan(held.indexOf("0-10s"));
+  });
+
+  it("is off unless asked for", () => {
+    expect(animatePrompt(request)).toBe(animatePrompt({ ...request, holdDetail: false }));
+    expect(animatePrompt(request)).not.toContain("do not sharpen");
+  });
+
+  it("sits with the other strong constraints rather than replacing them", () => {
+    const held = animatePrompt({
+      ...request,
+      holdDetail: true,
+      idle: true,
+      lights: true,
+      rigid: ["the stone arch"],
+    });
+    expect(held).toContain(IDLE.closing);
+    expect(held).toContain("must not move, sway, bend");
+    expect(held).toContain("may vary gently in brightness");
+    expect(held).toContain("do not sharpen");
   });
 });

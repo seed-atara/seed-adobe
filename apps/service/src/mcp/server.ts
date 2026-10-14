@@ -351,6 +351,17 @@ export function createSeedMcpServer(options: McpOptions): McpServer {
               "beat sheet grew its leaf area to 106.7%, and the same plant on an " +
               "idle held inside 2%",
           ),
+        holdDetail: z
+          .boolean()
+          .default(false)
+          .describe(
+            "hold the plate's own focus and detail. For any plate cut from " +
+              "artwork with depth of field in it: a deliberately out-of-focus " +
+              "region of the GYG party-city wall came back at 193% of the plate's " +
+              "gradient energy mid-loop and settled back by the end, which in a " +
+              "window of a soft wall reads as the patch snapping into focus and " +
+              'out again. "Shallow focus" in the description did not stop it',
+          ),
         lights: z
           .boolean()
           .default(false)
@@ -389,6 +400,7 @@ export function createSeedMcpServer(options: McpOptions): McpServer {
         inPlace: args.inPlace,
         margin: args.margin,
         idle: args.idle,
+        holdDetail: args.holdDetail,
         lights: args.lights,
         ...(args.rigid === undefined ? {} : { rigid: args.rigid }),
       });

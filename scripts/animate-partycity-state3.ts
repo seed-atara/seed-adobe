@@ -17,10 +17,30 @@
  *
  * Ten seconds, not twelve: the comp is 30s and the clip has to tile it exactly.
  * 10 x 3 and 15 x 2 are the only durations that do, and 10s is the cheaper.
+ *
+ * ## Why these asset ids are not the captures
+ *
+ * No R2 publisher is configured on this box, so `ArkAssetLibrary` cannot
+ * register a reference and every image falls back to an inline base64 data
+ * URI -- twice over, because `loop` puts the same still in both frame slots.
+ * These plates are painterly night artwork at ~3.8 bytes per pixel, so R7's
+ * capture is an 11 MB PNG, which is ~29 MB of JSON, which does not upload
+ * inside the provider's 60s timeout. Three of the four died there with
+ * "Seedance POST /contents/generations/tasks failed" and no HTTP status,
+ * because the abort happens in transport and never reaches the API.
+ *
+ * The fix is not a longer timeout. A 1080p generation makes 1920x1080, so the
+ * plate cannot inform more pixels than that: resized to 1920 on the long edge
+ * and encoded q95 4:4:4, R7 goes 11 MB -> 0.68 MB for a mean error of
+ * 0.72/255 (max 12), which is far less than the 4:2:0 H.264 the result comes
+ * back in. `R{n}_plate.jpg`, adopted into the library.
  */
 import { animatePrompt } from "../packages/domain/src/animate.js";
 
 const dry = process.argv.includes("--dry");
+/** `--only R5,R7` re-runs part of the set without respending on the rest. */
+const onlyAt = process.argv.indexOf("--only");
+const only = onlyAt >= 0 ? (process.argv[onlyAt + 1] ?? "").split(",") : [];
 const token = process.env.SEED_AE_SESSION_TOKEN;
 const base = `http://${process.env.SEED_AE_HOST ?? "127.0.0.1"}:${process.env.SEED_AE_PORT ?? "47831"}`;
 const PROJECT =
@@ -38,7 +58,7 @@ if (!dry && !token) throw new Error("SEED_AE_SESSION_TOKEN is not set");
 const REGIONS = [
   {
     name: "SEED Region 5",
-    assetId: "ast_6802cc25-5434-40bb-a792-f44096312cd9",
+    assetId: "ast_59ba0925-072f-4e40-861e-3cb6d125b614",
     size: [1724, 969] as const,
     describe:
       "A painted night scene of a Mexican colonial courtyard: two pale carved " +
@@ -78,7 +98,7 @@ const REGIONS = [
   },
   {
     name: "SEED Region 6",
-    assetId: "ast_46b31cda-21da-4dbb-9f62-c0edcc169d37",
+    assetId: "ast_332c1e69-bdbe-41c8-a010-10a488f5cb00",
     size: [1390, 782] as const,
     describe:
       "A painted night view through a pale stone arch down a warm Mexican " +
@@ -117,7 +137,7 @@ const REGIONS = [
   },
   {
     name: "SEED Region 7",
-    assetId: "ast_456498eb-bcdc-4030-ad9d-d80934c242e4",
+    assetId: "ast_26a8f7a7-1828-4861-916f-f9f2b3edf756",
     size: [2262, 1272] as const,
     describe:
       "A painted night elevation of a Mexican colonial facade: three pale " +
@@ -191,11 +211,20 @@ const REGIONS = [
           "lit exactly as it was",
       },
     ],
-    note: "the plate is genuinely soft — keep the shallow focus, do not sharpen it",
+    /*
+     * This plate is a deliberately out-of-focus corner of the wall, and the
+     * first pass at it climbed to 193% of the plate's gradient energy by frame
+     * 151 before settling back: soft, crisp, soft, in one loop. Against a wall
+     * that stays soft around it, that is the patch pulling focus.
+     */
+    holdDetail: true,
   },
 ] as const;
 
 for (const region of REGIONS) {
+  if (only.length && !only.some((pick) => region.name.endsWith(pick.replace(/^R/, "")))) {
+    continue;
+  }
   const prompt = animatePrompt({
     describe: region.describe,
     beats: [...region.beats],
@@ -205,6 +234,7 @@ for (const region of REGIONS) {
     idle: true,
     // These are lanterns; the standard tail would tell the model not to flicker.
     lights: true,
+    ...("holdDetail" in region && region.holdDetail ? { holdDetail: true } : {}),
     rigid: [...region.rigid],
   });
 
