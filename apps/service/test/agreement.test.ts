@@ -38,6 +38,7 @@ let blank: string;
 const PLATE_WIDTH = 1600;
 const DRIFT = 40;
 
+// Five ffmpeg invocations, for the same reason the tests below get 60s.
 beforeAll(async () => {
   // A space in the path, like every real project folder.
   root = await mkdtemp(path.join(tmpdir(), "seed agreement "));
@@ -81,13 +82,21 @@ beforeAll(async () => {
     "-f", "lavfi", "-i", `color=c=gray:size=${PLATE_WIDTH}x900`,
     "-frames:v", "1", blank,
   ]);
-});
+}, 60_000);
 
 afterAll(async () => {
   await rm(root, { recursive: true, force: true });
 });
 
-describe("measuring a plate against its render", () => {
+/*
+ * Every test here shells out to ffmpeg twice on a 1600x900 frame, which takes
+ * a few seconds on a warm machine and longer on a cold one. Vitest's default
+ * 5s is sized for tests that do arithmetic, and this one measures images, so
+ * the first test in the file failed on timing roughly as often as it passed
+ * and got written off as a flake for a week. It was not flaky; it was
+ * correct and slow, and the limit was wrong.
+ */
+describe("measuring a plate against its render", { timeout: 60_000 }, () => {
   it("reports no movement when a frame is compared to itself", async () => {
     const agreement = await plateAgreement(plate, plate, { plateWidth: PLATE_WIDTH, env });
     expect(agreement.measured).toBeGreaterThan(20);

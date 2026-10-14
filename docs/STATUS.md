@@ -1325,3 +1325,48 @@ catches a plant being re-drawn rather than moved, which is what the monstera did
 on a gust beat sheet (106.7% of its opening area at 3.8s, against 100-102% for
 the three fine-leaved regions on the same sheet). Big recognisable shapes are
 regenerated; textures are displaced.
+
+### Verified in After Effects, not just offline
+
+Everything above was measured on rebuilt composites. On 2026-10-14 the comp
+itself was rendered — `captureFrame` on 1398, a real 5750x2818 AE frame — and
+measured:
+
+| | |
+|---|---|
+| blue-dominant pixels (b > r+25 and b > g+25) | **0** |
+| near-pure chroma survivors (b > 200, r < 60, g < 60) | **0** |
+| transparent pixels below the roof cut | **0** |
+| detail retained vs each region's own source plate | 94.7–106.9% |
+
+The frame is 9.70% transparent and all of it is above y=1036 — the roof cut the
+PSD always had, which is the proscenium's actual pentagon. Nothing below it is
+uncovered, so the original `BG_waves_Sunset` still underneath the three animated
+passes contributes nothing and can stay switched off.
+
+The detail figure is the one worth keeping: a region is a generated 1080x1920
+clip standing in for a window of a 5750-wide painting, and the obvious fear is
+that it arrives soft. Measured as gradient energy against the plate each region
+was generated from, R1 and R2 come back slightly *sharper* than their plates and
+R3/R4 within 5%. Comparing a region against neighbouring untouched artwork
+instead says nothing — the centre arch scores 4.04 against R3's 9.16 purely
+because it is sky and R3 is foliage.
+
+### Addressing a comp without opening it
+
+`renameLayers`, `moveLayer`, `setLayerEnabled` and `deleteLayer` now take an
+optional `compId` and fall back to the active comp when it is absent. This is
+not a convenience. Opening a composition is a render, and two comps here cannot
+afford one — the 6688x1912 arcade with forty 4K layers, and this proscenium — so
+a rename that needed one of them in front was a rename that did not happen. The
+work itself touches no pixels; only `openInViewer` did. Host helper:
+`seedTargetComp`, which returns a reason rather than throwing.
+
+### The agreement test was never flaky
+
+`agreement.test.ts` was written off as a load flake for a week. It was not: the
+tests shell out to ffmpeg twice on a 1600x900 frame, the slowest takes 5289ms,
+and Vitest's default limit is 5000ms. Declared 60s on the describe, with the
+reason in the file. `render.test.tsx` had the same shape — whichever test
+imports `App` first pays to transform the panel's whole module graph. Both
+declared; 885/885 across 70 files.

@@ -92,6 +92,18 @@ function quote(value: string): string {
 }
 
 /**
+ * A composition id as a host argument, or `null` for "whichever is in front".
+ *
+ * Absent and empty both mean the active comp, because a panel field the artist
+ * cleared and a field they never filled are the same intent.
+ */
+function compArg(compId?: string | number): string {
+  return compId === undefined || compId === null || String(compId) === ""
+    ? "null"
+    : quote(String(compId));
+}
+
+/**
  * Runs one host call, loading the host script in the same breath.
  *
  * CEP evaluates the ScriptPath from its manifest dispatch for *each*
@@ -647,14 +659,23 @@ export class CepAeBridge {
   /** Renames layers in bulk, guarded by the name each index is expected to have. */
   async renameLayers(
     renames: Array<{ layerIndex: number; name: string; expectName?: string }>,
+    compId?: string,
   ): Promise<Record<string, unknown>> {
     await this.ensureHost();
-    return evalHost(`${hostPrefix()}renameLayers(${JSON.stringify(renames)})`);
+    return evalHost(
+      `${hostPrefix()}renameLayers(${JSON.stringify(renames)}, ${compArg(compId)})`,
+    );
   }
   /** Where a layer sits in the stack, which is what occludes what. */
-  async moveLayer(layerIndex: number, toIndex: number): Promise<Record<string, unknown>> {
+  async moveLayer(
+    layerIndex: number,
+    toIndex: number,
+    compId?: string,
+  ): Promise<Record<string, unknown>> {
     await this.ensureHost();
-    return evalHost(`${hostPrefix()}moveLayer(${layerIndex}, ${toIndex})`);
+    return evalHost(
+      `${hostPrefix()}moveLayer(${layerIndex}, ${toIndex}, ${compArg(compId)})`,
+    );
   }
   /** Makes folders by path ("ELEMENTS/Car01"), idempotently. */
   async createFolders(paths: string[]): Promise<Record<string, unknown>> {
@@ -795,10 +816,15 @@ export class CepAeBridge {
     return evalHost(`${hostPrefix()}applyEffects(${Number(layerIndex)}, ${list})`);
   }
 
-  async setLayerEnabled(layerIndex: number, enabled: boolean): Promise<Record<string, unknown>> {
+  async setLayerEnabled(
+    layerIndex: number,
+    enabled: boolean,
+    compId?: string,
+  ): Promise<Record<string, unknown>> {
     await this.ensureHost();
     return evalHost(
-      `${hostPrefix()}setLayerEnabled(${Number(layerIndex)}, ${enabled ? "true" : "false"})`,
+      `${hostPrefix()}setLayerEnabled(${Number(layerIndex)}, ${enabled ? "true" : "false"}, ` +
+        `${compArg(compId)})`,
     );
   }
 
@@ -894,10 +920,15 @@ export class CepAeBridge {
   }
 
   /** Removes a layer, refusing if its name is not what the caller expected. */
-  async deleteLayer(layerIndex: number, expectName?: string): Promise<Record<string, unknown>> {
+  async deleteLayer(
+    layerIndex: number,
+    expectName?: string,
+    compId?: string,
+  ): Promise<Record<string, unknown>> {
     await this.ensureHost();
     return evalHost(
-      `${hostPrefix()}deleteLayer(${layerIndex}, ${expectName ? quote(expectName) : "null"})`,
+      `${hostPrefix()}deleteLayer(${layerIndex}, ${expectName ? quote(expectName) : "null"}, ` +
+        `${compArg(compId)})`,
     );
   }
 

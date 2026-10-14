@@ -373,8 +373,76 @@ describe("cleaning up after a restructure", () => {
           { layerIndex: 9, name: "cloud bank upper", expectName: "Layer 17" },
           { layerIndex: 38, name: "cloud bank lower" },
         ],
+        undefined,
       ],
     ]);
+  });
+
+  /*
+   * Naming a comp rather than opening it.
+   *
+   * Two comps in the GYG projection cannot afford to be opened -- the
+   * 6688x1912 arcade with forty 4K layers, and the 5750x2818 proscenium --
+   * because `openInViewer` renders them. While these commands only read the
+   * active comp, the layers in those two could not be renamed or restacked at
+   * all. An id costs nothing and touches no pixels.
+   */
+  it("passes a composition id through, so a heavy comp need not be opened", async () => {
+    const { bridge, calls } = recordingBridge();
+
+    await dispatch(bridge, {
+      id: "c",
+      name: "renameLayers",
+      args: { renames: [{ layerIndex: 12, name: "fence left" }], compId: "1081" },
+    });
+    expect(calls[0]?.[1]?.[1]).toBe("1081");
+
+    await dispatch(bridge, {
+      id: "c",
+      name: "moveLayer",
+      args: { layerIndex: 3, toIndex: 16, compId: 1398 },
+    });
+    expect(calls[1]).toEqual(["moveLayer", [3, 16, "1398"]]);
+
+    await dispatch(bridge, {
+      id: "c",
+      name: "setLayerEnabled",
+      args: { layerIndex: 2, enabled: false, compId: "1542" },
+    });
+    expect(calls[2]).toEqual(["setLayerEnabled", [2, false, "1542"]]);
+
+    await dispatch(bridge, {
+      id: "c",
+      name: "deleteLayer",
+      args: { layerIndex: 5, expectName: "husk", compId: "1570" },
+    });
+    expect(calls[3]).toEqual(["deleteLayer", [5, "husk", "1570"]]);
+  });
+
+  it("still means the active comp when no id is given, and refuses a bad one", async () => {
+    const { bridge, calls } = recordingBridge();
+
+    // Absent and empty are the same intent: a field never filled and one the
+    // artist cleared both mean "whichever comp is in front".
+    for (const compId of [undefined, ""]) {
+      await dispatch(bridge, {
+        id: "c",
+        name: "moveLayer",
+        args: { layerIndex: 1, toIndex: 2, ...(compId === undefined ? {} : { compId }) },
+      });
+    }
+    expect(calls[0]).toEqual(["moveLayer", [1, 2, undefined]]);
+    expect(calls[1]).toEqual(["moveLayer", [1, 2, undefined]]);
+
+    for (const compId of ["not-a-comp", 0, -3, 1.5]) {
+      expect(() =>
+        dispatch(bridge, {
+          id: "c",
+          name: "moveLayer",
+          args: { layerIndex: 1, toIndex: 2, compId },
+        }),
+      ).toThrow(/composition id/);
+    }
   });
 
   it("refuses an empty name, a line break, and a nonsense index", () => {

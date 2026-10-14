@@ -68,6 +68,35 @@ function seedActiveComp() {
     return item;
 }
 
+/**
+ * The composition a command is about: named by id, or whichever is in front.
+ *
+ * Addressing a comp by id is not a convenience. Opening a composition is a
+ * render, and two comps in this project cannot afford one -- the 6688x1912
+ * arcade with forty 4K layers, and the 5750x2818 proscenium -- so a rename or
+ * a restack that needed them in front was a rename that did not happen. The
+ * work itself touches no pixels; only `openInViewer` did.
+ *
+ * Returns `{ comp: null, error: "..." }` rather than throwing, so a caller can
+ * hand the reason straight back and say which comp it could not find.
+ */
+function seedTargetComp(compId) {
+    if (!app.project) return { comp: null, error: "no project is open" };
+    if (compId === undefined || compId === null || String(compId) === "") {
+        var active = seedActiveComp();
+        if (!active) {
+            return {
+                comp: null,
+                error: "no active composition, and no compId was given"
+            };
+        }
+        return { comp: active, error: null };
+    }
+    var found = seedFindCompById(compId);
+    if (!found) return { comp: null, error: "no composition has id " + String(compId) };
+    return { comp: found, error: null };
+}
+
 // ------------------------------------------------------------------ context
 
 /**
@@ -2872,10 +2901,11 @@ function seedDeleteFolders(paths) {
  * in a stack that somebody may have reordered since the list was written, and
  * renaming the wrong layer produces a comp that lies about itself.
  */
-function seedRenameLayers(renames) {
+function seedRenameLayers(renames, compId) {
     try {
-        var comp = seedActiveComp();
-        if (!comp) return seedFail("no active composition");
+        var target = seedTargetComp(compId);
+        if (!target.comp) return seedFail(target.error);
+        var comp = target.comp;
         if (!renames || !renames.length) return seedFail("no renames were given");
 
         app.beginUndoGroup("SEED: rename layers");
@@ -3111,10 +3141,11 @@ function seedSetTransform(layerIndex, property, value, keyframes, interpolation,
  * one that was asked for -- a move past the end of the stack clamps, and the
  * caller should hear about it from the host and not from a screenshot.
  */
-function seedMoveLayer(layerIndex, toIndex) {
+function seedMoveLayer(layerIndex, toIndex, compId) {
     try {
-        var comp = seedActiveComp();
-        if (!comp) return seedFail("no active composition");
+        var target = seedTargetComp(compId);
+        if (!target.comp) return seedFail(target.error);
+        var comp = target.comp;
 
         var from = Number(layerIndex);
         var to = Number(toIndex);
@@ -4077,10 +4108,11 @@ function seedApplyEffects(layerIndex, names) {
 }
 
 /** The eyeball. How a plate is kept but taken out of the picture. */
-function seedSetLayerEnabled(layerIndex, enabled) {
+function seedSetLayerEnabled(layerIndex, enabled, compId) {
     try {
-        var comp = seedActiveComp();
-        if (!comp) return seedFail("no active composition");
+        var target = seedTargetComp(compId);
+        if (!target.comp) return seedFail(target.error);
+        var comp = target.comp;
 
         var index = Number(layerIndex);
         if (!(index >= 1 && index <= comp.numLayers)) {
@@ -4355,10 +4387,11 @@ function seedSetEffectParams(layerIndex, effectName, params) {
  * clips switched off rather than removed. Refuses by name as well as index,
  * because an index is only true until the moment before.
  */
-function seedDeleteLayer(layerIndex, expectName) {
+function seedDeleteLayer(layerIndex, expectName, compId) {
     try {
-        var comp = seedActiveComp();
-        if (!comp) return seedFail("no active composition");
+        var target = seedTargetComp(compId);
+        if (!target.comp) return seedFail(target.error);
+        var comp = target.comp;
 
         var index = Number(layerIndex);
         if (!(index >= 1 && index <= comp.numLayers)) {

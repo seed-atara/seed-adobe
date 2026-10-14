@@ -137,9 +137,13 @@ export function dispatch(
     case "deleteFolders":
       return bridge.deleteFolders(folderPaths(args.paths));
     case "renameLayers":
-      return bridge.renameLayers(layerRenames(args.renames));
+      return bridge.renameLayers(layerRenames(args.renames), optionalCompId(args.compId));
     case "moveLayer":
-      return bridge.moveLayer(layerPosition(args.layerIndex), layerPosition(args.toIndex));
+      return bridge.moveLayer(
+        layerPosition(args.layerIndex),
+        layerPosition(args.toIndex),
+        optionalCompId(args.compId),
+      );
     case "setTransform":
       return bridge.setTransform(Number(args.layerIndex), transformProperty(args.property), {
         ...(args.value === undefined || args.value === null
@@ -163,7 +167,11 @@ export function dispatch(
         Array.isArray(args.names) ? args.names.map((name) => String(name)) : undefined,
       );
     case "setLayerEnabled":
-      return bridge.setLayerEnabled(Number(args.layerIndex), args.enabled !== false);
+      return bridge.setLayerEnabled(
+        Number(args.layerIndex),
+        args.enabled !== false,
+        optionalCompId(args.compId),
+      );
     case "insertIntoComp":
       return bridge.insertIntoComp(String(args.assetId), {
         startSeconds: Number(args.startSeconds ?? 0),
@@ -203,6 +211,7 @@ export function dispatch(
         args.expectName === undefined || args.expectName === null
           ? undefined
           : String(args.expectName),
+        optionalCompId(args.compId),
       );
     case "saveVersion":
       return bridge.saveVersion(
@@ -303,6 +312,22 @@ function layerPosition(value: unknown): number {
     throw new Error(`${String(value)} is not a layer index (they start at 1)`);
   }
   return index;
+}
+
+/**
+ * An optional composition id, for commands that otherwise act on the active comp.
+ *
+ * Validated rather than passed through, because a mistyped id must come back as
+ * "not a composition id" from here and not as a silent fall-through to whatever
+ * comp the artist happens to have in front of them.
+ */
+function optionalCompId(value: unknown): string | undefined {
+  if (value === undefined || value === null || String(value) === "") return undefined;
+  const id = Number(value);
+  if (!Number.isInteger(id) || id < 1) {
+    throw new Error(`${String(value)} is not a composition id`);
+  }
+  return String(id);
 }
 
 /** The transforms this will set, spelled as the host spells them. */

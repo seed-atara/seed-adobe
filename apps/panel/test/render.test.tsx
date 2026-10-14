@@ -33,7 +33,13 @@ async function render() {
   return renderToString(createElement(App));
 }
 
-describe("panel shell", () => {
+/*
+ * Whichever test imports `App` first pays to transform the panel's whole
+ * module graph, and under a full-suite run that is well past Vitest's 5s
+ * default -- which is why this file's first test failed on a loaded machine
+ * and passed on a quiet one. The render itself takes milliseconds.
+ */
+describe("panel shell", { timeout: 60_000 }, () => {
   it("asks for a session token when none is stored", async () => {
     const html = await render();
     expect(html).toContain("session token");
