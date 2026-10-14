@@ -11,3 +11,4 @@ export * from "./lighting.js";
 export * from "./camera.js";
 export * from "./clampAlpha.js";
 export * from "./overBacking.js";
+export * from "./unspill.js";

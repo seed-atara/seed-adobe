@@ -54,25 +54,32 @@ const REGIONS: Region[] = [
   {
     key: "R1",
     regionName: "SEED Region 1",
-    generationId: "gen_199442cb-7c00-492e-a0c4-bc94e3edb003",
+    generationId: "gen_829ba55e-7822-4227-983f-c944081d6e62",
     reuseItemIds: ["1613", "1615", "1617"],
   },
   {
     key: "R2",
     regionName: "SEED Region 2",
-    generationId: "gen_582b1a74-cabf-4375-b255-149aee5676e6",
+    generationId: "gen_ea0c8fa9-60f3-4132-a4fd-1c59676a8f0c",
     reuseItemIds: ["1619", "1621", "1623"],
   },
   {
     key: "R3",
     regionName: "SEED Region 3",
-    generationId: "gen_34400f40-69bc-4312-8795-e00d556a8ed9",
-    reuseItemIds: [],
+    generationId: "gen_0cd8825e-f4f5-4b42-81db-3d4965be4d4c",
+    /*
+     * R3 was inserted rather than re-pointed, and then inserted twice more as
+     * the key was redone — nine clip layers over one plate. Three of them are
+     * the live set; the other six are redundant and have to be deleted rather
+     * than left, because three identical layers at partial alpha compound to
+     * 87% where one gives 50% and the leaf edges thicken.
+     */
+    reuseItemIds: ["1713", "1715", "1717"],
   },
   {
     key: "R4",
     regionName: "SEED Region 4",
-    generationId: "gen_561bb4d3-c1ae-4af9-8cf1-5d976accaf68",
+    generationId: "gen_1d8a2c61-ea3a-4033-a583-02bb17d715be",
     reuseItemIds: ["1625", "1627", "1629"],
   },
 ];

@@ -1255,3 +1255,73 @@ the greenery, the musicians, the cook, the fruit seller and the figures.
 **The rule this gives, which is narrower than "not a scene":** an element may
 only be asked to move where the artwork has something drawn behind it. A
 pennant against sky can fly; an awning over its own signboard cannot.
+
+---
+
+## STATE2 — the golden-hour proscenium (2026-10-13/14)
+
+`gyg_gh_pros_pano_3`, comp **1398**, 5750x2818, 24fps, 30s. Two flat PSD layers
+do all the work: `FG_Object`, the stone proscenium with its planters and two
+lit lanterns, and `BG_waves_Sunset`, one connected sunset over the sea. The
+other four layers in the PSD are empty — `Layer 1` and `Layer 4` measure 0%
+alpha, so the sky/water split that their bounding boxes suggest does not exist.
+
+### Four regions carry the foreground, one clip carries the background
+
+Johannes framed the regions: two squares on the bottom corners where a lantern
+sits over a planter, two 9:16 portraits on the inner columns where a monstera
+vine climbs. They are the four foliage clusters, framed the shape each cluster
+actually is.
+
+The background cannot be split. The sky band alone is 5.55:1 and the water band
+3.23:1, both past the 21:9 ceiling, and the palms cannot be held out of it
+either: they share the sea's own luminance range (at luma < 110, 21% of the sky
+band is palm-dark and so is 56% of the sea band) and overlap it spatially. The
+whole visible window is 2.04:1, which fits, so it goes in one piece.
+
+### What the plates cost to get right
+
+| | tokens | ~$ |
+|---|---|---|
+| 4 regions x 10s 1080p, first pass (opaque crops, clamped) | 1.96M | 12 |
+| background 10s 4K, `adaptive` — **cropped, discarded** | 1.96M | 12 |
+| R3 re-roll as an idle | 489k | 3 |
+| background 10s 4K on a padded 16:9 plate | 1.96M | 12 |
+| 4 regions on chroma blue, 10s 1080p | 1.96M | 12 |
+| 4 regions again, on **correctly** composited plates | 1.96M | 12 |
+| | **10.3M** | **~63** |
+
+Two of those six rows were avoidable and are now impossible: see
+`SEEDANCE_2_0_COST_AND_STYLE.md` on `adaptive` snapping to the nearest listed
+aspect, and `packages/media/src/overBacking.ts` on premultiplied alpha.
+
+### The recipe that worked
+
+1. **Capture with the background switched off**, so the plate is `FG_Object`
+   alone with its alpha, and stand it on flat chroma blue — 167-175 levels from
+   the artwork against 129-137 for green, and the artwork is foliage. Key the
+   result rather than clamping it, so a leaf may sway past the silhouette it
+   was traced from.
+2. **Composite the plate premultiplied** (`rgb + backing x (1 - a)`). The
+   straight-alpha form squares it and bakes a dark violet rim into every soft
+   edge, which is 8% of these plates.
+3. **Tell the matte the backing colour.** A region cut from a larger plate has
+   artwork running to the frame edge, so the auto-sample reads the artwork:
+   measured [47,29,207] against a real [0,4,245], which is inside the flood
+   tolerance and far outside the pocket tolerance, so every enclosed arch
+   opening survived as a sheet of blue.
+4. **`pocketMinArea: 0` and a pocket tolerance to match.** Safe by measurement:
+   the nearest artwork pixel is 138 levels from blue.
+5. **Ask for an idle, not a gust.** `IDLE` in `animate.ts`; one slow cycle
+   across the ten seconds with the amplitude written in as a bound the model can
+   picture ("a few degrees", "no more than a leaf's width"), not an adverb.
+6. **Exempt the sea.** `IDLE` forbids anything unfurling or changing shape,
+   which is what a breaking wave does.
+
+### What the measurements say about a clip before it is placed
+
+Amplitude inside the matte, loop closure, and the leaf-area swing — the last
+catches a plant being re-drawn rather than moved, which is what the monstera did
+on a gust beat sheet (106.7% of its opening area at 3.8s, against 100-102% for
+the three fine-leaved regions on the same sheet). Big recognisable shapes are
+regenerated; textures are displaced.
