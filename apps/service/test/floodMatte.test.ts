@@ -204,3 +204,58 @@ describe("the alpha it produces", () => {
     expect([out[at], out[at + 1], out[at + 2]]).toEqual([100, 143, 24]);
   });
 });
+
+/**
+ * Zero means zero.
+ *
+ * The size test in the pocket pass protects a small prop that sits near the
+ * backing colour. Its floor of 16 pixels also kept every speck of trapped
+ * backing smaller than that — which on the GYG proscenium regions was the gaps
+ * between leaves, and chroma blue inside gold foliage is the most visible
+ * error available. An operator who has measured that nothing in the artwork is
+ * near the backing needs a way to turn the size test off.
+ */
+describe("pocketMinArea of zero", () => {
+  /** A frame with one 4-pixel island of backing walled off by artwork. */
+  function frameWithTinyPocket(): { rgb: Uint8Array; width: number; height: number } {
+    const width = 12;
+    const height = 12;
+    const rgb = new Uint8Array(width * height * 3);
+    for (let i = 0; i < width * height; i++) {
+      const x = i % width;
+      const y = (i / width) | 0;
+      // Backing everywhere, artwork in a ring, backing again inside it.
+      const inRing = x >= 3 && x <= 8 && y >= 3 && y <= 8;
+      const inHole = x >= 5 && x <= 6 && y >= 5 && y <= 6;
+      const colour = inRing && !inHole ? [220, 150, 40] : [0, 0, 255];
+      rgb[i * 3] = colour[0]!;
+      rgb[i * 3 + 1] = colour[1]!;
+      rgb[i * 3 + 2] = colour[2]!;
+    }
+    return { rgb, width, height };
+  }
+
+  it("keeps a 4-pixel pocket at the default floor and cuts it at zero", () => {
+    const backing = [0, 0, 255] as const;
+    const run = (pocketMinArea: number) => {
+      const { rgb, width, height } = frameWithTinyPocket();
+      const out = new Uint8Array(width * height * 4);
+      return matteFrame(rgb, out, width, height, backing, 60, 80, true, 60, pocketMinArea);
+    };
+
+    // The default floor of 16 cannot reach a four-pixel island.
+    expect(run(0.00002).keptMatches).toBe(4);
+    // Asked for zero, the exactness test decides on its own and the island goes.
+    expect(run(0).keptMatches).toBe(0);
+  });
+
+  it("still protects the artwork, which is nowhere near the backing", () => {
+    const { rgb, width, height } = frameWithTinyPocket();
+    const out = new Uint8Array(width * height * 4);
+    matteFrame(rgb, out, width, height, [0, 0, 255], 60, 80, true, 60, 0);
+    // The ring is 220,150,40 — 215 from blue. Every pixel of it survives.
+    let opaque = 0;
+    for (let i = 0; i < width * height; i++) if (out[i * 4 + 3]! > 250) opaque++;
+    expect(opaque).toBe(6 * 6 - 2 * 2);
+  });
+});

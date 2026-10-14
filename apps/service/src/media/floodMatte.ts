@@ -372,9 +372,27 @@ export function matteFrame(
 ): { kept: number; pocketsRemoved: number; keptMatches: number } {
   const [br, bg, bb] = backing;
   const mask = fillFromBorder(rgb, width, height, backing, tolerance);
+  /*
+   * `pocketMinArea: 0` means zero, and that is a real setting rather than a
+   * degenerate one.
+   *
+   * The size test exists to protect a small prop that happens to be near the
+   * backing colour — guacamole against green, denim against blue. It costs
+   * something: a floor of 16 pixels keeps every pocket smaller than that, and
+   * on the GYG proscenium regions those were the gaps *between leaves*. 664,245
+   * backing-coloured pixels survived across 240 frames, about 2,800 a frame in
+   * a few hundred specks of under 16 pixels each, and chroma blue inside gold
+   * foliage is the most visible error there is.
+   *
+   * When the operator has measured that nothing in the artwork is near the
+   * backing — 138 levels at the closest across those four plates, against a
+   * pocket tolerance of 100 — the size test has nothing left to protect and
+   * only the exactness test should apply. Clamping an explicit 0 up to 16 took
+   * away the ability to say so, so it no longer does.
+   */
   const pockets = fillEnclosedPockets(
     rgb, mask, width, height, backing, pocketTolerance,
-    Math.max(16, Math.round(width * height * pocketMinArea)),
+    pocketMinArea === 0 ? 1 : Math.max(16, Math.round(width * height * pocketMinArea)),
   );
 
   let kept = 0;

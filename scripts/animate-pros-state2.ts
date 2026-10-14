@@ -80,7 +80,7 @@ const SHOTS: Shot[] = [
   {
     key: "r1",
     label: "SEED Region 1 — bottom-left planter and lantern",
-    assetId: "ast_704c506c-aeaf-4366-b6cf-953c46c65073",
+    assetId: "ast_4eabe9bd-dbc8-410d-82e5-97b918173bee",
     screen: [1141, 1141],
     size: "1080p",
     aspectRatio: "1:1",
@@ -127,7 +127,7 @@ const SHOTS: Shot[] = [
   {
     key: "r2",
     label: "SEED Region 2 — bottom-right planter and lantern",
-    assetId: "ast_29f6d6e6-8fc2-488e-9eb9-67e4cc9a59d7",
+    assetId: "ast_d8c1064d-dfff-4486-91ef-c7f97c4d1282",
     screen: [1191, 1191],
     size: "1080p",
     aspectRatio: "1:1",
@@ -174,7 +174,7 @@ const SHOTS: Shot[] = [
   {
     key: "r3",
     label: "SEED Region 3 — monstera vine, left inner column",
-    assetId: "ast_5ecd04f9-9be0-4aa7-ace7-b7303d5a53c5",
+    assetId: "ast_04b178aa-71eb-432c-9b6b-c5a7fc93c279",
     screen: [1024, 1820],
     size: "1080p",
     aspectRatio: "9:16",
@@ -218,7 +218,7 @@ const SHOTS: Shot[] = [
   {
     key: "r4",
     label: "SEED Region 4 — ivy at the right inner column",
-    assetId: "ast_5f9171a8-717a-428f-872d-2b3afcfa5171",
+    assetId: "ast_b356cc41-1437-47ab-98cd-d1a374a84750",
     screen: [1046, 1860],
     size: "1080p",
     aspectRatio: "9:16",

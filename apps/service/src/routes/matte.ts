@@ -1,6 +1,6 @@
 import { SeedError } from "@seed-ae/domain";
 import { resolveStorageUri } from "@seed-ae/storage";
-import { mkdtemp } from "node:fs/promises";
+import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import nodePath from "node:path";
 import { z } from "zod";
@@ -34,7 +34,13 @@ const MatteSchema = z.object({
   /** Un-premultiply edge pixels against the backing. On unless refused. */
   despill: z.boolean().optional(),
   /** Override the sampled backing colour, 0-255 per channel. */
-  backing: z.tuple([z.number().min(0).max(255), z.number().min(0).max(255), z.number().min(0).max(255)]).optional(),
+  backing: z
+    .tuple([
+      z.number().min(0).max(255),
+      z.number().min(0).max(255),
+      z.number().min(0).max(255),
+    ])
+    .optional(),
   project: z.string().min(1).optional(),
 });
 
@@ -52,74 +58,100 @@ export function matteRoute(deps: AppDeps) {
     }
 
     const input = resolveStorageUri(deps.workspace, source.storageUri);
+    /*
+     * Scratch, and it has to be removed again.
+     *
+     * This used to be created and abandoned. `adoptFileIntoLibrary` copies the
+     * result into the library rather than moving it, so every matte left a
+     * full ProRes 4444 behind in the system temp directory — 360MB for a
+     * 1440x1440 ten-second clip and 2.3GB for a big one. Thirty-five of them
+     * filled a 931GB system drive to 1.1MB free, which stopped the next matte
+     * mid-write and would have stopped everything else on the machine too.
+     *
+     * The `finally` runs on the failure path as well, which is the path that
+     * matters: a matte that dies half-written leaves the largest files.
+     */
     const scratch = await mkdtemp(nodePath.join(tmpdir(), "seed matte "));
     const base = source.filename.replace(/\.[^.]+$/, "");
     const output = nodePath.join(scratch, `${base}_alpha.mov`);
 
-    const report = await matteClip(input, output, {
-      ...(request.tolerance === undefined ? {} : { tolerance: request.tolerance }),
-      ...(request.pocketTolerance === undefined ? {} : { pocketTolerance: request.pocketTolerance }),
-      ...(request.pocketMinArea === undefined ? {} : { pocketMinArea: request.pocketMinArea }),
-      ...(request.despill === undefined ? {} : { despill: request.despill }),
-      ...(request.backing === undefined ? {} : { backing: request.backing }),
-      env: process.env,
-    });
+    try {
+      const report = await matteClip(input, output, {
+        ...(request.tolerance === undefined
+          ? {}
+          : { tolerance: request.tolerance }),
+        ...(request.pocketTolerance === undefined
+          ? {}
+          : { pocketTolerance: request.pocketTolerance }),
+        ...(request.pocketMinArea === undefined
+          ? {}
+          : { pocketMinArea: request.pocketMinArea }),
+        ...(request.despill === undefined ? {} : { despill: request.despill }),
+        ...(request.backing === undefined ? {} : { backing: request.backing }),
+        env: process.env,
+      });
 
-    /*
-     * A spread above a few channels means the backing was not flat — a
-     * gradient, a shadow, or a shot where the subject reaches a corner. The
-     * fill still ran and the result may be fine, but it is the one number
-     * that predicts a bad matte, so it is said out loud rather than left in
-     * a report nobody reads.
-     */
-    const warnings: string[] = [];
-    if (report.backingSpread > 12) {
-      warnings.push(
-        `the four corners disagree by ${report.backingSpread} levels, so the ` +
-          `backing is not flat — check the edges`,
+      /*
+       * A spread above a few channels means the backing was not flat — a
+       * gradient, a shadow, or a shot where the subject reaches a corner. The
+       * fill still ran and the result may be fine, but it is the one number
+       * that predicts a bad matte, so it is said out loud rather than left in
+       * a report nobody reads.
+       */
+      const warnings: string[] = [];
+      if (report.backingSpread > 12) {
+        warnings.push(
+          `the four corners disagree by ${report.backingSpread} levels, so the ` +
+            `backing is not flat — check the edges`,
+        );
+      }
+
+      /*
+       * `keptMatches` counts pixels that looked like the backing and were kept
+       * anyway. A few is the module working: a green prop inside the subject,
+       * protected by not being connected to the edge. A lot is the pocket pass
+       * refusing to claim backing that genuinely is trapped, because the
+       * backdrop has a tint gradient and the trapped part sits further from the
+       * sampled colour than `pocketTolerance` allows.
+       *
+       * Measured on the four GYG elements, as a fraction of all pixels:
+       * mariachi 0.0000018, party crew 0.000012, taco date 0.000052 — all
+       * clean. The cafe tables came back at 0.00066, more than ten times the
+       * worst good one, and the clip had blue left under both tables. The
+       * threshold sits between them with room on each side, and raising
+       * `pocketTolerance` to 60 fixed that clip without touching its green
+       * trousers, which measure 150 levels from the backing.
+       *
+       * This is the number that spotted it. Before, it was in the report and
+       * nobody read it.
+       */
+      const matchRate =
+        report.keptMatches / (report.frames * report.width * report.height);
+      if (matchRate > 0.0002) {
+        warnings.push(
+          `${report.keptMatches} backing-coloured pixels were kept rather than cut ` +
+            `(${(matchRate * 100).toFixed(3)}% of the clip). That usually means backing ` +
+            `trapped behind the subject was too far from the sampled colour to claim — ` +
+            `try pocketTolerance 60, then check nothing green in the artwork went with it`,
+        );
+      }
+
+      const asset = await adoptFileIntoLibrary(
+        deps,
+        output,
+        request.project ?? source.project ?? undefined,
       );
+
+      return json({
+        asset,
+        source: { id: source.id, filename: source.filename },
+        report,
+        ...(warnings.length ? { warnings } : {}),
+      });
+    } finally {
+      // Best effort: a scratch directory that will not delete is not a reason
+      // to fail a matte that already succeeded.
+      await rm(scratch, { recursive: true, force: true }).catch(() => {});
     }
-
-    /*
-     * `keptMatches` counts pixels that looked like the backing and were kept
-     * anyway. A few is the module working: a green prop inside the subject,
-     * protected by not being connected to the edge. A lot is the pocket pass
-     * refusing to claim backing that genuinely is trapped, because the
-     * backdrop has a tint gradient and the trapped part sits further from the
-     * sampled colour than `pocketTolerance` allows.
-     *
-     * Measured on the four GYG elements, as a fraction of all pixels:
-     * mariachi 0.0000018, party crew 0.000012, taco date 0.000052 — all
-     * clean. The cafe tables came back at 0.00066, more than ten times the
-     * worst good one, and the clip had blue left under both tables. The
-     * threshold sits between them with room on each side, and raising
-     * `pocketTolerance` to 60 fixed that clip without touching its green
-     * trousers, which measure 150 levels from the backing.
-     *
-     * This is the number that spotted it. Before, it was in the report and
-     * nobody read it.
-     */
-    const matchRate = report.keptMatches / (report.frames * report.width * report.height);
-    if (matchRate > 0.0002) {
-      warnings.push(
-        `${report.keptMatches} backing-coloured pixels were kept rather than cut ` +
-          `(${(matchRate * 100).toFixed(3)}% of the clip). That usually means backing ` +
-          `trapped behind the subject was too far from the sampled colour to claim — ` +
-          `try pocketTolerance 60, then check nothing green in the artwork went with it`,
-      );
-    }
-
-    const asset = await adoptFileIntoLibrary(
-      deps,
-      output,
-      request.project ?? source.project ?? undefined,
-    );
-
-    return json({
-      asset,
-      source: { id: source.id, filename: source.filename },
-      report,
-      ...(warnings.length ? { warnings } : {}),
-    });
   };
 }

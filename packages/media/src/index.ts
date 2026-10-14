@@ -10,3 +10,4 @@ export * from "./passes.js";
 export * from "./lighting.js";
 export * from "./camera.js";
 export * from "./clampAlpha.js";
+export * from "./overBacking.js";

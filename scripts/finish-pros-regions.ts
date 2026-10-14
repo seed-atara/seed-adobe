@@ -169,14 +169,69 @@ for (const region of chosen) {
 
   if (!apply) continue;
 
-  /* Key the backing out. The colour is sampled from the clip, not assumed. */
-  const matted = await api("POST", "/v1/matte", { sourceAssetId: clip.id });
+  /*
+   * Key the backing out, telling it the colour rather than letting it sample.
+   *
+   * The auto-sample is wrong for a region, and wrong in the way that hurts
+   * most. It reads the frame edge, and a region cut out of a larger plate has
+   * artwork running right to that edge — the planter wall, the columns — so
+   * the sample came back [47,29,207] when the backing the model actually
+   * rendered is [0,4,245]. Measured: the frame edge of the R4 clip has a
+   * channel spread of (221,143,244), which is a sample of the artwork, not of
+   * the backdrop.
+   *
+   * 47 off is *inside* the flood tolerance of 60, so everything connected to
+   * the edge still keyed — and far outside the pocket tolerance of 16, so
+   * every enclosed opening survived. The right-centre arch came back as a
+   * sheet of blue. A plate we rendered ourselves has a backing we know, so
+   * there is no reason to infer it.
+   *
+   * The pocket tolerance is then raised to match: the nearest artwork pixel is
+   * 166-175 from blue, so 60 cannot reach the artwork, and `pocketMinArea: 0`
+   * lets the small gaps between leaves key out along with the big openings.
+   */
+  const matted = await api("POST", "/v1/matte", {
+    sourceAssetId: clip.id,
+    backing: [0, 0, 255],
+    /*
+     * Both tolerances raised well past the default, which is safe here by
+     * measurement rather than by nerve: the nearest artwork pixel to pure blue
+     * is 138 across the four regions (R3's darkest shadowed leaf) and 175 at
+     * best, so 85 and 100 cannot reach the artwork. At the defaults, 0.09% of
+     * the finished frame still read as chroma blue — specks in the gaps
+     * between leaves where a pixel is half leaf and half backing. Blue against
+     * gold is the most visible error available, so it is worth the second pass,
+     * and the pass is free.
+     */
+    tolerance: 85,
+    pocketTolerance: 100,
+    pocketMinArea: 0,
+  });
   const keyed = matted.asset ?? matted;
   const { path: keyedPath } = await api("GET", `/v1/assets/${keyed.id}/path`);
   console.log(
     `  keyed  ${keyed.filename}  ${keyed.width}x${keyed.height}` +
       (matted.report?.backing ? `  backing ${JSON.stringify(matted.report.backing)}` : ""),
   );
+  /*
+   * Print what the route already worked out.
+   *
+   * `/v1/matte` computes a `keptMatches` rate precisely to catch backing left
+   * behind the subject, and its own source comment says "before, it was in the
+   * report and nobody read it". It was in the report again and I did not read
+   * it again: the right-centre arch came back a sheet of blue and the number
+   * that said so was sitting in the response. Anything a tool takes the
+   * trouble to warn about gets printed where the operator is looking.
+   */
+  for (const warning of matted.warnings ?? []) console.log(`  WARNING ${warning}`);
+  if (matted.report) {
+    const r = matted.report;
+    const rate = r.keptMatches / (r.frames * r.width * r.height);
+    console.log(
+      `  backing kept ${r.keptMatches} px (${(rate * 100).toFixed(4)}% of the clip)` +
+        `  corner spread ${r.backingSpread}`,
+    );
+  }
 
   /* Measure before placing: a clip nobody looked at is a clip nobody trusts. */
   const dir = path.join(work, `${region.key}_keyed_frames`);
