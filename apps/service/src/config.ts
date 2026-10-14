@@ -110,6 +110,24 @@ export interface ProviderConfig {
   seedanceModelIds: string[];
   /** How many reference images Seedance is offered; see the research notes. */
   seedanceMaxReferences?: number;
+  /**
+   * How long one Seedance HTTP call may take, in milliseconds.
+   *
+   * The provider's own default is 60s, which is a sensible wait for an *answer*
+   * and the wrong budget entirely for the request that carries the references.
+   * Without an R2 publisher configured, `ArkAssetLibrary` cannot register a
+   * reference and every image travels inlined as base64 — twice over for a
+   * loop, which puts the same still in both frame slots. On the GYG party-city
+   * wall that was 1.1-1.8 MB of JSON per request on a good minute and five
+   * failures at 62-69s on a bad one, all of them reported as "Seedance POST
+   * /contents/generations/tasks failed" with no HTTP status, because an abort
+   * in transport never reaches the API to be explained.
+   *
+   * Raising this does not make a slow upload fast. It stops a slow upload being
+   * reported as a provider fault, and it is the only lever available until the
+   * references travel as `asset://` ids instead of bytes.
+   */
+  seedanceTimeoutMs?: number;
   /** Overrides the offered resolutions for every Seedance model. */
   seedanceSizes?: string[];
   /**
@@ -233,6 +251,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServiceConfig 
       ...(parsePositiveInt(env.SEEDANCE_MAX_REFERENCES)
         ? { seedanceMaxReferences: parsePositiveInt(env.SEEDANCE_MAX_REFERENCES) }
         : {}),
+      // `||`, not `??`: parsePositiveInt returns 0 for "0", and a zero
+      // timeout aborts every request the instant it is made.
+      seedanceTimeoutMs: parsePositiveInt(env.SEEDANCE_TIMEOUT_MS) || 300_000,
       ...(parsePositiveInt(env.SEEDANCE_STABLE_REFERENCES)
         ? { seedanceStableReferences: parsePositiveInt(env.SEEDANCE_STABLE_REFERENCES) }
         : {}),

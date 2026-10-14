@@ -34,6 +34,19 @@
  * and encoded q95 4:4:4, R7 goes 11 MB -> 0.68 MB for a mean error of
  * 0.72/255 (max 12), which is far less than the 4:2:0 H.264 the result comes
  * back in. `R{n}_plate.jpg`, adopted into the library.
+ *
+ * ## And why they are sent at exactly 1920x1080
+ *
+ * Of the first four clips, R7 was the only one whose plate was already the
+ * generation's own size, and it was the only one that composited invisibly:
+ * measured against the plate over the 24px feather band, its seam came back at
+ * mean 2.33 / p99 14, against 17.63 / 135 for R5, 15.57 / 88 for R6 and
+ * 7.60 / 67 for R8 — and R5's seam was worse at its edge than in its middle,
+ * which is a patch however well it is feathered. The three bad ones are the
+ * three the model had to resample (1.11x, 1.38x, 2.59x) to reach its own
+ * working grid, and a first frame that had to be resampled is a first frame
+ * that was re-interpreted rather than held. Upscaling the plate ourselves adds
+ * no information, but it hands the model the grid it is going to work on.
  */
 import { animatePrompt } from "../packages/domain/src/animate.js";
 
@@ -98,7 +111,7 @@ const REGIONS = [
   },
   {
     name: "SEED Region 6",
-    assetId: "ast_332c1e69-bdbe-41c8-a010-10a488f5cb00",
+    assetId: "ast_1e324a75-3155-4093-a2e9-6b777cd306e5",
     size: [1390, 782] as const,
     describe:
       "A painted night view through a pale stone arch down a warm Mexican " +
@@ -179,7 +192,7 @@ const REGIONS = [
   },
   {
     name: "SEED Region 8",
-    assetId: "ast_df6f9b55-2a6a-48c5-bf75-002f6b7c7a5d",
+    assetId: "ast_567b6741-81d9-4378-bb5a-55c8b3bd720e",
     size: [742, 417] as const,
     describe:
       "A painted, softly out-of-focus night detail of a pale stone arch and a " +

@@ -449,6 +449,7 @@ export function buildRegistry(
           ...(config.seedanceMaxReferences
             ? { maxReferences: config.seedanceMaxReferences }
             : {}),
+          ...(config.seedanceTimeoutMs ? { timeoutMs: config.seedanceTimeoutMs } : {}),
           ...(config.seedanceSizes ? { sizes: config.seedanceSizes } : {}),
           ...(config.seedanceStableReferences
             ? { stableReferences: config.seedanceStableReferences }
