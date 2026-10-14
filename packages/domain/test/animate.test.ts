@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   ANIMATE_TAIL,
+  IDLE,
   animatePrompt,
   defaultBeats,
   estimateTokens,
@@ -449,5 +450,59 @@ describe("the crop adaptive performs", () => {
   it("still reports the crop on the shapes it turns down outright", () => {
     // The cloud bank: out of range AND nowhere near a listed ratio.
     expect(aspectFits(2083, 591).crop.nearest).toBe("21:9");
+  });
+});
+
+/*
+ * A tail that forbade the thing being asked for.
+ *
+ * `ANIMATE_TAIL` ends "no stuttering or flickering" and earned that clause
+ * against frame-to-frame instability in the render. Pointed at a street of
+ * wrought-iron lanterns it is also, read literally, a ban on the brief. These
+ * pin the resolution: the stability guarantee survives, the word that
+ * contradicts it does not, and the licence is narrow.
+ */
+describe("artwork whose lamps are meant to flicker", () => {
+  const request = {
+    describe: "A painted night street of stone arches and iron lanterns",
+    beats: [{ from: 0, to: 10, action: "the amber flames breathe brighter and dimmer" }],
+  };
+
+  it("stops telling the model not to flicker", () => {
+    const plain = animatePrompt(request);
+    expect(plain).toContain("no stuttering or flickering");
+
+    const lit = animatePrompt({ ...request, lights: true });
+    expect(lit).not.toContain("no stuttering or flickering");
+    // The guarantee it was there for is still made, about the image itself.
+    expect(lit).toContain("no stuttering, strobing or frame-to-frame instability");
+  });
+
+  it("says what may vary, positively, and how far it reaches", () => {
+    const lit = animatePrompt({ ...request, lights: true });
+    // Positively: a model given only prohibitions finds something to prohibit.
+    expect(lit).toContain("may vary gently in brightness");
+    // Already lit in the first frame — not "a lamp may appear".
+    expect(lit).toContain("already lit in the first frame");
+    // And bounded at both ends: not the lamp's shape, not anything else's tone.
+    expect(lit).toContain("do not change shape");
+    expect(lit).toContain("nothing else in the artwork changes brightness");
+  });
+
+  it("leaves every other constraint exactly where it was", () => {
+    const lit = animatePrompt({
+      ...request,
+      lights: true,
+      idle: true,
+      rigid: ["the stone arches"],
+    });
+    expect(lit).toContain(IDLE.closing);
+    expect(lit).toContain("must not move, sway, bend");
+    // The lights clause is last, so it cannot outrank the specific ones.
+    expect(lit.indexOf(IDLE.closing)).toBeLessThan(lit.indexOf("may vary gently"));
+  });
+
+  it("is off unless asked for, because it is a licence", () => {
+    expect(animatePrompt(request)).toBe(animatePrompt({ ...request, lights: false }));
   });
 });

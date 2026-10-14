@@ -180,6 +180,26 @@ export const ANIMATE_TAIL =
   "features, normal proportions, natural fluid motion, consistent line weight " +
   "and flat colour, no stuttering or flickering.";
 
+/**
+ * The same tail, for artwork whose lamps are supposed to flicker.
+ *
+ * `ANIMATE_TAIL` ends "no stuttering or flickering", which earned its place
+ * against frame-to-frame instability in the *render*. On a street of lanterns
+ * it is also, read literally, a ban on the one thing being asked for. The
+ * clause is not dropped — temporal instability is still the most common way
+ * one of these clips comes back unusable — it is made to say which flicker it
+ * means, and the allowance is stated positively so the model has something to
+ * do rather than only something to avoid.
+ */
+export const ANIMATE_TAIL_LIGHTS =
+  "Characters stay fully inside frame at constant scale. Stable faces, clear " +
+  "features, normal proportions, natural fluid motion, consistent line weight " +
+  "and flat colour, and no stuttering, strobing or frame-to-frame instability " +
+  "in the image itself. Flames and lamps already lit in the first frame may " +
+  "vary gently in brightness, and the light they cast varies with them; the " +
+  "lamps themselves do not change shape, and nothing else in the artwork " +
+  "changes brightness.";
+
 /** Added to every beat. See point 3 above. */
 export const CAMERA_NOTE = "camera locked off, no movement";
 
@@ -302,6 +322,15 @@ export interface AnimateRequest {
    * stops a model re-drawing an element instead of moving it.
    */
   idle?: boolean;
+  /**
+   * The artwork's lamps are meant to flicker. See `ANIMATE_TAIL_LIGHTS`.
+   *
+   * Only set this when a light source in the first frame is supposed to vary,
+   * because it trades one word of the stability tail for an explicit licence
+   * to change brightness, and a model given that licence on artwork with no
+   * lamps in it will find something else to apply it to.
+   */
+  lights?: boolean;
 }
 
 /**
@@ -342,7 +371,7 @@ export function animatePrompt(request: AnimateRequest): string {
     ...(request.idle ? [IDLE.closing] : []),
     ...(request.inPlace ? [IN_PLACE.closing] : []),
     ...(request.margin ? [KEEP_MARGIN.closing] : []),
-    ANIMATE_TAIL,
+    request.lights ? ANIMATE_TAIL_LIGHTS : ANIMATE_TAIL,
   ].join("; ");
 
   return [

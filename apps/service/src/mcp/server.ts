@@ -340,6 +340,38 @@ export function createSeedMcpServer(options: McpOptions): McpServer {
               "moved and timed by hand in After Effects afterwards. What a walk, " +
               "cycle or wheel-spin loop needs; not the same as a locked camera",
           ),
+        idle: z
+          .boolean()
+          .default(false)
+          .describe(
+            "a gentle idle rather than a performance: small, slow, continuous " +
+              "motion with no gust, no event and no build-up, and nothing growing, " +
+              "unfurling or changing its outline. The one option that stops a model " +
+              "re-drawing an element instead of moving it — a monstera on a gust " +
+              "beat sheet grew its leaf area to 106.7%, and the same plant on an " +
+              "idle held inside 2%",
+          ),
+        lights: z
+          .boolean()
+          .default(false)
+          .describe(
+            "the artwork's lamps are meant to flicker. The standard tail ends " +
+              '"no stuttering or flickering", which earned its place against ' +
+              "frame-to-frame instability in the render and, on a street of " +
+              "lanterns, also forbids the brief. This keeps the stability " +
+              "guarantee and licenses flames already lit in the first frame to " +
+              "vary in brightness. Only for artwork that actually has lit lamps",
+          ),
+        rigid: z
+          .array(z.string().min(1))
+          .max(8)
+          .optional()
+          .describe(
+            "parts of the artwork that must not move at all, named positively — " +
+              '"the stone arch", "the planter wall" — never as a negation of the ' +
+              "motion. This tells the model what the still parts of its own first " +
+              "frame are, which is a different instruction from animating less",
+          ),
         providerId: z
           .enum(["seedance-2-0", "seedance-2-0-fast", "seedance-2-0-mini", "seedance-2-5"])
           .default("seedance-2-0")
@@ -356,6 +388,9 @@ export function createSeedMcpServer(options: McpOptions): McpServer {
         backdrop: args.backdrop,
         inPlace: args.inPlace,
         margin: args.margin,
+        idle: args.idle,
+        lights: args.lights,
+        ...(args.rigid === undefined ? {} : { rigid: args.rigid }),
       });
 
       const started = await call("/v1/generations", {
