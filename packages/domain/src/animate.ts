@@ -191,16 +191,30 @@ export const ANIMATE_TAIL =
  * means, and the allowance is stated positively so the model has something to
  * do rather than only something to avoid.
  *
- * The last two sentences were bought with a clip. Region 6 of the party-city
- * wall is a hillside of small window lights, and asking for them to "breathe
- * at their own uneven rates" produced a **global exposure pulse** instead: its
- * lit pixels swung 14.48% and its mid-tone walls swung 15.72%, correlated at
- * **+0.96** — the whole picture dimming and brightening together, which is the
- * cheapest way for a model to make lamps change brightness. The three clips
- * that read correctly all correlate *negatively* (-0.79 to -0.86): lamps
- * brightening while the stone around them does not. So the licence has to say
- * both that the lamps are independent of each other and that the picture as a
- * whole is not allowed to move at all.
+ * ## What a global exposure pulse is, and what did NOT fix it
+ *
+ * Region 6 of the party-city wall is a hillside of small window lights. Asking
+ * for them to "breathe at their own uneven rates" produced a **global exposure
+ * pulse** instead: lit pixels swinging 14.48%, mid-tone walls swinging 15.72%,
+ * correlated at **+0.96** — the whole picture dimming and brightening together,
+ * which is the cheapest way for a model to make lamps change brightness. Clips
+ * that read correctly correlate *negatively*, -0.79 to -0.86: lamps brightening
+ * while the stone around them does not. That sign is the whole test.
+ *
+ * Two extra sentences were added here to forbid it — each lamp independent, and
+ * the overall exposure of the shot constant — and then **measured, and removed
+ * again**. They made it worse. Region 6 went from +0.96 to +0.99 and swung
+ * 35.7% instead of 14.5%, and region 8, which had been a clean per-lamp -0.79,
+ * came back at +0.80. Naming the failure in the prompt appears to summon it:
+ * "the picture as a whole never gets brighter or darker" puts the whole picture
+ * getting brighter and darker in front of the model.
+ *
+ * Both re-rolls also changed plate resolution at the same time, so this is not
+ * a clean single-variable result — but plate resolution has a direct mechanism
+ * for registration and none for brightness, and the regression is in
+ * brightness. The honest state is: **this is not solved, and prohibiting it in
+ * words has been tried and failed.** Likely next lever is per-lamp wording in
+ * the beats, or regions with fewer lights in them.
  */
 export const ANIMATE_TAIL_LIGHTS =
   "Characters stay fully inside frame at constant scale. Stable faces, clear " +
@@ -209,10 +223,7 @@ export const ANIMATE_TAIL_LIGHTS =
   "in the image itself. Flames and lamps already lit in the first frame may " +
   "vary gently in brightness, and the light they cast varies with them; the " +
   "lamps themselves do not change shape, and nothing else in the artwork " +
-  "changes brightness. Each lamp varies on its own, at its own rate and out of " +
-  "step with the others. The overall exposure, brightness and contrast of the " +
-  "shot stay constant for the whole clip: the picture as a whole never gets " +
-  "brighter or darker, only individual flames do.";
+  "changes brightness.";
 
 /** Added to every beat. See point 3 above. */
 export const CAMERA_NOTE = "camera locked off, no movement";
@@ -313,6 +324,14 @@ export function rigidPhrase(parts: readonly string[]): string {
  * and the model took enhancing it as help. This is the instruction stated where
  * the strong ones live, and stated as what the blur IS — part of the artwork —
  * rather than as a request for less sharpening.
+ *
+ * **It does not work.** Measured on the re-roll it was written for: 193% before,
+ * **204%** after, which is no effect. It is kept because the constraint is
+ * correctly stated and costs nothing, and because deleting it would lose the
+ * record that this was tried — but nothing should be planned on the assumption
+ * that it holds. A soft plate still comes back sharpened, and the only
+ * remedies known to work are not generating that region at all, or matching
+ * the plate's blur back on afterwards in After Effects.
  */
 export const HOLD_DETAIL = {
   opening: "keeping its own focus exactly as it is",

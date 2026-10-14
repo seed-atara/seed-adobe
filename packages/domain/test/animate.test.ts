@@ -480,18 +480,21 @@ describe("artwork whose lamps are meant to flicker", () => {
   });
 
   /*
-   * The failure this clause was bought with: region 6 of the party-city wall
-   * came back as a global exposure pulse, its lit pixels swinging 14.48% and
-   * its mid-tone walls 15.72%, correlated at +0.96. The whole picture dimming
-   * together is the cheapest way for a model to make lamps change brightness,
-   * and "at their own uneven rates" in the beat did not prevent it.
+   * A clause that was added, measured and removed.
+   *
+   * Region 6 came back as a global exposure pulse -- lit pixels +14.48%,
+   * mid-tone walls +15.72%, correlated at +0.96 -- so two sentences were added
+   * forbidding exactly that. They made it worse: region 6 went to +0.99 and
+   * 35.7%, and region 8, a clean per-lamp -0.79, came back at +0.80. Naming
+   * the failure appears to summon it. This test pins the removal, so nobody
+   * re-adds it from the same reasoning without first reading why.
    */
-  it("forbids the whole picture breathing, which is the cheap way to do it", () => {
+  it("does not try to forbid a global pulse in words, because that made it worse", () => {
     const lit = animatePrompt({ ...request, lights: true });
-    expect(lit).toContain("Each lamp varies on its own");
-    expect(lit).toContain("out of step with the others");
-    expect(lit).toContain("overall exposure, brightness and contrast of the shot stay constant");
-    expect(lit).toContain("never gets brighter or darker, only individual flames do");
+    expect(lit).not.toContain("never gets brighter or darker");
+    expect(lit).not.toContain("overall exposure");
+    // What it does say is only the positive licence, which is what measured best.
+    expect(lit).toContain("may vary gently in brightness");
   });
 
   it("says what may vary, positively, and how far it reaches", () => {
@@ -538,6 +541,10 @@ describe("holding the plate's own focus", () => {
     beats: [{ from: 0, to: 10, action: "the lantern flames breathe" }],
   };
 
+  /*
+   * Measured and ineffective: 193% before, 204% after. The tests below pin the
+   * wording, not an outcome -- nothing here claims the sharpening stops.
+   */
   it("says the blur is part of the artwork, not a fault in it", () => {
     const held = animatePrompt({ ...request, holdDetail: true });
     expect(held).toContain("part of the artwork, not faults in it");
