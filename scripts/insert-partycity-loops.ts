@@ -1,7 +1,16 @@
 /**
  * Lays each party-city loop into its region, three times, to tile the 30s comp.
  *
- *   npx tsx scripts/insert-partycity-loops.ts "SEED Region 5=ast_... " ...
+ *   npx tsx scripts/insert-partycity-loops.ts "SEED Region 5=ast_abc" ...
+ *   npx tsx scripts/insert-partycity-loops.ts "SEED Region 6=ast_a@0,ast_b@10,ast_a@20"
+ *
+ * One asset means the same ten seconds three times. The `@` form places named
+ * clips at named starts, which is what an A-B-A thirty seconds needs: the
+ * gentle pass on 0-10 and 20-30 with the big dim on 10-20, so the dim is a
+ * deliberate beat in the middle rather than the character of the whole loop.
+ * Every pass has to close on the plate for that to work -- each does, since
+ * `loop` puts the same still in both frame slots -- which is what makes the
+ * joins at 10s and 20s and the wrap at 30s all land on the same frame.
  *
  * `insertRegion` adds one layer at one start time and re-places the composite in
  * the parent, so three calls per region give the three passes at 0s, 10s and
@@ -34,6 +43,22 @@ if (!pairs.length) {
 /** The three passes that tile 30 seconds. */
 const STARTS = [0, 10, 20] as const;
 
+/** `ast_a@0,ast_b@10,ast_a@20` -> the passes to place, in order. */
+function passesOf(spec: string): Array<{ assetId: string; startSeconds: number }> {
+  if (!spec.includes("@")) {
+    return STARTS.map((startSeconds) => ({ assetId: spec, startSeconds }));
+  }
+  return spec.split(",").map((part) => {
+    const at = part.lastIndexOf("@");
+    const assetId = part.slice(0, at).trim();
+    const startSeconds = Number(part.slice(at + 1));
+    if (!assetId || !Number.isFinite(startSeconds)) {
+      throw new Error(`cannot read "${part}" as asset@seconds`);
+    }
+    return { assetId, startSeconds };
+  });
+}
+
 async function host(name: string, args: Record<string, unknown>): Promise<unknown> {
   const response = await fetch(`${base}/v1/host/run`, {
     method: "POST",
@@ -57,11 +82,13 @@ async function host(name: string, args: Record<string, unknown>): Promise<unknow
 for (const pair of pairs) {
   const at = pair.indexOf("=");
   const regionName = pair.slice(0, at).trim();
-  const assetId = pair.slice(at + 1).trim();
-  const feather = /Region 8$/.test(regionName) ? 12 : 24;
+  const passes = passesOf(pair.slice(at + 1).trim());
+  // The smallest regions get proportionally less, so the static plate does not
+  // bleed back over the lanterns nearest their edge and damp the flicker.
+  const feather = /Region (8|9)$/.test(regionName) ? 12 : 24;
 
-  console.log(`\n${regionName}  <- ${assetId}  feather ${feather}px`);
-  for (const startSeconds of STARTS) {
+  console.log(`\n${regionName}  ${passes.length} passes  feather ${feather}px`);
+  for (const { assetId, startSeconds } of passes) {
     try {
       const placed = (await host("insertRegion", {
         assetId,
@@ -70,7 +97,10 @@ for (const pair of pairs) {
         startSeconds,
       })) as { value?: { layer?: { index?: number }; composite?: unknown } };
       const index = placed.value?.layer?.index;
-      console.log(`  ${String(startSeconds).padStart(2)}s  placed${index ? ` at index ${index}` : ""}`);
+      console.log(
+        `  ${String(startSeconds).padStart(2)}s  ${assetId.slice(0, 12)}  ` +
+          `placed${index ? ` at index ${index}` : ""}`,
+      );
     } catch (error) {
       console.error(`  ${String(startSeconds).padStart(2)}s  FAILED: ${(error as Error).message}`);
     }
