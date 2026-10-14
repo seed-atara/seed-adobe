@@ -15,6 +15,14 @@
  *   to measure and not assume. Measured only on the pixels that are *already
  *   bright*, because that is where a flame is.
  * - **Stillness** — whether the masonry stayed put. The risk with a brightness
+ * - **Correlation** - and this is the one that caught region 6. A brightness
+ *   swing measured only on lit pixels looks identical whether one lamp
+ *   flickered or the whole picture dimmed. The sign of the correlation between
+ *   the lit pixels and the mid-tone walls tells them apart: the three clips
+ *   that read correctly came back at -0.79 to -0.86, lamps brightening while
+ *   the stone around them did not, and the one that was a global exposure
+ *   pulse came back at +0.96. Measured, because the first version of this
+ *   script could not see it and passed the clip.
  *   licence is that the model applies it to the whole frame, and a wall that
  *   breathes is worse than a wall that does nothing.
  *
@@ -82,7 +90,8 @@ function meanAbs(a: Uint8Array, b: Uint8Array, mask?: (i: number) => boolean): n
 
 console.log(
   `${"clip".padEnd(28)} ${"frames".padStart(6)} ${"closure".padStart(8)} ` +
-    `${"flicker".padStart(8)} ${"still".padStart(7)}`,
+    `${"flicker".padStart(8)} ${"still".padStart(7)} ${"swing".padStart(7)} ` +
+    `${"corr".padStart(6)}  reading`,
 );
 
 for (const clip of clips) {
@@ -118,15 +127,63 @@ for (const clip of clips) {
   flicker /= frames.length - 1;
   still /= frames.length - 1;
 
+  /*
+   * Lit against mid-tone, over the whole clip. The mid-tones are the wall and
+   * the stone: above the crushed blacks, below the lamps. If they rise and
+   * fall *with* the lamps, the model dimmed the picture instead of the lamps.
+   */
+  const lo = sorted[Math.floor(sorted.length * 0.3)]!;
+  const hi = sorted[Math.floor(sorted.length * 0.85)]!;
+  const isMid = (i: number): boolean => first[i]! > lo && first[i]! < hi;
+  const litSeries = frames.map((f) => mean(f, isBright));
+  const midSeries = frames.map((f) => mean(f, isMid));
+  const corr = correlation(litSeries, midSeries);
+  const share = (xs: number[]): number =>
+    (100 * (Math.max(...xs) - Math.min(...xs))) / (xs.reduce((a, b) => a + b, 0) / xs.length);
+  const swing = share(litSeries);
+  const reading =
+    corr > 0.8 && share(midSeries) > swing * 0.4 ? "GLOBAL EXPOSURE PULSE" : "per-lamp";
+
   console.log(
     `${path.basename(clip).padEnd(28)} ${String(frames.length).padStart(6)} ` +
       `${closure.toFixed(2).padStart(8)} ${flicker.toFixed(2).padStart(8)} ` +
-      `${still.toFixed(2).padStart(7)}`,
+      `${still.toFixed(2).padStart(7)} ${`${swing.toFixed(1)}%`.padStart(7)} ` +
+      `${corr.toFixed(2).padStart(6)}  ${reading}`,
   );
+}
+
+function mean(frame: Uint8Array, keep: (i: number) => boolean): number {
+  let sum = 0;
+  let n = 0;
+  for (let i = 0; i < frame.length; i++) {
+    if (!keep(i)) continue;
+    sum += frame[i]!;
+    n++;
+  }
+  return n ? sum / n : 0;
+}
+
+function correlation(a: number[], b: number[]): number {
+  const ma = a.reduce((x, y) => x + y, 0) / a.length;
+  const mb = b.reduce((x, y) => x + y, 0) / b.length;
+  let num = 0;
+  let da = 0;
+  let db = 0;
+  for (let i = 0; i < a.length; i++) {
+    const x = a[i]! - ma;
+    const y = b[i]! - mb;
+    num += x * y;
+    da += x * x;
+    db += y * y;
+  }
+  return da && db ? num / Math.sqrt(da * db) : 0;
 }
 
 console.log(
   "\nclosure: last frame vs first, on lit pixels — under ~2 tiles without a seen jump." +
     "\nflicker: mean frame-to-frame change on lit pixels — near 0 means the lamps never moved." +
-    "\nstill:   the same on everything else — well under flicker, or the whole wall is breathing.",
+    "\nstill:   the same on everything else — well under flicker, or the whole wall is breathing." +
+    "\nswing:   peak-to-trough lamp brightness as a share of its mean. GENTLE is a few percent." +
+    "\ncorr:    lit pixels against the mid-tone walls. NEGATIVE is right — lamps brighten" +
+    "\n         while the stone does not. Positive and large means the picture dimmed, not the lamps.",
 );
