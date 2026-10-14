@@ -42,7 +42,16 @@ async function host(name: string, args: Record<string, unknown>): Promise<unknow
   });
   const raw = await response.text();
   if (!response.ok) throw new Error(`${name}: ${raw.slice(0, 300)}`);
-  return JSON.parse(raw);
+  const parsed = JSON.parse(raw) as { ok?: boolean; error?: unknown; value?: unknown };
+  /*
+   * The host answers HTTP 200 with its own envelope, so a refused command and a
+   * successful one arrive with the same status. Checking only the status is how
+   * an insert of an asset id that does not exist printed "placed" three times.
+   */
+  if (parsed.ok === false) {
+    throw new Error(`${name}: ${JSON.stringify(parsed.error).slice(0, 300)}`);
+  }
+  return parsed;
 }
 
 for (const pair of pairs) {
