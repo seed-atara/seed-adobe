@@ -190,6 +190,17 @@ export const ANIMATE_TAIL =
  * one of these clips comes back unusable — it is made to say which flicker it
  * means, and the allowance is stated positively so the model has something to
  * do rather than only something to avoid.
+ *
+ * The last two sentences were bought with a clip. Region 6 of the party-city
+ * wall is a hillside of small window lights, and asking for them to "breathe
+ * at their own uneven rates" produced a **global exposure pulse** instead: its
+ * lit pixels swung 14.48% and its mid-tone walls swung 15.72%, correlated at
+ * **+0.96** — the whole picture dimming and brightening together, which is the
+ * cheapest way for a model to make lamps change brightness. The three clips
+ * that read correctly all correlate *negatively* (-0.79 to -0.86): lamps
+ * brightening while the stone around them does not. So the licence has to say
+ * both that the lamps are independent of each other and that the picture as a
+ * whole is not allowed to move at all.
  */
 export const ANIMATE_TAIL_LIGHTS =
   "Characters stay fully inside frame at constant scale. Stable faces, clear " +
@@ -198,7 +209,10 @@ export const ANIMATE_TAIL_LIGHTS =
   "in the image itself. Flames and lamps already lit in the first frame may " +
   "vary gently in brightness, and the light they cast varies with them; the " +
   "lamps themselves do not change shape, and nothing else in the artwork " +
-  "changes brightness.";
+  "changes brightness. Each lamp varies on its own, at its own rate and out of " +
+  "step with the others. The overall exposure, brightness and contrast of the " +
+  "shot stay constant for the whole clip: the picture as a whole never gets " +
+  "brighter or darker, only individual flames do.";
 
 /** Added to every beat. See point 3 above. */
 export const CAMERA_NOTE = "camera locked off, no movement";

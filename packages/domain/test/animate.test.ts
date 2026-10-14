@@ -479,6 +479,21 @@ describe("artwork whose lamps are meant to flicker", () => {
     expect(lit).toContain("no stuttering, strobing or frame-to-frame instability");
   });
 
+  /*
+   * The failure this clause was bought with: region 6 of the party-city wall
+   * came back as a global exposure pulse, its lit pixels swinging 14.48% and
+   * its mid-tone walls 15.72%, correlated at +0.96. The whole picture dimming
+   * together is the cheapest way for a model to make lamps change brightness,
+   * and "at their own uneven rates" in the beat did not prevent it.
+   */
+  it("forbids the whole picture breathing, which is the cheap way to do it", () => {
+    const lit = animatePrompt({ ...request, lights: true });
+    expect(lit).toContain("Each lamp varies on its own");
+    expect(lit).toContain("out of step with the others");
+    expect(lit).toContain("overall exposure, brightness and contrast of the shot stay constant");
+    expect(lit).toContain("never gets brighter or darker, only individual flames do");
+  });
+
   it("says what may vary, positively, and how far it reaches", () => {
     const lit = animatePrompt({ ...request, lights: true });
     // Positively: a model given only prohibitions finds something to prohibit.
