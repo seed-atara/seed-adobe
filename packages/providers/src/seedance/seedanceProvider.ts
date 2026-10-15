@@ -577,9 +577,31 @@ export class SeedanceProvider implements GenerationProvider {
      * resolution, which is the render being paid for in any case. The response
      * says which happened -- a `seed` matching the draft's came from the draft.
      */
+    /*
+     * Step 2 of draft mode, with the contract the API gave up when asked.
+     *
+     * It is not a top-level field. `content` is required whatever else is
+     * sent, and the draft reference is a typed part inside it -- which the
+     * API will enumerate if given a bad one:
+     *
+     *   supported values are: `text`, `image_url`, `audio_url`, `video_url`
+     *   and `draft_task`.
+     *
+     * and then name the shape of that part, one field at a time:
+     *
+     *   content[0].draft_task is required
+     *   content[0].draft_task.id is required
+     *
+     * Two guesses were spent first -- `source_task_id` and `draft_task_id` as
+     * top-level fields -- and Ark ignored both silently, which is its habit
+     * with unknown top-level keys. The $4.49 that cost bought a fresh 1080p
+     * render rather than the draft's content, and the returned seed is what
+     * said so: 38513 against the draft's 76322.
+     */
     if (request.sourceTaskId) {
-      body.source_task_id = request.sourceTaskId;
-      body.draft_task_id = request.sourceTaskId;
+      body.content = [
+        { type: "draft_task", draft_task: { id: request.sourceTaskId } },
+      ];
     }
 
     /*

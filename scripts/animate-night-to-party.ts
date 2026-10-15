@@ -124,6 +124,79 @@ const ARRIVE_AT =
   "starry sky. Warm amber light everywhere";
 
 /**
+ * The three projection surfaces, each described from its own two plates.
+ *
+ * The art direction asks for one transition "cohesively across the entire 270
+ * degree projection environment", so the choreography below is shared and only
+ * the artwork descriptions change. Writing these from the brief instead of the
+ * plates is how a plate comes back restyled, so each is written from the pair
+ * at 100%.
+ *
+ * `reveal` is the thing the cascade brings up behind the arches on that
+ * surface, which is the one beat that genuinely differs: the proscenium has a
+ * floodlit church tower, the walls have a receding street.
+ */
+const SURFACES: Record<
+  string,
+  { describe: string; arriveAt: string; reveal: string }
+> = {
+  pros: {
+    describe: DESCRIBE,
+    arriveAt: ARRIVE_AT,
+    reveal:
+      "the lit hillside town of windows and domes and its floodlit church tower",
+  },
+  left: {
+    describe:
+      "A wide painted night scene: a long colonnade of pale cream stone arches " +
+      "on slender paired columns, a black wrought-iron lantern burning on each " +
+      "pier, planters of monstera and fern running along the base, and through " +
+      "the arches a moonlit rocky coast with surf breaking, a dark hillside " +
+      "town of small lit windows on the left, palm fronds overhanging, and a " +
+      "deep blue night sky of cloud and stars. Soft painterly illustration, " +
+      "cool blue moonlight with small warm pools at the lanterns",
+    arriveAt:
+      "the identical colonnade at full festival light, the same arches on the " +
+      "same columns in the same places: the walls between them painted ochre, " +
+      "red and blue with carved wooden doors, iron balconies and lit windows, " +
+      "bougainvillea in magenta, terracotta pots of plants along the base, rows " +
+      "of papel picado flags in magenta, blue, orange, yellow and green strung " +
+      "between the arches with strings of small warm bulbs, a polished tiled " +
+      "floor reflecting all of it, and beyond the central arch a lit market " +
+      "street with a fountain receding into the distance. Warm amber light " +
+      "everywhere",
+    reveal: "the lit market street and its fountain receding beyond the arches",
+  },
+  right: {
+    describe:
+      "A wide painted night scene: a long colonnade of pale cream stone arches " +
+      "on paired columns, a black wrought-iron lantern burning on each pier, " +
+      "planters of monstera and fern along the base, and through the arches a " +
+      "moonlit rocky shore with surf and a sea arch in the rock, palm fronds " +
+      "overhanging at both ends, and a deep blue night sky of cloud and stars. " +
+      "Soft painterly illustration, cool blue moonlight with small warm pools " +
+      "at the lanterns",
+    arriveAt:
+      "the identical colonnade at full festival light, the same arches on the " +
+      "same columns in the same places: a grand carved stone doorway with " +
+      "double wooden doors at its centre, walls in ochre and faded pink with " +
+      "iron balconies and warmly lit windows, bougainvillea in magenta " +
+      "climbing the stonework, terracotta pots along the base, papel picado " +
+      "flags and strings of small warm bulbs, a polished tiled floor " +
+      "reflecting the lanterns, and beyond the left-hand arches a hillside " +
+      "town of lit windows and domes under a starry sky. Warm amber light " +
+      "everywhere",
+    reveal: "the hillside town of lit windows and domes beyond the arches",
+  },
+};
+
+const surface = SURFACES[flag("surface", "pros")];
+if (!surface)
+  throw new Error(
+    `--surface must be one of ${Object.keys(SURFACES).join(", ")}`,
+  );
+
+/**
  * Six beats, choreographed to the art direction rather than to the mechanism.
  *
  * The brief is specific about shape: one bulb, a chain reaction, overlapping
@@ -185,14 +258,14 @@ const BEATS: Beat[] = [
       "then everything still unlit strikes at once in a single synchronised " +
       "cascade -- every remaining string, star lantern, wall lamp and window " +
       "coming up together in one sweep across the whole panorama -- and the " +
-      "full colour of the square arrives with it: the hillside town of lit " +
-      "windows and domes, the floodlit church tower, all of it at once",
+      `full colour of the artwork arrives with it: ${surface.reveal}, ` +
+      "all of it at once",
   },
   {
     from: 13,
     to: 15,
     action:
-      "the hero frame settles and holds: the square at full brightness and " +
+      "the hero frame settles and holds: the artwork at full brightness and " +
       "exactly the artwork of Image 2, every wall, arch, balcony, lantern and " +
       "paper flag in its own place at its own size, a soft warm haze in the " +
       "air, the flags stirring gently, the night sky still dark above it",
@@ -202,8 +275,8 @@ const BEATS: Beat[] = [
 const references = mode === "references";
 
 const prompt = animatePrompt({
-  describe: DESCRIBE,
-  arriveAt: ARRIVE_AT,
+  describe: surface.describe,
+  arriveAt: surface.arriveAt,
   // Reference mode names the images as references rather than promising them
   // as frames, which is a promise this request does not make in that mode.
   ...(references ? { asReferences: true } : {}),

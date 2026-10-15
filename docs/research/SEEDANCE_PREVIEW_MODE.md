@@ -63,6 +63,50 @@ dropping resolution did not reduce latency (480p/10s came back slower than
 720p/20s) and concluded latency was queue-bound. Draft mode is a different
 queue, and it is four to five times faster.
 
+## Step 2's contract, got out of the API itself
+
+**Resolved.** The draft id is *not* a top-level field — `content` is required
+whatever else is sent, and the reference is a typed part inside it. Ark will
+name its own vocabulary when given a bad one:
+
+```
+content[0].type: invalid value `zzz_unknown`, supported values are:
+  `text`, `image_url`, `audio_url`, `video_url` and `draft_task`.
+```
+
+and then the shape of that part, one required field at a time:
+
+```
+content[0].draft_task is required
+content[0].draft_task.id is required
+```
+
+So Step 2 is:
+
+```json
+POST /contents/generations/tasks
+{
+  "model": "dreamina-seedance-2-5-260628",
+  "content": [{ "type": "draft_task", "draft_task": { "id": "cgt-..." } }],
+  "resolution": "1080p"
+}
+```
+
+Sending no resolution answers *"the parameter resolution specified in the
+request is not valid for model dreamina-seedance-2-5 in draft_task final
+stage"*, which both confirms the part is understood and matches the page's
+"only 1080p output".
+
+**What two guesses cost.** `source_task_id` and `draft_task_id` were sent as
+top-level fields first, on the reasoning that a wrong name was free because
+Ark ignores unknown keys. It is free of *errors* and not free of consequences:
+Ark ignored both and rendered a fresh 1080p clip for $4.49 instead of the
+draft's content. The returned seed is what caught it — 38513 against the
+draft's 76322 — which is why that check was built in. The lesson is narrow and
+worth keeping: **when an API silently ignores unknown fields, a guess cannot be
+validated by sending it.** Ask the validator instead, with a value it must
+reject.
+
 ## What is still unverified
 
 **The field name that carries the draft id in Step 2.** The official page says
