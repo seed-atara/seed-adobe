@@ -98,13 +98,15 @@ export const BACKDROPS = {
    * backdrops of.
    */
   magenta: {
-    opening: "isolated on a flat chroma-magenta background with no shadow spill",
+    opening:
+      "isolated on a flat chroma-magenta background with no shadow spill",
     closing:
       "Flat chroma-magenta backdrop stays pure, even and unchanged for the whole shot",
   },
   white: {
     opening: "isolated on a plain flat white background with no shadow spill",
-    closing: "Flat white backdrop stays pure, even and unchanged for the whole shot",
+    closing:
+      "Flat white backdrop stays pure, even and unchanged for the whole shot",
   },
   none: { opening: "", closing: "" },
 } as const;
@@ -160,7 +162,8 @@ export const IN_PLACE = {
  * continues behind an arch column, a bag being handed out of shot.
  */
 export const KEEP_MARGIN = {
-  opening: "sitting well inside the frame with clear empty space on all four sides",
+  opening:
+    "sitting well inside the frame with clear empty space on all four sides",
   closing:
     "Keep a clear empty margin of plain backdrop all the way around the subject " +
     "for the whole shot. The subject must never touch, cross or be cropped by any " +
@@ -279,7 +282,9 @@ export const RIGID = {
 
 /** Joins names the way a sentence would, so the clause reads as English. */
 export function rigidPhrase(parts: readonly string[]): string {
-  const names = parts.map((part) => part.trim()).filter((part) => part.length > 0);
+  const names = parts
+    .map((part) => part.trim())
+    .filter((part) => part.length > 0);
   if (names.length === 0) return "";
   if (names.length === 1) return names[0]!;
   return `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]!}`;
@@ -390,6 +395,58 @@ export const TIMELAPSE = {
 } as const;
 
 /**
+ * A change carried by spreading light, between two different sets.
+ *
+ * The third kind of transition on this project, and the only one where the
+ * artwork genuinely changes. The GYG show goes coastal night -> party-city
+ * square, and those are not one set re-lit: measured on their gradient
+ * profiles they match each other at 0.36, where the two ends of the
+ * golden-hour-to-night shot matched at 0.59-0.79. Different architecture,
+ * different materials, different palette.
+ *
+ * So `TIMELAPSE` must not be used here, and this exists mainly to make that
+ * impossible to do by accident. Its closing clause ends "The picture is re-lit,
+ * never re-drawn and never re-composed", which is the correct instruction for a
+ * sunset and a flat contradiction of this brief. Reaching for the nearest
+ * existing option is exactly how a prompt ends up forbidding the thing it was
+ * written to ask for.
+ *
+ * What it does ask for is the director's own idea: the change is not a
+ * dissolve, it is **led by the light**. The party set's lamps, strings of
+ * bulbs, star lanterns and lit windows come on, and the new artwork arrives
+ * only where their light has reached. That gives the model a mechanism rather
+ * than an instruction to morph, and a mechanism is the thing these prompts have
+ * consistently answered to.
+ *
+ * It keeps `TRANSITION_TAIL`, which happens to be exactly right: "a smooth even
+ * continuous change from the first frame to the last" is the brief, and the
+ * clauses it holds against stuttering, strobing and a drifting lens are all
+ * still wanted. `ANIMATE_TAIL` would be wrong twice over here — it opens by
+ * pinning everything inside frame at constant scale, and it ends "no stuttering
+ * or flickering", which on a shot whose subject is lights kindling reads as a
+ * ban on the subject.
+ *
+ * **Unproven.** This clause has not been measured against a finished clip. It
+ * is written for a low-resolution test whose entire purpose is to find out
+ * whether the model can carry a change between two unrelated sets at all; the
+ * honest expectation is that it may not, and that the blend may belong in After
+ * Effects as a luminance matte grown from the party plate's own lights.
+ */
+export const TRANSFORM = {
+  opening: "changing only where the new light has reached",
+  closing:
+    "The change is carried by the light and happens only where the light " +
+    "reaches: strings of small warm bulbs, star-shaped paper lanterns, wall " +
+    "lamps and lit windows kindle one after another, and each one brightens " +
+    "into its own pool of warm light. Inside those pools, and only inside them, " +
+    "the artwork of the second image is what is revealed — its painted walls, " +
+    "balconies, flowers, paper flags and the lit town beyond. The pools widen " +
+    "and meet until they have covered the frame and the second image is the " +
+    "whole picture. Outside the light that has arrived so far, the first " +
+    "image's cool blue moonlight is still exactly as it was",
+} as const;
+
+/**
  * Arriving at the last frame still in motion.
  *
  * The specific failure this exists for: given a `last_frame` to hit, a model
@@ -488,6 +545,14 @@ export interface AnimateRequest {
    */
   timelapse?: boolean;
   /**
+   * A change between two DIFFERENT sets, led by the light. See `TRANSFORM`.
+   *
+   * Mutually exclusive with `timelapse` in intent: that one promises the
+   * picture is never re-drawn, and this one is the case where it must be. Set
+   * one or the other, never both.
+   */
+  transform?: boolean;
+  /**
    * Arrive at the last frame still moving. See `LAND_ON_LAST`.
    *
    * Only meaningful with a genuine `last_frame`, so it is worth nothing on a
@@ -523,6 +588,7 @@ export function animatePrompt(request: AnimateRequest): string {
   const rigid = rigidPhrase(request.rigid ?? []);
   if (request.idle) clauses.push(IDLE.opening);
   if (request.timelapse) clauses.push(TIMELAPSE.opening);
+  if (request.transform) clauses.push(TRANSFORM.opening);
   if (request.landOnLast) clauses.push(LAND_ON_LAST.opening);
   if (request.holdDetail) clauses.push(HOLD_DETAIL.opening);
   if (rigid) clauses.push(RIGID.opening(rigid));
@@ -547,6 +613,7 @@ export function animatePrompt(request: AnimateRequest): string {
     // how much to move and the last specific thing read carries most.
     ...(request.idle ? [IDLE.closing] : []),
     ...(request.timelapse ? [TIMELAPSE.closing] : []),
+    ...(request.transform ? [TRANSFORM.closing] : []),
     ...(request.holdDetail ? [HOLD_DETAIL.closing] : []),
     ...(request.inPlace ? [IN_PLACE.closing] : []),
     ...(request.margin ? [KEEP_MARGIN.closing] : []),
@@ -557,7 +624,7 @@ export function animatePrompt(request: AnimateRequest): string {
      * frozen tail is unusable and a slightly loose one is gradeable.
      */
     ...(request.landOnLast ? [LAND_ON_LAST.closing] : []),
-    request.timelapse
+    request.timelapse || request.transform
       ? TRANSITION_TAIL
       : request.lights
         ? ANIMATE_TAIL_LIGHTS
@@ -577,13 +644,7 @@ export function animatePrompt(request: AnimateRequest): string {
       `${arriveAt}.`
     : `Image 1 as the first frame, held exactly: ${opening}`;
 
-  return [
-    lead,
-    "",
-    beats.join("\n"),
-    "",
-    closing,
-  ].join("\n");
+  return [lead, "", beats.join("\n"), "", closing].join("\n");
 }
 
 /**
@@ -598,8 +659,16 @@ export function defaultBeats(durationSeconds: number, action: string): Beat[] {
   const third = Math.round((durationSeconds / 3) * 10) / 10;
   return [
     { from: 0, to: third, action },
-    { from: third, to: Math.round(third * 2 * 10) / 10, action: `${action}, continuing` },
-    { from: Math.round(third * 2 * 10) / 10, to: durationSeconds, action: `${action}, easing` },
+    {
+      from: third,
+      to: Math.round(third * 2 * 10) / 10,
+      action: `${action}, continuing`,
+    },
+    {
+      from: Math.round(third * 2 * 10) / 10,
+      to: durationSeconds,
+      action: `${action}, easing`,
+    },
   ];
 }
 
@@ -698,7 +767,12 @@ export const SEEDANCE_ASPECTS: Record<string, number> = {
 export function adaptiveCrop(
   width: number,
   height: number,
-): { nearest: string; ratio: number; cropPercent: number; axis: "width" | "height" | "none" } {
+): {
+  nearest: string;
+  ratio: number;
+  cropPercent: number;
+  axis: "width" | "height" | "none";
+} {
   const aspect = width / height;
   let nearest = "1:1";
   let ratio = 1;
@@ -728,7 +802,8 @@ export function adaptiveCrop(
    */
   const keptFraction = aspect > ratio ? ratio / aspect : aspect / ratio;
   const cropPercent = Math.round((1 - keptFraction) * 1000) / 10;
-  const axis = cropPercent < 0.05 ? "none" : aspect > ratio ? "width" : "height";
+  const axis =
+    cropPercent < 0.05 ? "none" : aspect > ratio ? "width" : "height";
   return { nearest, ratio: Math.round(ratio * 1000) / 1000, cropPercent, axis };
 }
 
@@ -755,7 +830,12 @@ export function aspectFits(
 } {
   const aspect = Math.round((width / height) * 1000) / 1000;
   const crop = adaptiveCrop(width, height);
-  const nearest = aspect > WIDEST_ASPECT ? "21:9" : aspect < TALLEST_ASPECT ? "9:16" : "adaptive";
+  const nearest =
+    aspect > WIDEST_ASPECT
+      ? "21:9"
+      : aspect < TALLEST_ASPECT
+        ? "9:16"
+        : "adaptive";
   if (aspect > WIDEST_ASPECT) {
     return {
       fits: false,
@@ -853,7 +933,8 @@ export function tierFor(
     Math.round(Math.sqrt(TIER_PIXELS[size]! / elementPixels) * 100) / 100;
 
   for (const size of ladder) {
-    if (TIER_PIXELS[size]! >= want) return { size, oversample: ratio(size), covers: true };
+    if (TIER_PIXELS[size]! >= want)
+      return { size, oversample: ratio(size), covers: true };
   }
 
   /*

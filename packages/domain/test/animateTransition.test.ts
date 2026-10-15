@@ -27,7 +27,11 @@ const TRANSITION: AnimateRequest = {
   rigid: ["the proscenium arch", "the balustrade"],
   beats: [
     { from: 0, to: 2, action: "the waves roll at their natural speed" },
-    { from: 2, to: 18, action: "the sun sets and the moon rises and leaves frame" },
+    {
+      from: 2,
+      to: 18,
+      action: "the sun sets and the moon rises and leaves frame",
+    },
     { from: 18, to: 20, action: "the night settles, waves rolling" },
   ],
 };
@@ -41,13 +45,17 @@ describe("naming which still is which", () => {
    */
   it("names image 1 as the first frame and image 2 as the last", () => {
     const prompt = animatePrompt(TRANSITION);
-    expect(prompt).toContain("Image 1 as the first frame and Image 2 as the last frame");
+    expect(prompt).toContain(
+      "Image 1 as the first frame and Image 2 as the last frame",
+    );
     expect(prompt).toContain("Image 2, which is where the shot ends");
   });
 
   it("puts what image 2 is before the beats", () => {
     const prompt = animatePrompt(TRANSITION);
-    expect(prompt.indexOf("the same set at night")).toBeLessThan(prompt.indexOf("0-2s"));
+    expect(prompt.indexOf("the same set at night")).toBeLessThan(
+      prompt.indexOf("0-2s"),
+    );
   });
 
   it("falls back to the single-frame lead when there is no second image", () => {
@@ -95,7 +103,11 @@ describe("the tail a transition needs", () => {
 
 describe("a timelapse is not an idle", () => {
   it("is off unless asked for", () => {
-    const plain = animatePrompt({ ...TRANSITION, timelapse: false, landOnLast: false });
+    const plain = animatePrompt({
+      ...TRANSITION,
+      timelapse: false,
+      landOnLast: false,
+    });
     expect(plain).not.toContain(TIMELAPSE.closing);
     expect(plain).not.toContain(LAND_ON_LAST.closing);
   });
@@ -155,5 +167,70 @@ describe("arriving at the last frame rather than stopping at it", () => {
     expect(prompt.indexOf(LAND_ON_LAST.closing)).toBeGreaterThan(
       prompt.indexOf(TIMELAPSE.closing),
     );
+  });
+});
+
+describe("a change between two different sets, led by the light", () => {
+  /**
+   * The GYG show's third transition: coastal night to party-city square.
+   * Measured on their gradient profiles those two sets match at 0.36, where
+   * the golden-hour-to-night shot's own two ends matched at 0.59-0.79. The
+   * artwork genuinely changes here, which makes `timelapse` actively wrong.
+   */
+  const TRANSFORMING: AnimateRequest = {
+    describe: "A painted coastal night arcade under moonlight",
+    arriveAt: "a Mexican party-city square, every lamp and paper lantern lit",
+    loop: false,
+    backdrop: "none",
+    transform: true,
+    landOnLast: true,
+    beats: [
+      { from: 0, to: 10, action: "the lamps kindle and the light spreads" },
+    ],
+  };
+
+  it("never claims the picture is not re-drawn", () => {
+    /*
+     * The whole reason this option exists. `TIMELAPSE.closing` ends "The
+     * picture is re-lit, never re-drawn and never re-composed" -- right for a
+     * sunset, a flat contradiction of this brief -- and reaching for the
+     * nearest existing option is how a prompt forbids its own subject.
+     */
+    const prompt = animatePrompt(TRANSFORMING);
+    expect(prompt).not.toContain("never re-drawn");
+    expect(prompt).not.toContain(TIMELAPSE.closing);
+  });
+
+  it("gives the model a mechanism rather than an instruction to morph", () => {
+    const prompt = animatePrompt(TRANSFORMING);
+    expect(prompt).toContain(
+      "carried by the light and happens only where the light reaches",
+    );
+    expect(prompt).toContain(
+      "the artwork of the second image is what is revealed",
+    );
+    expect(prompt).toContain("still exactly as it was");
+  });
+
+  it("takes the transition tail, not the element one", () => {
+    /*
+     * ANIMATE_TAIL is wrong twice here: it pins everything inside frame at
+     * constant scale, and it ends "no stuttering or flickering", which on a
+     * shot whose subject is lights kindling reads as a ban on the subject.
+     */
+    const prompt = animatePrompt(TRANSFORMING);
+    expect(prompt).toContain(TRANSITION_TAIL);
+    expect(prompt).not.toContain(ANIMATE_TAIL);
+    expect(prompt).not.toContain("no stuttering or flickering");
+  });
+
+  it("still lands on the last frame in motion", () => {
+    expect(animatePrompt(TRANSFORMING)).toContain(LAND_ON_LAST.closing);
+  });
+
+  it("is off unless asked for", () => {
+    const plain = animatePrompt({ ...TRANSFORMING, transform: false });
+    expect(plain).not.toContain("carried by the light");
+    expect(plain).toContain(ANIMATE_TAIL);
   });
 });
