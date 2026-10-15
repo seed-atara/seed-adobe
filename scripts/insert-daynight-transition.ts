@@ -264,17 +264,36 @@ if (dry) {
    * Re-runnable on purpose. Getting the ramp right took two attempts against
    * real After Effects errors, and a script that imports a second copy of a
    * 20-second clip every time it is run would have left four of them stacked in
-   * the comp. If the layer is already there, it is re-ramped rather than
-   * duplicated.
+   * the comp.
+   *
+   * But reuse has to be checked against the SOURCE, not just the layer name.
+   * Re-running this with a different clip — the 1080p final after the 720p
+   * preview, which is exactly what happens here — would otherwise silently
+   * re-ramp the old footage and report success, and the comp would still be
+   * holding the preview. So a layer whose source is not this clip is replaced
+   * rather than reused.
    */
-  const existing = ((await host("compTree")).layers ?? []).find(
+  const present = ((await host("compTree")).layers ?? []).find(
     (l: { name: string }) => l.name === LAYER_NAME,
-  );
-  if (existing) {
+  ) as { index: number; source?: { file?: string } } | undefined;
+  const wantFile = path.basename(cropped, path.extname(cropped));
+  const sameClip = present?.source?.file?.startsWith(wantFile) === true;
+
+  if (present && !sameClip) {
     console.log(
-      `\n"${LAYER_NAME}" is already layer ${existing.index} — re-ramping that`,
+      `\n"${LAYER_NAME}" is layer ${present.index} but holds ` +
+        `${present.source?.file ?? "something else"} — replacing it`,
+    );
+    await host("deleteLayer", {
+      layerIndex: present.index,
+      expectName: LAYER_NAME,
+    });
+  } else if (present) {
+    console.log(
+      `\n"${LAYER_NAME}" is already layer ${present.index} — re-ramping that`,
     );
   }
+  const existing = sameClip ? present : undefined;
 
   if (!existing) {
     await mkdir(work, { recursive: true });
