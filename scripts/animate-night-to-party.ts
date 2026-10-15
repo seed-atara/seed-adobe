@@ -54,8 +54,8 @@ const flag = (name: string, fallback = ""): string => {
 
 const nightAsset = flag("night");
 const partyAsset = flag("party");
-const size = flag("size", "480p");
-const duration = Number(flag("duration", "10"));
+const size = flag("size", "720p");
+const duration = Number(flag("duration", "15"));
 const aspect = flag("aspect", "21:9");
 /**
  * `frames` anchors the ends exactly; `references` can carry the light map.
@@ -106,56 +106,78 @@ const ARRIVE_AT =
   "starry sky. Warm amber light everywhere";
 
 /**
- * Five beats, because this shot has four distinct events in ten seconds and a
- * paragraph of action would spend the whole length on the first clause.
+ * Six beats, choreographed to the art direction rather than to the mechanism.
  *
- * The first beat deliberately asks for nothing. It is the frame that has to
- * match the night hold it cuts from, and a beat that says "nothing changes
- * yet" is also where the model is told the change has not started.
+ * The brief is specific about shape: one bulb, a chain reaction, overlapping
+ * waves that build, **a moment of restraint before the climax**, then a
+ * synchronised cascade and a held hero frame. That shape is the whole thing
+ * being bought, and it will not survive being left to a model's own pacing --
+ * the two 480p tests both held the night for several seconds and then rushed
+ * the reveal in three, which is the opposite of a build.
+ *
+ * So each movement gets its own window. The restraint beat is the one most
+ * likely to be ignored and the one the brief leans on hardest, so it is stated
+ * as something positive and visible -- the waves slowing, the lit light
+ * steadying and gathering -- rather than as a gap where nothing happens.
  */
 const BEATS: Beat[] = [
   {
     from: 0,
-    to: 1.5,
+    to: 2,
     action:
-      "the coastal night exactly as it is: only the sea moves, the two " +
-      "lanterns on the piers burn steadily, and every other lamp is dark",
+      "the coastal night held exactly as it is -- only the sea moves and the " +
+      "two pier lanterns burn -- and then, on the right-hand wall, one single " +
+      "small festoon bulb flickers twice and catches, holding a steady warm " +
+      "gold: one bulb only, a few inches of light in a dark frame",
   },
   {
-    from: 1.5,
-    to: 4,
+    from: 2,
+    to: 4.5,
     action:
-      "the first lamps strike, each at its own moment and none of them " +
-      "cleanly: a string of small bulbs stutters two or three times before it " +
-      "catches, a star-shaped paper lantern flutters and holds, a window " +
-      "surges bright and settles back; they are scattered across the frame, " +
-      "not in a line, and between them the picture is still night",
+      "the bulbs to either side of it take up the light one after another " +
+      "along their wire, an even chain running outward at a walking pace, each " +
+      "catching with one soft pulse and holding; where the chain has passed, " +
+      "the wall behind it comes out of the dark in warm gold -- painted " +
+      "plaster, an iron balcony, a pot of geraniums",
   },
   {
-    from: 4,
-    to: 7,
+    from: 4.5,
+    to: 8,
     action:
-      "more lamps strike in clusters, and around each one that has caught, the " +
-      "warm light soaks outwards into the picture with a ragged uneven edge " +
-      "that creeps and branches rather than opening as a circle; inside that " +
-      "light the painted walls, iron balconies, flowers and paper flags of the " +
-      "square are what is there, while beyond its edge the blue night is " +
-      "untouched",
+      "the chain reaches the next strings and they run in sequence across the " +
+      "arches, several at once now and overlapping, waves of warm light " +
+      "travelling outward and crossing one another; with each wave more of the " +
+      "square is revealed -- carved doorways, climbing bougainvillea, rows of " +
+      "paper flags in magenta, blue, orange and green -- and the lit area grows " +
+      "faster than before, the scale of it increasing",
   },
   {
-    from: 7,
-    to: 9,
-    action:
-      "the lit patches grow into one another and close the gaps between them, " +
-      "the last pockets of blue night give way, and the lit hillside town and " +
-      "its floodlit church tower come up beyond the arches",
-  },
-  {
-    from: 9,
+    from: 8,
     to: 10,
     action:
-      "every lamp has settled to a steady burn and the square is fully lit, " +
-      "with only the paper flags stirring gently on their wires",
+      "the spread holds back and gathers: the waves slow almost to a stop, only " +
+      "two or three bulbs still catching at the far edges, a large part of the " +
+      "frame still dark and waiting, and the light already burning steadies and " +
+      "draws in very slightly",
+  },
+  {
+    from: 10,
+    to: 13,
+    action:
+      "then everything still unlit strikes at once in a single synchronised " +
+      "cascade -- every remaining string, star lantern, wall lamp and window " +
+      "coming up together in one sweep across the whole panorama -- and the " +
+      "full colour of the square arrives with it: the hillside town of lit " +
+      "windows and domes, the floodlit church tower, all of it at once",
+  },
+  {
+    from: 13,
+    to: 15,
+    action:
+      "the hero frame settles and holds: the square at full brightness and " +
+      "exactly the artwork of Image 2, every wall, arch, balcony, lantern and " +
+      "paper flag in its own place at its own size, a soft warm haze in the " +
+      "air, the flags stirring gently, the night sky still dark above it",
   },
 ];
 
