@@ -78,6 +78,14 @@ const lightmapAsset = flag("lightmap");
  * whose parameter tables are rendered with JavaScript and cannot be fetched.
  */
 const draft = process.argv.includes("--draft");
+/**
+ * `--from-draft <taskId>` renders the full-resolution version of that draft.
+ *
+ * Step 2 of draft mode: the same content as the approved draft rather than
+ * another roll of the prompt. Seedance 2.5 only produces 1080p this way, and
+ * the draft id expires seven days after the draft was created.
+ */
+const fromDraft = flag("from-draft");
 
 const token = process.env.SEED_AE_SESSION_TOKEN;
 const base = `http://${process.env.SEED_AE_HOST ?? "127.0.0.1"}:${process.env.SEED_AE_PORT ?? "47831"}`;
@@ -266,6 +274,7 @@ if (dry) {
       durationSeconds: duration,
       aspectRatio: aspect,
       ...(draft ? { draft: true } : {}),
+      ...(fromDraft ? { sourceTaskId: fromDraft } : {}),
       inputAssetIds: references
         ? [nightAsset, partyAsset, lightmapAsset].filter(Boolean)
         : [nightAsset, partyAsset],

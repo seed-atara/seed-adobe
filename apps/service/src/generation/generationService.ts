@@ -750,6 +750,7 @@ export class GenerationService {
       // So is a draft, and for the same reason: the API defaults it off and
       // echoes that, so only an explicit ask should change the request.
       ...(request.draft ? { draft: true } : {}),
+      ...(request.sourceTaskId ? { sourceTaskId: request.sourceTaskId } : {}),
       ...(firstFrame ? { firstFrame } : {}),
       ...(lastFrame ? { lastFrame } : {}),
       references,

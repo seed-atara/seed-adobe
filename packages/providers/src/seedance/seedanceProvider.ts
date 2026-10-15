@@ -563,6 +563,24 @@ export class SeedanceProvider implements GenerationProvider {
      * every stored request payload for no reason.
      */
     if (request.draft) body.draft = true;
+    /*
+     * Step 2 of draft mode, under both candidate names.
+     *
+     * The official page says to call this endpoint again with the draft's task
+     * id but its code examples live in a tab zone that is not in the page's
+     * HTML, so the field name is not confirmed. Probing cannot settle it
+     * either: Ark silently ignores unknown top-level fields, so a wrong name
+     * and a right one fail identically.
+     *
+     * Sending both costs nothing. If one is honoured the final carries the
+     * draft's content; if neither is, this is a fresh render at the requested
+     * resolution, which is the render being paid for in any case. The response
+     * says which happened -- a `seed` matching the draft's came from the draft.
+     */
+    if (request.sourceTaskId) {
+      body.source_task_id = request.sourceTaskId;
+      body.draft_task_id = request.sourceTaskId;
+    }
 
     /*
      * A reference video changes what `duration` may be.

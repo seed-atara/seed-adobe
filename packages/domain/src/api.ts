@@ -89,6 +89,14 @@ export const StartGenerationRequestSchema = z.object({
    * attempt. Off unless asked for.
    */
   draft: z.boolean().optional(),
+  /**
+   * Render the full-resolution version of a finished draft.
+   *
+   * Step 2 of draft mode: the same content as the draft rather than another
+   * attempt at the prompt. 1080p only on Seedance 2.5, and the draft id is
+   * valid for seven days.
+   */
+  sourceTaskId: z.string().min(1).optional(),
   aspectRatio: z.string().optional(),
   /**
    * Reference assets, in order. The first is the edit subject for image.edit.

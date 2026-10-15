@@ -115,6 +115,16 @@ export interface VideoGenerationRequest extends ProviderRequestBase {
    * matters here: it replaces a re-roll lottery with an approval step.
    */
   draft?: boolean;
+  /**
+   * The id of a finished 480p draft, to render at full resolution instead.
+   *
+   * Step 2 of draft mode. The official page says to "use the Draft video task
+   * ID returned in Step 1 to call POST /contents/generations/tasks again", and
+   * the content of the final matches the draft rather than being a fresh roll.
+   * Seedance 2.5 only produces 1080p this way, and the id expires seven days
+   * after the draft's `created_at`.
+   */
+  sourceTaskId?: string;
 }
 
 export interface ProviderOutput {
