@@ -246,18 +246,20 @@ const BEATS: Beat[] = [
     from: 8,
     to: 10,
     action:
-      "the spread holds back and gathers: the waves slow almost to a stop, only " +
-      "two or three bulbs still catching at the far edges, a large part of the " +
-      "frame still dark and waiting, and the light already burning steadies and " +
-      "draws in very slightly",
+      "the spread holds back and gathers: the waves stop, no new lamp catches, " +
+      "and the light already burning draws down to a low steady ember so the " +
+      "picture sits at its dimmest since the start -- most of the frame still " +
+      "deep blue night, waiting, with only the few lit pools holding low",
   },
   {
     from: 10,
     to: 13,
     action:
-      "then everything still unlit strikes at once in a single synchronised " +
-      "cascade -- every remaining string, star lantern, wall lamp and window " +
-      "coming up together in one sweep across the whole panorama -- and the " +
+      "then every remaining lamp strikes at once in one synchronised burst -- " +
+      "every string, star lantern, wall lamp and window igniting together in a " +
+      "single sweep across the whole panorama, the brightest moment of the " +
+      "whole shot by a wide margin, a surge of warm light that floods the frame " +
+      "from edge to edge in well under a second -- and the " +
       `full colour of the artwork arrives with it: ${surface.reveal}, ` +
       "all of it at once",
   },

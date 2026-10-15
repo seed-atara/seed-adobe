@@ -577,32 +577,6 @@ export class SeedanceProvider implements GenerationProvider {
      * resolution, which is the render being paid for in any case. The response
      * says which happened -- a `seed` matching the draft's came from the draft.
      */
-    /*
-     * Step 2 of draft mode, with the contract the API gave up when asked.
-     *
-     * It is not a top-level field. `content` is required whatever else is
-     * sent, and the draft reference is a typed part inside it -- which the
-     * API will enumerate if given a bad one:
-     *
-     *   supported values are: `text`, `image_url`, `audio_url`, `video_url`
-     *   and `draft_task`.
-     *
-     * and then name the shape of that part, one field at a time:
-     *
-     *   content[0].draft_task is required
-     *   content[0].draft_task.id is required
-     *
-     * Two guesses were spent first -- `source_task_id` and `draft_task_id` as
-     * top-level fields -- and Ark ignored both silently, which is its habit
-     * with unknown top-level keys. The $4.49 that cost bought a fresh 1080p
-     * render rather than the draft's content, and the returned seed is what
-     * said so: 38513 against the draft's 76322.
-     */
-    if (request.sourceTaskId) {
-      body.content = [
-        { type: "draft_task", draft_task: { id: request.sourceTaskId } },
-      ];
-    }
 
     /*
      * A reference video changes what `duration` may be.
@@ -656,6 +630,53 @@ export class SeedanceProvider implements GenerationProvider {
     const resolution =
       request.size ?? request.parameters?.size ?? request.parameters?.resolution;
     if (typeof resolution === "string") body.resolution = resolution;
+
+
+    /*
+     * Step 2 of draft mode, with the contract the API gave up when asked.
+     *
+     * It is not a top-level field. `content` is required whatever else is
+     * sent, and the draft reference is a typed part inside it -- which the
+     * API will enumerate if given a bad one:
+     *
+     *   supported values are: `text`, `image_url`, `audio_url`, `video_url`
+     *   and `draft_task`.
+     *
+     * and then name the shape of that part, one field at a time:
+     *
+     *   content[0].draft_task is required
+     *   content[0].draft_task.id is required
+     *
+     * Two guesses were spent first -- `source_task_id` and `draft_task_id` as
+     * top-level fields -- and Ark ignored both silently, which is its habit
+     * with unknown top-level keys. The $4.49 that cost bought a fresh 1080p
+     * render rather than the draft's content, and the returned seed is what
+     * said so: 38513 against the draft's 76322.
+     */
+    if (request.sourceTaskId) {
+      /*
+       * The final stage takes almost nothing. Everything that describes how to
+       * make a shot -- the prompt, the frames, the duration, the aspect, the
+       * audio switch -- already lives in the draft, and sending any of it again
+       * is refused rather than ignored:
+       *
+       *   generate_audio is not supported for draft_task
+       *
+       * which cost two 400s to learn and nothing else, because a rejected
+       * request renders nothing. So the body is rebuilt from scratch here
+       * instead of being edited: model, the draft reference, and the
+       * resolution, which must be sent and must be 1080p -- omitting it answers
+       * "resolution ... is not valid for model dreamina-seedance-2-5 in
+       * draft_task final stage".
+       */
+      for (const key of Object.keys(body)) {
+        if (key !== "model") delete body[key];
+      }
+      body.content = [
+        { type: "draft_task", draft_task: { id: request.sourceTaskId } },
+      ];
+      body.resolution = "1080p";
+    }
 
     const payload = await this.call("POST", TASKS_PATH, body);
     const taskId = (payload as { id?: string })?.id;
