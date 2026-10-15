@@ -3,6 +3,24 @@
  *
  *   npx tsx scripts/animate-golden-to-night.ts --day ast_a --night ast_b --dry
  *   npx tsx scripts/animate-golden-to-night.ts --day ast_a --night ast_b --size 720p
+ *   npx tsx scripts/animate-golden-to-night.ts --surface right --day .. --night .. --draft
+ *
+ * ## Three surfaces, one shot
+ *
+ * The proscenium was first and the two side walls carry the same twenty
+ * seconds. They are not the same picture and cannot share one prompt: the
+ * proscenium frames the sun inside its central arch and the moon rises up
+ * through the middle of it, while the sides are a long colonnade along the
+ * coast with **no sun disc and no moon disc anywhere in the artwork** -- only
+ * the light they cast. Asking a side for a moonrise would be asking it to draw
+ * a moon the held artwork does not have, and the clip would then have to lose
+ * it again before the join.
+ *
+ * So the surfaces differ in three places and agree everywhere else: what the
+ * plate is, what the shot arrives at, and which beats carry the change. The
+ * side night descriptions are the ones already written from those plates for
+ * the night-to-party shot, reused verbatim -- the same artwork described twice
+ * in two different ways is how a transition ends up somewhere between them.
  *
  * Everything else animated on this project is a loop: one still in both frame
  * slots, three passes tiling thirty seconds, every pass closing on the plate it
@@ -58,6 +76,13 @@ const nightAsset = flag("night");
 const size = flag("size", "720p");
 const duration = Number(flag("duration", "20"));
 const aspect = flag("aspect", "21:9");
+const surfaceName = (flag("surface", "pros") || "pros").toLowerCase();
+/*
+ * Draft mode: 480p only, billed at the normal 480p rate, and about four times
+ * faster. The returned task id converts to 1080p later without re-rolling the
+ * shot. See docs/research/SEEDANCE_PREVIEW_MODE.md.
+ */
+const draft = argv.includes("--draft");
 
 const token = process.env.SEED_AE_SESSION_TOKEN;
 const base = `http://${process.env.SEED_AE_HOST ?? "127.0.0.1"}:${process.env.SEED_AE_PORT ?? "47831"}`;
@@ -95,7 +120,7 @@ const USD_PER_MILLION_TOKENS = 6.12;
  * what the artwork is, which is the framing that has worked on this project,
  * rather than as an instruction not to paint there.
  */
-const DESCRIBE =
+const PROS_DESCRIBE =
   "A wide painted golden-hour scene: a symmetrical arcade of pale cream carved " +
   "stone -- a tall central arch with a gilded fleur-de-lis keystone, flanked by " +
   "two large side arches with smaller stacked arches between them, standing on " +
@@ -109,7 +134,7 @@ const DESCRIBE =
   "top corners of the frame are flat black, which is the edge of the artwork " +
   "and stays flat black for the whole shot";
 
-const ARRIVE_AT =
+const PROS_ARRIVE_AT =
   "the identical arcade at night -- the same cream stone in the same places at " +
   "the same size and the same flat black top corners -- lit cool from the side " +
   "by its two lanterns, under a deep blue sky of moonlit cloud with stars " +
@@ -130,7 +155,7 @@ const ARRIVE_AT =
  * that have to match the static artwork either side, and a beat that says
  * "nothing changes yet" is also the model's cue that the ramp belongs there.
  */
-const BEATS: Beat[] = [
+const PROS_BEATS: Beat[] = [
   {
     from: 0,
     to: 2,
@@ -191,29 +216,163 @@ const BEATS: Beat[] = [
  * the static set either side of it, so a column that breathes by two pixels is
  * a seam that runs for twenty seconds.
  */
-const RIGID = [
+const PROS_RIGID = [
   "the central arch, its gilded keystone and every side arch",
   "the stone piers, columns and the balustrade",
   "the two wrought-iron lanterns and their housings",
   "the planters and the line of the horizon",
 ];
 
+/**
+ * The side walls.
+ *
+ * `describe` is the golden-hour plate and `arriveAt` the night one, written to
+ * name the *same* architecture in the same words so the only difference between
+ * them is the light. The night half is lifted from `animate-night-to-party.ts`,
+ * where it was written from these same plates at 100%, so the two shots that
+ * meet on the night state describe that state identically.
+ */
+const sideBeats = (lights: string): Beat[] => [
+  {
+    from: 0,
+    to: 2,
+    action:
+      "real time, the light exactly as it is in the first frame: the surf " +
+      "breaks and the palm fronds stir at their own natural speed and nothing " +
+      "else changes yet",
+  },
+  {
+    from: 2,
+    to: 7,
+    action:
+      "the time-lapse takes hold and the sun goes down behind the coast: the " +
+      "sky runs from gold through orange into deep rose, the warm light across " +
+      "the stonework slides lower and redder, the shadows stretch and then " +
+      "soften away, and the surf goes on breaking at its own speed underneath " +
+      "all of it",
+  },
+  {
+    from: 7,
+    to: 11,
+    action:
+      "dusk: the afterglow drains out of the horizon, the sky deepens from " +
+      "rose through violet into deep blue, the first stars appear in the upper " +
+      "sky, and the light on the colonnade cools from amber to blue",
+  },
+  {
+    from: 11,
+    to: 16,
+    action:
+      "the lanterns on the piers come up one by one into small warm pools, " +
+      lights +
+      ", and a narrow silver path of moonlight settles onto the dark sea " +
+      "from off frame",
+  },
+  {
+    from: 16,
+    to: 18,
+    action:
+      "night settles: a deep blue sky of moonlit cloud with steady stars, the " +
+      "stonework lit cool and even with the warm lantern pools holding steady",
+  },
+  {
+    from: 18,
+    to: 20,
+    action:
+      "real time again: the time-lapse has stopped and only the surf and the " +
+      "palm fronds move, at their own natural speed under the settled night sky",
+  },
+];
+
+const SIDE_RIGID = [
+  "every arch of the colonnade and the columns they stand on",
+  "the stone piers, the balustrade and the planters",
+  "the wrought-iron lanterns and their housings",
+  "the roof line and the line of the horizon",
+];
+
+interface Surface {
+  describe: string;
+  arriveAt: string;
+  beats: Beat[];
+  rigid: string[];
+}
+
+const SURFACES: Record<string, Surface> = {
+  pros: {
+    describe: PROS_DESCRIBE,
+    arriveAt: PROS_ARRIVE_AT,
+    beats: PROS_BEATS,
+    rigid: PROS_RIGID,
+  },
+  left: {
+    describe:
+      "A wide painted golden-hour scene: a long colonnade of pale cream stone " +
+      "arches on slender paired columns, a black wrought-iron lantern on each " +
+      "pier, planters of monstera and fern running along the base, and through " +
+      "the arches a rocky coast with surf breaking, a hillside town of pale " +
+      "buildings among palms on the left, palm fronds overhanging, and a sky of " +
+      "deep orange and gold cloud. Soft painterly illustration, warm amber key " +
+      "light low from the side",
+    arriveAt:
+      "the identical colonnade at night -- the same arches on the same columns " +
+      "in the same places at the same size -- a black wrought-iron lantern " +
+      "burning on each pier, planters of monstera and fern running along the " +
+      "base, and through the arches a moonlit rocky coast with surf breaking, a " +
+      "dark hillside town of small lit windows on the left, palm fronds " +
+      "overhanging, and a deep blue night sky of cloud and stars. Cool blue " +
+      "moonlight with small warm pools at the lanterns",
+    beats: sideBeats("the windows of the hillside town across the water light up warm"),
+    rigid: SIDE_RIGID,
+  },
+  right: {
+    describe:
+      "A wide painted golden-hour scene: a long colonnade of pale cream stone " +
+      "arches on paired columns, a black wrought-iron lantern on each pier, " +
+      "planters of monstera and fern along the base, and through the arches a " +
+      "rocky shore with surf and a sea arch in the rock, palm fronds " +
+      "overhanging at both ends, and a sky of deep orange and gold cloud. Soft " +
+      "painterly illustration, warm amber key light low from the side",
+    arriveAt:
+      "the identical colonnade at night -- the same arches on the same columns " +
+      "in the same places at the same size -- a black wrought-iron lantern " +
+      "burning on each pier, planters of monstera and fern along the base, and " +
+      "through the arches a moonlit rocky shore with surf and a sea arch in the " +
+      "rock, palm fronds overhanging at both ends, and a deep blue night sky of " +
+      "cloud and stars. Cool blue moonlight with small warm pools at the lanterns",
+    beats: sideBeats("the surf going on breaking pale against the dark rock"),
+    rigid: SIDE_RIGID,
+  },
+};
+
+const surface = SURFACES[surfaceName];
+if (!surface) {
+  throw new Error(
+    `--surface ${surfaceName} is not one of ${Object.keys(SURFACES).join(", ")}`,
+  );
+}
+
 const prompt = animatePrompt({
-  describe: DESCRIBE,
-  arriveAt: ARRIVE_AT,
-  beats: BEATS,
+  describe: surface.describe,
+  arriveAt: surface.arriveAt,
+  beats: surface.beats,
   // Two different stills, so this is not a loop and must not close as one.
   loop: false,
   // An opaque full-frame plate: no backing, no key, no unspill in this path.
   backdrop: "none",
   timelapse: true,
   landOnLast: true,
-  rigid: RIGID,
+  rigid: surface.rigid,
 });
 
 // ------------------------------------------------------------------ the price
 
-const tokens = estimateTokens(size, duration) ?? 0;
+/*
+ * Draft mode is 480p only -- the API rejects any other resolution on a draft
+ * -- so the flag decides the tier rather than sitting alongside it.
+ */
+const runTier = draft ? "480p" : size;
+const tokens = estimateTokens(runTier, duration) ?? 0;
 const dollars = (tokens / 1_000_000) * USD_PER_MILLION_TOKENS;
 const ramp = describeRamp({
   durationSeconds: duration,
@@ -221,7 +380,10 @@ const ramp = describeRamp({
   endSpeed: 0.2,
 });
 
-console.log(`=== ${duration}s golden hour -> night, ${size}, ${aspect} ===\n`);
+console.log(
+  `=== ${duration}s golden hour -> night, ${surfaceName.toUpperCase()}, ` +
+    `${runTier}${draft ? " draft" : ""}, ${aspect} ===\n`,
+);
 console.log(prompt);
 console.log(`\n--- what this costs ---`);
 for (const tier of ["480p", "720p", "1080p"]) {
@@ -229,7 +391,7 @@ for (const tier of ["480p", "720p", "1080p"]) {
   const d = (t / 1_000_000) * USD_PER_MILLION_TOKENS;
   console.log(
     `  ${tier.padEnd(6)} ${t.toLocaleString().padStart(11)} tokens  ` +
-      `$${d.toFixed(2).padStart(6)}${tier === size ? "   <- this run" : ""}`,
+      `$${d.toFixed(2).padStart(6)}${tier === runTier ? "   <- this run" : ""}`,
   );
 }
 console.log(
@@ -265,8 +427,9 @@ const response = await fetch(`${base}/v1/generations`, {
     providerId: "seedance-2-5",
     operation: "video.generate",
     prompt,
-    size,
+    size: runTier,
     durationSeconds: duration,
+    ...(draft ? { draft: true } : {}),
     aspectRatio: aspect,
     /*
      * Order matters and is positional: `inputRoles[i]` describes

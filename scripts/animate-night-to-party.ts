@@ -167,6 +167,23 @@ const SURFACES: Record<
       "everywhere",
     reveal: "the lit market street and its fountain receding beyond the arches",
   },
+  floor: {
+    describe:
+      "Looking straight down at a courtyard floor of large pale limestone " +
+      "paving slabs under moonlight, cool blue-grey, with the long shadows of " +
+      "palm fronds thrown across it, a curved stone planter kerb along the top " +
+      "edge, and ivy and foliage with a few small warm lantern pools along the " +
+      "left and right edges. Soft painterly illustration, overhead view, no " +
+      "horizon and no sky",
+    arriveAt:
+      "the same floor seen from the same height at festival night: the paving " +
+      "now warm amber river-cobble and setts, lit in broad soft pools from " +
+      "lanterns just outside the frame on both sides, the cool blue gone, the " +
+      "same curved stone kerb along the top edge, and bougainvillea in magenta " +
+      "with ivy along the left and right edges. Warm amber light, deep warm " +
+      "shadow between the pools",
+    reveal: "the warm pools of lantern light spreading across the paving",
+  },
   right: {
     describe:
       "A wide painted night scene: a long colonnade of pale cream stone arches " +
@@ -189,6 +206,18 @@ const SURFACES: Record<
     reveal: "the hillside town of lit windows and domes beyond the arches",
   },
 };
+
+/**
+ * `--subtle` for the floor and ceiling.
+ *
+ * Those surfaces are read peripherally and at an oblique angle, and the art
+ * direction reserves "the greatest visual impact" for the main reveal. A floor
+ * that detonates competes with the walls instead of supporting them. So the
+ * same choreography and the same timing -- it still has to land on the shared
+ * beat -- with the restraint shallower and the cascade a swell rather than a
+ * burst.
+ */
+const subtle = process.argv.includes("--subtle");
 
 const surface = SURFACES[flag("surface", "pros")];
 if (!surface)
@@ -245,23 +274,30 @@ const BEATS: Beat[] = [
   {
     from: 8,
     to: 10,
-    action:
-      "the spread holds back and gathers: the waves stop, no new lamp catches, " +
-      "and the light already burning draws down to a low steady ember so the " +
-      "picture sits at its dimmest since the start -- most of the frame still " +
-      "deep blue night, waiting, with only the few lit pools holding low",
+    action: subtle
+      ? "the spread eases and gathers: no new pool opens, and the warm light " +
+        "already there settles back a little, holding low and even while most " +
+        "of the floor is still cool blue moonlight"
+      : "the spread holds back and gathers: the waves stop, no new lamp catches, " +
+        "and the light already burning draws down to a low steady ember so the " +
+        "picture sits at its dimmest since the start -- most of the frame still " +
+        "deep blue night, waiting, with only the few lit pools holding low",
   },
   {
     from: 10,
     to: 13,
-    action:
-      "then every remaining lamp strikes at once in one synchronised burst -- " +
-      "every string, star lantern, wall lamp and window igniting together in a " +
-      "single sweep across the whole panorama, the brightest moment of the " +
-      "whole shot by a wide margin, a surge of warm light that floods the frame " +
-      "from edge to edge in well under a second -- and the " +
-      `full colour of the artwork arrives with it: ${surface.reveal}, ` +
-      "all of it at once",
+    action: subtle
+      ? "then the last of the cool moonlight gives way in one smooth swell: the " +
+        "remaining warm pools rise together and join across the whole surface, " +
+        "evenly and without a jump, until the floor is uniformly warm -- a lift " +
+        `rather than a burst, carrying ${surface.reveal}`
+      : "then every remaining lamp strikes at once in one synchronised burst -- " +
+        "every string, star lantern, wall lamp and window igniting together in a " +
+        "single sweep across the whole panorama, the brightest moment of the " +
+        "whole shot by a wide margin, a surge of warm light that floods the frame " +
+        "from edge to edge in well under a second -- and the " +
+        `full colour of the artwork arrives with it: ${surface.reveal}, ` +
+        "all of it at once",
   },
   {
     from: 13,
