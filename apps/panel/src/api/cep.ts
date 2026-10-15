@@ -724,6 +724,38 @@ export class CepAeBridge {
   }
 
   /**
+   * Moves a comp's playhead, snapped to the frame grid.
+   *
+   * `captureFrame` renders `comp.time`, so without this every capture is a
+   * capture of frame 0 -- which for a transition is the one frame that was
+   * never in doubt.
+   */
+  async setCompTime(
+    atSeconds: number,
+    compId?: string,
+  ): Promise<Record<string, unknown>> {
+    await this.ensureHost();
+    return evalHost(
+      `${hostPrefix()}setCompTime(${Number(atSeconds)}, ${compArg(compId)})`,
+    );
+  }
+
+  /**
+   * Renames project items, under the same guard as `moveItems`.
+   *
+   * The other half of a shelf: `createFolders` and `moveItems` build the
+   * tree, this fixes the names on it. A rename does not re-link anything --
+   * a layer holds its source by object -- so a comp can be renamed while it
+   * is in use.
+   */
+  async renameItems(
+    renames: Array<{ itemId: string; name: string; expectName?: string }>,
+  ): Promise<Record<string, unknown>> {
+    await this.ensureHost();
+    return evalHost(`${hostPrefix()}renameItems(${JSON.stringify(renames)})`);
+  }
+
+  /**
    * Where a layer actually sits in the comp, as a rectangle.
    *
    * `sourceRectAtTime` answers in the layer's own coordinates; this one has

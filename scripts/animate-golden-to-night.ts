@@ -83,6 +83,14 @@ const surfaceName = (flag("surface", "pros") || "pros").toLowerCase();
  * shot. See docs/research/SEEDANCE_PREVIEW_MODE.md.
  */
 const draft = argv.includes("--draft");
+/*
+ * `--from-draft <taskId>` renders the full-resolution version of that draft.
+ *
+ * Step 2: the same content as the approved draft rather than another roll of
+ * the prompt. Seedance 2.5 only produces 1080p this way, and the draft id is
+ * valid for seven days from the draft's created_at.
+ */
+const fromDraft = flag("from-draft");
 
 const token = process.env.SEED_AE_SESSION_TOKEN;
 const base = `http://${process.env.SEED_AE_HOST ?? "127.0.0.1"}:${process.env.SEED_AE_PORT ?? "47831"}`;
@@ -371,7 +379,7 @@ const prompt = animatePrompt({
  * Draft mode is 480p only -- the API rejects any other resolution on a draft
  * -- so the flag decides the tier rather than sitting alongside it.
  */
-const runTier = draft ? "480p" : size;
+const runTier = draft ? "480p" : fromDraft ? "1080p" : size;
 const tokens = estimateTokens(runTier, duration) ?? 0;
 const dollars = (tokens / 1_000_000) * USD_PER_MILLION_TOKENS;
 const ramp = describeRamp({
@@ -430,6 +438,7 @@ const response = await fetch(`${base}/v1/generations`, {
     size: runTier,
     durationSeconds: duration,
     ...(draft ? { draft: true } : {}),
+    ...(fromDraft ? { sourceTaskId: fromDraft } : {}),
     aspectRatio: aspect,
     /*
      * Order matters and is positional: `inputRoles[i]` describes

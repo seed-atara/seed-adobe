@@ -194,6 +194,67 @@ describe("putting the project on a shelf", () => {
       dispatch(bridge, { id: "c", name: "moveItems", args: { moves: [{ folder: "00_DELIVERY" }] } }),
     ).toThrow(/itemId/);
   });
+
+  it("carries renames through with the same guard moves use", async () => {
+    const { bridge, calls } = recordingBridge();
+
+    await dispatch(bridge, {
+      id: "c",
+      name: "renameItems",
+      args: {
+        renames: [
+          { itemId: "1310", name: "01_ANNUAL_SUMMIT", expectName: "STATE1" },
+          { itemId: "2092", name: "  GYG_SIDES_LEFT_gh_to_night  " },
+        ],
+      },
+    });
+    expect(calls[0]).toEqual([
+      "renameItems",
+      [
+        [
+          { itemId: "1310", name: "01_ANNUAL_SUMMIT", expectName: "STATE1" },
+          { itemId: "2092", name: "GYG_SIDES_LEFT_gh_to_night" },
+        ],
+      ],
+    ]);
+  });
+
+  it("refuses a rename with no name, which would otherwise clear it", () => {
+    const { bridge } = recordingBridge();
+
+    for (const name of ["", "   ", undefined]) {
+      expect(() =>
+        dispatch(bridge, { id: "c", name: "renameItems", args: { renames: [{ itemId: "1310", name }] } }),
+      ).toThrow();
+    }
+  });
+});
+
+/**
+ * The playhead.
+ *
+ * `captureFrame` renders `comp.time`, so until there was a way to set it every
+ * capture was of frame 0 -- which, for a twenty-second transition, is the one
+ * frame nobody needed to see.
+ */
+describe("moving the playhead", () => {
+  it("passes the time and the comp through", async () => {
+    const { bridge, calls } = recordingBridge();
+
+    await dispatch(bridge, {
+      id: "c",
+      name: "setCompTime",
+      args: { atSeconds: 12.5, compId: "2092" },
+    });
+    expect(calls[0]).toEqual(["setCompTime", [12.5, "2092"]]);
+  });
+
+  it("leaves the comp undefined so the active one is used", async () => {
+    const { bridge, calls } = recordingBridge();
+
+    await dispatch(bridge, { id: "c", name: "setCompTime", args: { atSeconds: 0 } });
+    expect(calls[0]).toEqual(["setCompTime", [0, undefined]]);
+  });
 });
 
 /**

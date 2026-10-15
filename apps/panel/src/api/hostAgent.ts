@@ -134,6 +134,10 @@ export function dispatch(
       return bridge.createFolders(folderPaths(args.paths));
     case "moveItems":
       return bridge.moveItems(itemMoves(args.moves));
+    case "renameItems":
+      return bridge.renameItems(itemRenames(args.renames));
+    case "setCompTime":
+      return bridge.setCompTime(Number(args.atSeconds), optionalCompId(args.compId));
     case "deleteFolders":
       return bridge.deleteFolders(folderPaths(args.paths));
     case "renameLayers":
@@ -401,6 +405,33 @@ function folderPaths(value: unknown): string[] {
 }
 
 /** A move list, with the name guard carried through when the plan supplied one. */
+/**
+ * Project-item renames.
+ *
+ * A name is trimmed and must survive it: the host refuses an empty name
+ * anyway, but refusing here names the entry that was wrong rather than
+ * reporting it from inside a batch of forty.
+ */
+function itemRenames(
+  value: unknown,
+): Array<{ itemId: string; name: string; expectName?: string }> {
+  if (!Array.isArray(value)) throw new Error("renames must be an array");
+  return value.map((entry) => {
+    const rename = entry as Record<string, unknown>;
+    const itemId = String(rename.itemId ?? "").trim();
+    if (!itemId) throw new Error("every rename needs an itemId");
+    const name = String(rename.name ?? "").trim();
+    if (!name) throw new Error(`rename of ${itemId} has no name`);
+    const expectName =
+      rename.expectName === undefined || rename.expectName === null
+        ? undefined
+        : String(rename.expectName);
+    return expectName === undefined
+      ? { itemId, name }
+      : { itemId, name, expectName };
+  });
+}
+
 function itemMoves(value: unknown): Array<{ itemId: string; folder: string; expectName?: string }> {
   if (!Array.isArray(value)) throw new Error("moves must be an array");
   return value.map((entry) => {

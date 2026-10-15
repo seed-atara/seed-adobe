@@ -1370,3 +1370,57 @@ and Vitest's default limit is 5000ms. Declared 60s on the describe, with the
 reason in the file. `render.test.tsx` had the same shape — whichever test
 imports `App` first pays to transform the panel's whole module graph. Both
 declared; 885/885 across 70 files.
+
+### The sides take the golden hour, at 1080p, from the drafts
+
+Both side walls' 20s golden-hour-to-night shots were approved as 480p drafts and
+converted to 1080p through step 2 of draft mode. The seed is the proof the
+conversion honoured the draft rather than re-rolling: **9108 for LEFT and 7419
+for RIGHT**, the drafts' own seeds, at `resolution: 1080p`, 980,261 tokens each.
+`--from-draft` is now on `animate-golden-to-night.ts` as well as
+`animate-night-to-party.ts`, and it forces the tier, because 1080p is the only
+output step 2 has.
+
+Laid into comps 2092 and 2129 by `insert-side-ghnight.ts`. It is a separate
+script from `insert-daynight-transition.ts` for one reason: the proscenium was
+**padded** to 21:9 and gets cropped on the way back, while a side wall is
+3.4979:1 and was **squeezed**, so it gets unsqueezed — and an unsqueeze is a
+non-uniform scale that After Effects can hold on the layer (303.17% x 202.11%),
+so the clip goes in untouched instead of through a 700MB ProRes intermediate.
+Measured after the fact: the stretched first and last frames sit within 13px of
+the plates they are cut against, on a 6688px wall, and that offset does not grow
+across the shot.
+
+What does grow is LEFT's architecture, by +19px over twenty seconds at clip
+scale. That is not a defect in the clip. The delivered LEFT night wall is drawn
+0.9411x the golden one vertically, so a shot that starts on one and ends on the
+other has to absorb the difference somewhere; spread across 20 seconds at about
+a pixel a second is the best place for it, and it was the point of accepting a
+blend at the join. RIGHT, whose plates register at 0.998x, drifts 1px.
+
+### Two host commands the shelf needed
+
+`renameItems` and `setCompTime`. Neither existed, and both were load-bearing:
+
+- **`renameItems`** — `createFolders` and `moveItems` could build any tree and
+  not fix a single name on it, and `renameLayers` renames layers inside a comp,
+  which is a different object. Same per-item refusal and `expectName` guard as
+  `moveItems`, plus one rule of its own: two sister folders may not share a
+  name, because every folder in this host is addressed by path.
+- **`setCompTime`** — `captureFrame` renders `comp.time` and nothing could move
+  it, so every capture this project has ever taken was of frame 0. For a held
+  plate that is the whole picture. For a twenty-second transition it is the one
+  frame that was never in question.
+
+Both are After Effects only and declared so in `hostScripts.test.ts`.
+
+### setActiveComp reports whether it worked, and that report matters
+
+`seedSetActiveComp` returns `isActive` separately from `ok`, because
+`openInViewer` can succeed while After Effects leaves focus on the viewer that
+was already in front. `insertIntoComp` takes no comp id — it uses
+`app.project.activeItem` — so a script that ignores `isActive` inserts into
+whatever comp the artist happens to be looking at. That is exactly what happened
+on the first run of `insert-side-ghnight.ts`: a 20s clip went into
+`gyg_PROS_transnight1` and was reported as a success. It now verifies against
+`getContext` and refuses to continue.

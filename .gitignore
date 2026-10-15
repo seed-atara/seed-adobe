@@ -38,3 +38,6 @@ apps/installer/build/
 
 # Intermediate mattes and clamped clips, rebuildable from the PSD.
 .work/
+
+# Local Codex CLI config; points at .env, never belongs in a public repo.
+.codex/

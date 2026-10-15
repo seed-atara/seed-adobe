@@ -3475,6 +3475,153 @@ function seedMoveItems(moves) {
     }
 }
 
+/**
+ * Renames project items -- comps, folders and footage.
+ *
+ * The other half of `moveItems`. A shelf is a tree of folders and a set of
+ * names, and until now the host could build the tree but not fix the names:
+ * `renameLayers` renames layers inside a composition, which is a different
+ * object, and a project item had no way to be renamed at all.
+ *
+ * Same contract as `moveItems` deliberately, because they are applied from the
+ * same plan: `expectName` guards a stale id, a refusal is reported per item
+ * rather than failing the batch, and a rename to the name the item already has
+ * is a no-op rather than an error.
+ *
+ * Renaming is safe for references. A layer holds its source by object, not by
+ * name, so a comp can be renamed with footage and precomps pointing at it and
+ * nothing re-links. What a rename CAN break is a script that looks a comp up by
+ * name, which is why `--save` writes a version first.
+ */
+function seedRenameItems(renames) {
+    try {
+        if (!app.project) return seedFail("no project is open");
+        if (!renames || !renames.length) return seedFail("no renames were given");
+
+        app.beginUndoGroup("SEED: rename project items");
+
+        var renamed = [];
+        var refused = [];
+        var unchanged = 0;
+
+        for (var i = 0; i < renames.length; i++) {
+            var entry = renames[i];
+            var id = String(entry.itemId);
+            var item = seedFindItemById(id);
+            if (!item) {
+                refused.push({ itemId: id, reason: "no item has id " + id });
+                continue;
+            }
+            var was = String(item.name);
+            if (entry.expectName !== undefined && entry.expectName !== null &&
+                String(entry.expectName) !== was) {
+                refused.push({
+                    itemId: id, name: was,
+                    reason: "id " + id + " is now " + was + ", not " +
+                            String(entry.expectName)
+                });
+                continue;
+            }
+            var to = String(entry.name === undefined || entry.name === null ? "" : entry.name)
+                .replace(/^\s+|\s+$/g, "");
+            if (to === "") {
+                refused.push({ itemId: id, name: was, reason: "a name cannot be empty" });
+                continue;
+            }
+            /*
+             * A folder is addressed by path everywhere else in this host, so two
+             * sisters with one name would make `seedFolderAt` ambiguous and the
+             * next tidy would file things into whichever it reached first.
+             * After Effects allows it; the shelf cannot.
+             */
+            if (item instanceof FolderItem && to !== was) {
+                var parent = null;
+                try { parent = item.parentFolder; } catch (ignored) {}
+                var clash = false;
+                if (parent) {
+                    for (var c = 1; c <= parent.numItems; c++) {
+                        var sister = parent.item(c);
+                        if (sister.id !== item.id && sister instanceof FolderItem &&
+                            String(sister.name) === to) { clash = true; break; }
+                    }
+                }
+                if (clash) {
+                    refused.push({
+                        itemId: id, name: was,
+                        reason: "a folder called " + to + " is already there"
+                    });
+                    continue;
+                }
+            }
+            if (to === was) { unchanged++; continue; }
+            item.name = to;
+            renamed.push({
+                itemId: id,
+                kind: item instanceof FolderItem ? "folder"
+                    : item instanceof CompItem ? "comp" : "footage",
+                from: was,
+                to: String(item.name),
+                folder: seedFolderPath(item)
+            });
+        }
+
+        app.endUndoGroup();
+        return seedOk({
+            renamed: renamed,
+            refused: refused,
+            unchanged: unchanged,
+            renamedCount: renamed.length,
+            refusedCount: refused.length
+        });
+    } catch (error) {
+        try { app.endUndoGroup(); } catch (ignored) {}
+        return seedFail(error);
+    }
+}
+
+/**
+ * Moves the playhead of a composition.
+ *
+ * `captureFrame` renders whatever `comp.time` is and there was no way to set
+ * it, which quietly made every capture a capture of frame 0. For a held plate
+ * that is the whole picture; for a twenty-second transition it is the one frame
+ * that was already known to be right.
+ *
+ * Snapped to the frame grid, because After Effects will accept a time between
+ * two frames and then render the earlier one -- so an unsnapped request gets a
+ * frame that is not the frame that was asked for, and says nothing about it.
+ */
+function seedSetCompTime(atSeconds, compId) {
+    try {
+        var target = seedTargetComp(compId);
+        if (!target.comp) return seedFail(target.error);
+        var comp = target.comp;
+
+        var wanted = Number(atSeconds);
+        if (!(wanted >= 0)) return seedFail("atSeconds must be zero or more");
+        var last = comp.duration - 1 / comp.frameRate;
+        if (wanted > last + 1e-6) {
+            return seedFail(
+                "atSeconds " + wanted + " is past the end of " + comp.name +
+                "; its last frame is at " + (Math.round(last * 1000) / 1000) + "s");
+        }
+        var frame = Math.round(wanted * comp.frameRate);
+        var snapped = frame / comp.frameRate;
+
+        comp.time = snapped;
+        return seedOk({
+            comp: { id: String(comp.id), name: comp.name },
+            requestedSeconds: wanted,
+            atSeconds: Math.round(comp.time * 1000000) / 1000000,
+            frame: frame,
+            frameRate: comp.frameRate,
+            durationSeconds: comp.duration
+        });
+    } catch (error) {
+        return seedFail(error);
+    }
+}
+
 // ------------------------------------------------------------ sub-entities
 
 /*
@@ -4797,6 +4944,8 @@ var seedAeft_projectComps = seedProjectComps;
 var seedAeft_projectItems = seedProjectItems;
 var seedAeft_createFolders = seedCreateFolders;
 var seedAeft_moveItems = seedMoveItems;
+var seedAeft_renameItems = seedRenameItems;
+var seedAeft_setCompTime = seedSetCompTime;
 var seedAeft_setTransform = seedSetTransform;
 var seedAeft_moveLayer = seedMoveLayer;
 var seedAeft_deleteFolders = seedDeleteFolders;

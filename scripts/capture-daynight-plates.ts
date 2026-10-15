@@ -350,14 +350,24 @@ const wasEnabled = night.enabled === true;
 const wasOpacity = Number(
   (night as { opacityPercent?: number }).opacityPercent ?? 0,
 );
+/*
+ * Taken out of `night` here rather than read inside `restore`.
+ *
+ * The `if (!night) throw` above narrows it, but the narrowing does not reach
+ * into a function body, so `night.index` inside the closure is `possibly
+ * undefined` to the compiler and right to a reader. Holding the index is also
+ * the honest thing: restore has to put back the layer this script changed, not
+ * whatever `night` happens to point at when it runs.
+ */
+const nightIndex = night.index;
 async function restore(): Promise<void> {
   await host("setTransform", {
-    layerIndex: night.index,
+    layerIndex: nightIndex,
     property: "opacity",
     value: wasOpacity,
   });
   await host("setLayerEnabled", {
-    layerIndex: night.index,
+    layerIndex: nightIndex,
     enabled: wasEnabled,
   });
   restored = true;

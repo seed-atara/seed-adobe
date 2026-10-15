@@ -192,6 +192,18 @@ const HOST_SPECIFIC: Record<string, { host: string; because: string }> = {
     host: "seed-host.jsx",
     because: "a Premiere sequence has track items rather than named layers",
   },
+  seedRenameItems: {
+    host: "seed-host.jsx",
+    because:
+      "renames items on the After Effects project shelf, which Premiere's bins " +
+      "are not: nothing in the Premiere half of this panel builds that shelf",
+  },
+  seedSetCompTime: {
+    host: "seed-host.jsx",
+    because:
+      "moves a composition's playhead so captureFrame can render something " +
+      "other than frame 0; a Premiere sequence has no CompItem to move",
+  },
 };
 
 describe("panel to host contract", () => {

@@ -109,6 +109,8 @@ export const HOST_WRITES = [
   "moveLayer",
   "deleteFolders",
   "renameLayers",
+  "renameItems",
+  "setCompTime",
 ] as const;
 
 export const HOST_COMMANDS: readonly string[] = [...HOST_READS, ...HOST_WRITES];
