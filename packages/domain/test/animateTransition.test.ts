@@ -234,3 +234,74 @@ describe("a change between two different sets, led by the light", () => {
     expect(plain).toContain(ANIMATE_TAIL);
   });
 });
+
+describe("a transform whose subject is the lamps coming on", () => {
+  const KINDLING: AnimateRequest = {
+    describe: "A painted coastal night arcade under moonlight",
+    arriveAt: "a Mexican party-city square, every lamp and paper lantern lit",
+    loop: false,
+    backdrop: "none",
+    transform: true,
+    lights: true,
+    landOnLast: true,
+    beats: [{ from: 0, to: 10, action: "the lamps flicker on and the light spreads" }],
+  };
+
+  it("does not forbid the flicker it is asking for", () => {
+    /*
+     * The expensive kind of contradiction, and the second time this exact
+     * shape has come up on this project. TRANSITION_TAIL ends "no stuttering,
+     * strobing, pulsing or jumping between frames" -- right for a sunset, a
+     * flat ban on a shot whose subject is lamps striking.
+     */
+    const prompt = animatePrompt(KINDLING);
+    expect(prompt).not.toContain("no stuttering, strobing, pulsing");
+    expect(prompt).toContain("may flicker, stutter and surge as they strike");
+  });
+
+  it("keeps the stability guarantee it is for", () => {
+    const prompt = animatePrompt(KINDLING);
+    expect(prompt).toContain("no tearing, smearing or jumping between frames");
+    expect(prompt).toContain("no change of lens, framing or scale");
+  });
+
+  it("does not claim nothing else changes brightness", () => {
+    // ANIMATE_TAIL_LIGHTS ends that way, correctly, for a lamp on a static
+    // wall. Here the whole second plate arrives on the light these lamps cast.
+    const prompt = animatePrompt(KINDLING);
+    expect(prompt).not.toContain("nothing else in the artwork changes brightness");
+  });
+
+  it("falls back to the plain transition tail without lights", () => {
+    const prompt = animatePrompt({ ...KINDLING, lights: false });
+    expect(prompt).toContain(TRANSITION_TAIL);
+    expect(prompt).not.toContain("may flicker, stutter and surge");
+  });
+});
+
+describe("the false-colour guide image", () => {
+  const GUIDED: AnimateRequest = {
+    describe: "A painted coastal night arcade under moonlight",
+    loop: false,
+    backdrop: "none",
+    transform: true,
+    lights: true,
+    guide: "every light source in the party square marked in magenta on black",
+    beats: [{ from: 0, to: 10, action: "the lamps flicker on" }],
+  };
+
+  it("names it as a diagram and says what to read it for", () => {
+    const prompt = animatePrompt(GUIDED);
+    expect(prompt).toContain("Image 3 is a diagram and not a scene");
+    expect(prompt).toContain("Read it only to know which parts of the picture are light sources");
+  });
+
+  it("names no defect, so it does not ask for magenta by forbidding it", () => {
+    const prompt = animatePrompt(GUIDED);
+    expect(prompt).not.toMatch(/do not (paint|draw|render)/i);
+  });
+
+  it("is absent unless given", () => {
+    expect(animatePrompt({ ...GUIDED, guide: undefined })).not.toContain("Image 3");
+  });
+});

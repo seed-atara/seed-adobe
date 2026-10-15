@@ -57,6 +57,17 @@ const partyAsset = flag("party");
 const size = flag("size", "480p");
 const duration = Number(flag("duration", "10"));
 const aspect = flag("aspect", "21:9");
+/**
+ * `frames` anchors the ends exactly; `references` can carry the light map.
+ *
+ * Not a preference — Seedance refuses to mix a last frame with reference
+ * images ("first/last frame content cannot be mixed with reference media
+ * content", from a real 400), so the false-colour guide and an exact closing
+ * frame cannot both be had. The two modes are run against each other at 480p
+ * rather than argued about.
+ */
+const mode = flag("mode", "frames");
+const lightmapAsset = flag("lightmap");
 
 const token = process.env.SEED_AE_SESSION_TOKEN;
 const base = `http://${process.env.SEED_AE_HOST ?? "127.0.0.1"}:${process.env.SEED_AE_PORT ?? "47831"}`;
@@ -105,51 +116,72 @@ const ARRIVE_AT =
 const BEATS: Beat[] = [
   {
     from: 0,
-    to: 2,
+    to: 1.5,
     action:
-      "the coastal night exactly as the first frame: only the sea moves, the " +
-      "two lanterns on the piers burn steadily, and nothing else has changed",
+      "the coastal night exactly as it is: only the sea moves, the two " +
+      "lanterns on the piers burn steadily, and every other lamp is dark",
   },
   {
-    from: 2,
+    from: 1.5,
     to: 4,
     action:
-      "the first warm lights kindle in the darkness one after another -- a " +
-      "string of small bulbs, then a star-shaped paper lantern, then a lit " +
-      "window -- each coming up faint and growing to a steady warm glow",
+      "the first lamps strike, each at its own moment and none of them " +
+      "cleanly: a string of small bulbs stutters two or three times before it " +
+      "catches, a star-shaped paper lantern flutters and holds, a window " +
+      "surges bright and settles back; they are scattered across the frame, " +
+      "not in a line, and between them the picture is still night",
   },
   {
     from: 4,
     to: 7,
     action:
-      "each light opens into a widening pool of warm amber, and inside those " +
-      "pools the painted walls, iron balconies, flowers and paper flags of the " +
-      "square are revealed; more lamps kindle at the edges and the pools spread " +
-      "towards one another",
+      "more lamps strike in clusters, and around each one that has caught, the " +
+      "warm light soaks outwards into the picture with a ragged uneven edge " +
+      "that creeps and branches rather than opening as a circle; inside that " +
+      "light the painted walls, iron balconies, flowers and paper flags of the " +
+      "square are what is there, while beyond its edge the blue night is " +
+      "untouched",
   },
   {
     from: 7,
     to: 9,
     action:
-      "the pools meet and cover the frame, the last of the cool blue goes, and " +
-      "the lit hillside town and its floodlit church tower appear beyond the " +
-      "arches",
+      "the lit patches grow into one another and close the gaps between them, " +
+      "the last pockets of blue night give way, and the lit hillside town and " +
+      "its floodlit church tower come up beyond the arches",
   },
   {
     from: 9,
     to: 10,
     action:
-      "the square is fully lit and settled: every lamp at its full brightness, " +
-      "the paper flags stirring gently on their wires",
+      "every lamp has settled to a steady burn and the square is fully lit, " +
+      "with only the paper flags stirring gently on their wires",
   },
 ];
+
+const references = mode === "references";
 
 const prompt = animatePrompt({
   describe: DESCRIBE,
   arriveAt: ARRIVE_AT,
+  // Reference mode names the images as references rather than promising them
+  // as frames, which is a promise this request does not make in that mode.
+  ...(references ? { asReferences: true } : {}),
   beats: BEATS,
   loop: false,
   backdrop: "none",
+  /*
+   * The subject is lamps striking, so the tail has to license the flicker it
+   * would otherwise forbid. See TRANSITION_TAIL_LIGHTS.
+   */
+  lights: true,
+  ...(references
+    ? {
+        guide:
+          "it marks every light source in the party square as a magenta shape " +
+          "on black, one for each bulb, lantern, wall lamp and lit window",
+      }
+    : {}),
   // NOT `timelapse`: that promises the picture is never re-drawn, and here it
   // must be. See `TRANSFORM` in packages/domain/src/animate.ts.
   transform: true,
@@ -201,8 +233,14 @@ if (dry) {
       size,
       durationSeconds: duration,
       aspectRatio: aspect,
-      inputAssetIds: [nightAsset, partyAsset],
-      inputRoles: ["first", "last"],
+      inputAssetIds: references
+        ? [nightAsset, partyAsset, lightmapAsset].filter(Boolean)
+        : [nightAsset, partyAsset],
+      inputRoles: references
+        ? [nightAsset, partyAsset, lightmapAsset]
+            .filter(Boolean)
+            .map(() => "reference")
+        : ["first", "last"],
       project: PROJECT,
     }),
   });

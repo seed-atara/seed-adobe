@@ -492,6 +492,30 @@ export const TRANSITION_TAIL =
   "last with no stuttering, strobing, pulsing or jumping between frames, and " +
   "no change of lens, framing or scale at any point.";
 
+/**
+ * The transition tail, for a shot whose subject is lamps coming on.
+ *
+ * `TRANSITION_TAIL` ends "no stuttering, strobing, pulsing or jumping between
+ * frames". That is right for a sunset and it is a flat ban on this brief: a
+ * lamp striking stutters and surges, and that flicker is the thing being asked
+ * for. This is the same correction `ANIMATE_TAIL_LIGHTS` makes to
+ * `ANIMATE_TAIL`, for the same reason and in the same shape — the stability
+ * guarantee is kept and made to say which instability it means, and the
+ * allowance is stated positively so the model has something to render rather
+ * than only something to avoid.
+ *
+ * Unlike `ANIMATE_TAIL_LIGHTS` this does **not** say "nothing else in the
+ * artwork changes brightness", because here everything else does: the whole
+ * second plate arrives on the light these lamps cast.
+ */
+export const TRANSITION_TAIL_LIGHTS =
+  "Stable geometry, consistent line weight and flat painted colour, natural " +
+  "fluid motion, and no tearing, smearing or jumping between frames, with no " +
+  "change of lens, framing or scale at any point. The lamps, bulbs, lanterns " +
+  "and lit windows that are coming on may flicker, stutter and surge as they " +
+  "strike, each at its own moment, and the light they cast flickers with them " +
+  "until they settle to a steady burn.";
+
 export interface AnimateRequest {
   /** What the artwork is. Holds the design; does not describe the motion. */
   describe: string;
@@ -552,6 +576,29 @@ export interface AnimateRequest {
    * one or the other, never both.
    */
   transform?: boolean;
+  /**
+   * A third image that is a diagram rather than a scene. See `guidePhrase`.
+   *
+   * Only reaches the model in reference mode: Seedance refuses to mix a last
+   * frame with reference images, verified from a real 400, so a guide and an
+   * exact closing frame cannot both be had.
+   */
+  guide?: string;
+  /**
+   * Send every image as a reference rather than as a frame.
+   *
+   * The provider treats these as mutually exclusive modes: frame-anchored
+   * (i2v), where the shot starts from an exact image, or reference-driven
+   * (r2v), where the model draws on the images without reproducing any one of
+   * them. The lead-in has to say which, because "Image 1 as the first frame,
+   * held exactly" is a promise the request did not make in reference mode.
+   *
+   * The cost is the thing to weigh: in reference mode the clip does not begin
+   * on its opening plate or end on its closing one, so a transition spliced
+   * between two fixed states loses the guarantee that makes its joins
+   * invisible. The gain is that a guide image can be sent at all.
+   */
+  asReferences?: boolean;
   /**
    * Arrive at the last frame still moving. See `LAND_ON_LAST`.
    *
@@ -624,11 +671,13 @@ export function animatePrompt(request: AnimateRequest): string {
      * frozen tail is unusable and a slightly loose one is gradeable.
      */
     ...(request.landOnLast ? [LAND_ON_LAST.closing] : []),
-    request.timelapse || request.transform
-      ? TRANSITION_TAIL
-      : request.lights
-        ? ANIMATE_TAIL_LIGHTS
-        : ANIMATE_TAIL,
+    request.transform && request.lights
+      ? TRANSITION_TAIL_LIGHTS
+      : request.timelapse || request.transform
+        ? TRANSITION_TAIL
+        : request.lights
+          ? ANIMATE_TAIL_LIGHTS
+          : ANIMATE_TAIL,
   ].join("; ");
 
   /*
@@ -638,13 +687,37 @@ export function animatePrompt(request: AnimateRequest): string {
    * shot wanders towards it instead of ending on it.
    */
   const arriveAt = request.arriveAt?.trim().replace(/[.]+$/, "");
+  const guide = request.guide?.trim().replace(/[.]+$/, "");
+  if (request.asReferences) {
+    const parts = [
+      `Image 1 and Image 2 are reference images, not frames.`,
+      `Image 1 is the scene the shot starts in: ${opening}`,
+      ...(arriveAt ? [`Image 2 is the scene it ends in: ${arriveAt}.`] : []),
+      ...(guide
+        ? [
+            `Image 3 is a diagram and not a scene: ${guide}. Read it only to ` +
+              `know which parts of the picture are light sources.`,
+          ]
+        : []),
+    ];
+    return [parts.join(" "), "", beats.join("\n"), "", closing].join("\n");
+  }
   const lead = arriveAt
     ? `Image 1 as the first frame and Image 2 as the last frame, both held ` +
       `exactly. Image 1: ${opening} Image 2, which is where the shot ends: ` +
       `${arriveAt}.`
     : `Image 1 as the first frame, held exactly: ${opening}`;
+  /*
+   * The guide is named last and named as a diagram. Stated positively -- what
+   * it is for -- rather than as a ban on painting it, because a clause that
+   * names a defect has twice been measured to summon it on this project.
+   */
+  const withGuide = guide
+    ? `${lead} Image 3 is a diagram and not a scene: ${guide}. Read it only to ` +
+      `know which parts of the picture are light sources.`
+    : lead;
 
-  return [lead, "", beats.join("\n"), "", closing].join("\n");
+  return [withGuide, "", beats.join("\n"), "", closing].join("\n");
 }
 
 /**
