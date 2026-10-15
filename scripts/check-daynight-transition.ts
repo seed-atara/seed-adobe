@@ -52,14 +52,18 @@ const firstPlate = flag("first");
 const lastPlate = flag("last");
 
 if (!clip) {
-  console.error("usage: check-daynight-transition.ts <clip> [--first day.png] [--last night.png]");
+  console.error(
+    "usage: check-daynight-transition.ts <clip> [--first day.png] [--last night.png]",
+  );
   process.exit(2);
 }
 
 /** Working width. A moon is tens of pixels across at this size; enough. */
 const W = 640;
 
-async function probe(file: string): Promise<{ w: number; h: number; fps: number }> {
+async function probe(
+  file: string,
+): Promise<{ w: number; h: number; fps: number }> {
   const run = spawn(ffmpeg, ["-i", file], { windowsHide: true });
   let info = "";
   run.stderr.on("data", (c) => (info += String(c)));
@@ -67,18 +71,35 @@ async function probe(file: string): Promise<{ w: number; h: number; fps: number 
   const size = /, (\d{2,5})x(\d{2,5})/.exec(info);
   if (!size) throw new Error(`could not read ${file}`);
   const rate = /([\d.]+) fps/.exec(info);
-  return { w: Number(size[1]), h: Number(size[2]), fps: rate ? Number(rate[1]) : 24 };
+  return {
+    w: Number(size[1]),
+    h: Number(size[2]),
+    fps: rate ? Number(rate[1]) : 24,
+  };
 }
 
 /** Decode to raw RGB at a fixed size. One frame for a still, all for a clip. */
-async function rgb(file: string, w: number, h: number, oneFrame: boolean): Promise<Uint8Array[]> {
+async function rgb(
+  file: string,
+  w: number,
+  h: number,
+  oneFrame: boolean,
+): Promise<Uint8Array[]> {
   const run = spawn(
     ffmpeg,
     [
-      "-v", "error", "-i", file,
-      "-vf", `scale=${w}:${h}:flags=area`,
+      "-v",
+      "error",
+      "-i",
+      file,
+      "-vf",
+      `scale=${w}:${h}:flags=area`,
       ...(oneFrame ? ["-frames:v", "1"] : []),
-      "-f", "rawvideo", "-pix_fmt", "rgb24", "-",
+      "-f",
+      "rawvideo",
+      "-pix_fmt",
+      "rgb24",
+      "-",
     ],
     { windowsHide: true },
   );
@@ -104,7 +125,8 @@ async function rgb(file: string, w: number, h: number, oneFrame: boolean): Promi
 const meta = await probe(clip);
 const H = Math.max(2, Math.round((W * meta.h) / meta.w) & ~1);
 const frames = await rgb(clip, W, H, false);
-if (frames.length < 8) throw new Error(`only ${frames.length} frames from ${clip}`);
+if (frames.length < 8)
+  throw new Error(`only ${frames.length} frames from ${clip}`);
 const fps = meta.fps;
 const seconds = frames.length / fps;
 
@@ -154,7 +176,9 @@ function channelError(
   };
 }
 
-console.log("\n-- the ends: does it start and finish on the artwork either side --");
+console.log(
+  "\n-- the ends: does it start and finish on the artwork either side --",
+);
 for (const [label, plate, frame] of [
   ["first frame vs day plate  ", firstPlate, frames[0]!],
   ["last frame  vs night plate", lastPlate, frames[frames.length - 1]!],
@@ -260,7 +284,9 @@ console.log(
   `  worst drift  x ${(worstDx * scale).toFixed(1)}px  y ${(worstDy * scale).toFixed(1)}px ` +
     `(of ${meta.w}x${meta.h})`,
 );
-console.log(`  structure match at worst  ${worstPeak.toFixed(3)}  (1.0 = identical layout)`);
+console.log(
+  `  structure match at worst  ${worstPeak.toFixed(3)}  (1.0 = identical layout)`,
+);
 const moved = Math.abs(worstDx * scale) > 2 || Math.abs(worstDy * scale) > 2;
 console.log(
   moved
@@ -380,8 +406,8 @@ console.log(
   compact.length < 3
     ? "  -> no compact bright disc for most of the shot; read as no moon, or a diffuse glow."
     : `  -> a compact source for ${compact.length} of ${track.length} samples; it travelled ` +
-      `${Math.abs((compact[compact.length - 1]?.x ?? 0) - (compact[0]?.x ?? 0))}% across and ` +
-      `${Math.abs((compact[compact.length - 1]?.y ?? 0) - (compact[0]?.y ?? 0))}% down.`,
+        `${Math.abs((compact[compact.length - 1]?.x ?? 0) - (compact[0]?.x ?? 0))}% across and ` +
+        `${Math.abs((compact[compact.length - 1]?.y ?? 0) - (compact[0]?.y ?? 0))}% down.`,
 );
 
 // --------------------------------------------- 5 & 6. pacing, and the tail
@@ -404,12 +430,15 @@ for (let f = 1; f < frames.length; f++) {
 const perSecond: number[] = [];
 for (let s = 0; s * fps < change.length; s++) {
   const slice = change.slice(Math.round(s * fps), Math.round((s + 1) * fps));
-  if (slice.length) perSecond.push(slice.reduce((a, b) => a + b, 0) / slice.length);
+  if (slice.length)
+    perSecond.push(slice.reduce((a, b) => a + b, 0) / slice.length);
 }
 console.log("\n-- pacing: how fast it moves, second by second --");
 const peakChange = Math.max(...perSecond);
 for (let s = 0; s < perSecond.length; s++) {
-  const bar = "#".repeat(Math.max(1, Math.round((28 * perSecond[s]!) / peakChange)));
+  const bar = "#".repeat(
+    Math.max(1, Math.round((28 * perSecond[s]!) / peakChange)),
+  );
   console.log(
     `  ${String(s).padStart(2)}-${String(s + 1).padStart(2)}s  ` +
       `${perSecond[s]!.toFixed(2).padStart(6)}  ${bar}`,
@@ -419,7 +448,10 @@ for (let s = 0; s < perSecond.length; s++) {
 const tailFrames = Math.max(2, Math.round(fps));
 const tail = change.slice(-tailFrames);
 const tailMean = tail.reduce((a, b) => a + b, 0) / tail.length;
-const middle = change.slice(Math.round(change.length * 0.4), Math.round(change.length * 0.6));
+const middle = change.slice(
+  Math.round(change.length * 0.4),
+  Math.round(change.length * 0.6),
+);
 const middleMean = middle.reduce((a, b) => a + b, 0) / middle.length;
 const lastTen = change.slice(-10);
 const stillest = Math.min(...lastTen);
@@ -432,14 +464,15 @@ console.log(`  quietest of the last ten frames ${stillest.toFixed(3)}`);
 console.log(
   stillest < 0.08
     ? "  -> IT FREEZES. The tail holds a dead frame, which the brief forbids; either " +
-      "re-roll, or trim the hold and let the wave loop carry the landing."
+        "re-roll, or trim the hold and let the wave loop carry the landing."
     : tailMean < middleMean * 0.08
       ? "  -> very nearly frozen; check the waves at 100% before approving."
       : "  -> still moving at the landing.",
 );
 
 const ramped =
-  perSecond[0]! < peakChange * 0.6 && perSecond[perSecond.length - 1]! < peakChange * 0.6;
+  perSecond[0]! < peakChange * 0.6 &&
+  perSecond[perSecond.length - 1]! < peakChange * 0.6;
 console.log(
   `\n-- its own ramp --\n  ${
     ramped

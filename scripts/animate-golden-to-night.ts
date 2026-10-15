@@ -57,7 +57,7 @@ const dayAsset = flag("day");
 const nightAsset = flag("night");
 const size = flag("size", "720p");
 const duration = Number(flag("duration", "20"));
-const aspect = flag("aspect", "16:9");
+const aspect = flag("aspect", "21:9");
 
 const token = process.env.SEED_AE_SESSION_TOKEN;
 const base = `http://${process.env.SEED_AE_HOST ?? "127.0.0.1"}:${process.env.SEED_AE_PORT ?? "47831"}`;
@@ -82,20 +82,39 @@ const USD_PER_MILLION_TOKENS = 6.12;
  * restyled, because the model takes the prose as permission to draw rather than
  * as a reason not to.
  *
- * FILLED FROM THE PLATES. Until the two captures exist these are the brief's
- * own words, which is not good enough to spend on: run
- * `capture-daynight-plates.ts` first and correct these against what it grabs.
+ * Written from the two captured plates at 100%, not from the brief.
+ *
+ * ## The black corners are artwork, and have to be said
+ *
+ * The comp is cut to a pentagon: above the roof line the top corners are
+ * transparent, which flattens to black in the plate, and the night PSD has the
+ * same corners painted flat black. On a projection that IS the shape of the
+ * screen -- black is simply light not sent -- so a model that helpfully fills
+ * those corners with sky would put picture outside the projection and the clip
+ * would need a matte it does not otherwise need. Stated here as a fact about
+ * what the artwork is, which is the framing that has worked on this project,
+ * rather than as an instruction not to paint there.
  */
 const DESCRIBE =
-  "A wide painted golden-hour set: a theatrical proscenium of warm stone " +
-  "framing a Mexican coastal scene, the low sun throwing long warm light " +
-  "across the architecture and a calm sea rolling beyond it. Soft painterly " +
-  "illustration, warm amber key light, deep soft shadow";
+  "A wide painted golden-hour scene: a symmetrical arcade of pale cream carved " +
+  "stone -- a tall central arch with a gilded fleur-de-lis keystone, flanked by " +
+  "two large side arches with smaller stacked arches between them, standing on " +
+  "square piers with a black wrought-iron lantern on the pier at each end -- " +
+  "opening onto a tropical sea at sunset. The low sun sits in the centre of the " +
+  "main arch just above the horizon and lays a broad gold path across breaking " +
+  "waves onto wet sand. Coconut palms lean in behind the stonework on both " +
+  "sides, monstera and fern planters run along the balustrade at the base, and " +
+  "a vine climbs the inner left arch. Deep orange and gold cloud fills the sky. " +
+  "Soft painterly illustration, warm amber key light. Above the roof line the " +
+  "top corners of the frame are flat black, which is the edge of the artwork " +
+  "and stays flat black for the whole shot";
 
 const ARRIVE_AT =
-  "the identical set at night -- the same architecture in the same places at " +
-  "the same size, lit cool and blue instead of warm, under a deep blue " +
-  "night sky, the sea still rolling";
+  "the identical arcade at night -- the same cream stone in the same places at " +
+  "the same size and the same flat black top corners -- lit cool from the side " +
+  "by its two lanterns, under a deep blue sky of moonlit cloud with stars " +
+  "showing through, a narrow silver path lying on the dark sea, and an empty " +
+  "sky above the horizon";
 
 /**
  * Six beats across twenty seconds.
@@ -173,10 +192,10 @@ const BEATS: Beat[] = [
  * a seam that runs for twenty seconds.
  */
 const RIGID = [
-  "the proscenium arch and its stonework",
-  "the architecture and every building",
-  "the ground, the paving and the balustrades",
-  "the furniture, props and signage",
+  "the central arch, its gilded keystone and every side arch",
+  "the stone piers, columns and the balustrade",
+  "the two wrought-iron lanterns and their housings",
+  "the planters and the line of the horizon",
 ];
 
 const prompt = animatePrompt({
@@ -196,7 +215,11 @@ const prompt = animatePrompt({
 
 const tokens = estimateTokens(size, duration) ?? 0;
 const dollars = (tokens / 1_000_000) * USD_PER_MILLION_TOKENS;
-const ramp = describeRamp({ durationSeconds: duration, rampSeconds: 1.5, endSpeed: 0.2 });
+const ramp = describeRamp({
+  durationSeconds: duration,
+  rampSeconds: 1.5,
+  endSpeed: 0.2,
+});
 
 console.log(`=== ${duration}s golden hour -> night, ${size}, ${aspect} ===\n`);
 console.log(prompt);
@@ -227,12 +250,17 @@ if (dry) {
 
 if (!token) throw new Error("SEED_AE_SESSION_TOKEN is not set");
 if (!dayAsset || !nightAsset) {
-  throw new Error("pass --day <assetId> --night <assetId> (from capture-daynight-plates.ts)");
+  throw new Error(
+    "pass --day <assetId> --night <assetId> (from capture-daynight-plates.ts)",
+  );
 }
 
 const response = await fetch(`${base}/v1/generations`, {
   method: "POST",
-  headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+  headers: {
+    Authorization: `Bearer ${token}`,
+    "Content-Type": "application/json",
+  },
   body: JSON.stringify({
     providerId: "seedance-2-5",
     operation: "video.generate",
@@ -259,5 +287,9 @@ if (!response.ok) {
   process.exit(1);
 }
 const started = JSON.parse(raw) as { job?: { id?: string }; id?: string };
-console.log(`\nsubmitted: job ${started.job?.id ?? started.id ?? "(see payload)"}`);
-console.log(`  ${tokens.toLocaleString()} tokens, about $${dollars.toFixed(2)}`);
+console.log(
+  `\nsubmitted: job ${started.job?.id ?? started.id ?? "(see payload)"}`,
+);
+console.log(
+  `  ${tokens.toLocaleString()} tokens, about $${dollars.toFixed(2)}`,
+);
