@@ -354,6 +354,87 @@ export const IDLE = {
     "Only the parts already in the first frame move, and only slightly",
 } as const;
 
+/**
+ * A time-lapse of the light, which is the opposite brief to an idle.
+ *
+ * Everything else in this module animates an element that is meant to stay the
+ * same while it moves. A day-to-night transition is the other job: the picture
+ * is meant to *change*, completely, and the thing that must not move is the
+ * geometry. So `IDLE` is not merely unnecessary here, it is wrong on three
+ * clauses at once — it forbids anything appearing or disappearing, which a
+ * moonrise is; it forbids anything changing shape, which clouds and a setting
+ * sun do; and it asks for motion that is "small" when the brief is hours in
+ * twenty seconds.
+ *
+ * What survives from the idle brief is the half that is still wanted: nothing
+ * solid moves. That is said positively — a tripod with the shutter left
+ * running — because a tripod is a thing a model has seen a great deal of, and
+ * "do not move the camera" is a thing it has mostly seen violated.
+ *
+ * Deliberately silent about the lights coming on. Whether the lamps are lit in
+ * the night plate is a fact about the artwork, so it belongs in `describe` and
+ * in the beats, where it can be stated once and correctly, rather than being
+ * guessed at here for every transition that will ever use this.
+ */
+export const TIMELAPSE = {
+  opening: "as a time-lapse of the light alone",
+  closing:
+    "This is a time-lapse of the light: the sun, the sky, the clouds, the " +
+    "colour of the light and the direction and length of the shadows move " +
+    "through hours in the length of the shot, and they are the only things that " +
+    "change. Every solid thing in the picture — the architecture, the ground, " +
+    "the furniture, the props, the planting, the people — stays exactly where " +
+    "it is, at exactly the size and in exactly the shape it is in the first " +
+    "frame, as if photographed from a locked tripod with the shutter left " +
+    "running. The picture is re-lit, never re-drawn and never re-composed",
+} as const;
+
+/**
+ * Arriving at the last frame still in motion.
+ *
+ * The specific failure this exists for: given a `last_frame` to hit, a model
+ * will often *ease into* it, slowing the whole shot to a dead hold for the
+ * final half second so that it can be sure of landing. On a transition that is
+ * spliced into a plate whose own brief is "natural wave movement only", a
+ * frozen tail is the one thing that cannot be used — and it is invisible on
+ * every other measurement, which is why `check-daynight-transition.ts`
+ * measures the last ten frames on their own.
+ *
+ * Stated as what the end of the shot IS, not as a ban on freezing, following
+ * the one clear lesson of `ANIMATE_TAIL_LIGHTS`: a clause that names a defect
+ * tends to summon it. "The shot continues past the last frame" gives the model
+ * a thing to render; "do not freeze" gives it the word freeze.
+ */
+export const LAND_ON_LAST = {
+  opening: "running at its own natural speed as it arrives",
+  closing:
+    "The final frame is where the shot arrives at speed: through the last two " +
+    "seconds the water, the foliage and the air are all still moving at their " +
+    "own ordinary speed, and the shot reaches the last frame mid-motion, as " +
+    "though the camera simply carried on running past it",
+} as const;
+
+/**
+ * The tail for a transition, rather than for an element on a backdrop.
+ *
+ * `ANIMATE_TAIL` opens "Characters stay fully inside frame at constant scale",
+ * which is right for the thirty-odd cut-out elements this module was built for
+ * and is a direct contradiction of this brief: the moon is asked to rise,
+ * cross and **leave frame**. A contradiction in the tail is the expensive kind,
+ * because the tail is global and the beats are local, and on this project the
+ * global note has won every time it has been tested against a beat.
+ *
+ * Everything the tail is actually for is kept. "No stuttering or flickering"
+ * stays and stays unqualified: unlike the lanterns of the party-city wall,
+ * nothing in a sunset is supposed to flicker, so there is no conflict to
+ * resolve and the clause does the job it earned.
+ */
+export const TRANSITION_TAIL =
+  "Stable geometry, consistent line weight and flat painted colour, natural " +
+  "fluid motion, a smooth even continuous change from the first frame to the " +
+  "last with no stuttering, strobing, pulsing or jumping between frames, and " +
+  "no change of lens, framing or scale at any point.";
+
 export interface AnimateRequest {
   /** What the artwork is. Holds the design; does not describe the motion. */
   describe: string;
@@ -398,6 +479,32 @@ export interface AnimateRequest {
    * lamps in it will find something else to apply it to.
    */
   lights?: boolean;
+  /**
+   * A time-lapse of the light rather than an idle. See `TIMELAPSE`.
+   *
+   * Also swaps the stability tail for `TRANSITION_TAIL`, because the standard
+   * one opens by requiring everything to stay inside frame at constant scale
+   * and a transition is the one job here that asks something to leave.
+   */
+  timelapse?: boolean;
+  /**
+   * Arrive at the last frame still moving. See `LAND_ON_LAST`.
+   *
+   * Only meaningful with a genuine `last_frame`, so it is worth nothing on a
+   * loop — a loop's last frame is its first one and a freeze there would be
+   * the point.
+   */
+  landOnLast?: boolean;
+  /**
+   * What the second image is, for a clip that runs between two frames.
+   *
+   * Seedance takes `first_frame` and `last_frame` as separate roles, and its
+   * capabilities declare `requiresBindingText`: the prompt has to say which
+   * image is which or the two stills are just two references. Setting this
+   * changes the lead-in line to name both, and the description of image 2 goes
+   * where the model reads it last before the beats start.
+   */
+  arriveAt?: string;
 }
 
 /**
@@ -415,6 +522,8 @@ export function animatePrompt(request: AnimateRequest): string {
   const clauses = [description];
   const rigid = rigidPhrase(request.rigid ?? []);
   if (request.idle) clauses.push(IDLE.opening);
+  if (request.timelapse) clauses.push(TIMELAPSE.opening);
+  if (request.landOnLast) clauses.push(LAND_ON_LAST.opening);
   if (request.holdDetail) clauses.push(HOLD_DETAIL.opening);
   if (rigid) clauses.push(RIGID.opening(rigid));
   if (request.inPlace) clauses.push(IN_PLACE.opening);
@@ -437,14 +546,39 @@ export function animatePrompt(request: AnimateRequest): string {
     // Last of the specific clauses, because it is the strongest note about
     // how much to move and the last specific thing read carries most.
     ...(request.idle ? [IDLE.closing] : []),
+    ...(request.timelapse ? [TIMELAPSE.closing] : []),
     ...(request.holdDetail ? [HOLD_DETAIL.closing] : []),
     ...(request.inPlace ? [IN_PLACE.closing] : []),
     ...(request.margin ? [KEEP_MARGIN.closing] : []),
-    request.lights ? ANIMATE_TAIL_LIGHTS : ANIMATE_TAIL,
+    /*
+     * Last of the specific clauses on a transition, and deliberately after
+     * TIMELAPSE: between "nothing is re-composed" and "the shot is still
+     * moving when it lands" the second is the one that must win, because a
+     * frozen tail is unusable and a slightly loose one is gradeable.
+     */
+    ...(request.landOnLast ? [LAND_ON_LAST.closing] : []),
+    request.timelapse
+      ? TRANSITION_TAIL
+      : request.lights
+        ? ANIMATE_TAIL_LIGHTS
+        : ANIMATE_TAIL,
   ].join("; ");
 
+  /*
+   * Which image is which. Seedance declares `requiresBindingText`, so a pair
+   * of stills sent as `first_frame` and `last_frame` still has to be named in
+   * the prompt; unnamed, the second one reads as another reference and the
+   * shot wanders towards it instead of ending on it.
+   */
+  const arriveAt = request.arriveAt?.trim().replace(/[.]+$/, "");
+  const lead = arriveAt
+    ? `Image 1 as the first frame and Image 2 as the last frame, both held ` +
+      `exactly. Image 1: ${opening} Image 2, which is where the shot ends: ` +
+      `${arriveAt}.`
+    : `Image 1 as the first frame, held exactly: ${opening}`;
+
   return [
-    `Image 1 as the first frame, held exactly: ${opening}`,
+    lead,
     "",
     beats.join("\n"),
     "",
