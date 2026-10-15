@@ -165,7 +165,19 @@ const keepH = Math.round((meta.h * compHeight) / padHeight / 2) * 2;
 const keepX = Math.round((meta.w - keepW) / 2);
 const keepY = Math.round((meta.h - keepH) / 2);
 
-const durationSeconds = meta.frames / meta.fps;
+/**
+ * The last frame's own time, not the clip's duration.
+ *
+ * A 481-frame clip at 24fps is 20.0417s long, but its last *frame* starts at
+ * 480/24 = 20.0s, and a time remap addresses frames. Asked for 20.0417 After
+ * Effects answers `Value 20.04 out of range 0 to 20.04` — true, and only by a
+ * rounding hair, which is the kind of boundary that is much easier to read off
+ * an error message than to reason about beforehand.
+ *
+ * It also makes the ramp a round twenty seconds, which is what was ordered.
+ */
+const durationSeconds =
+  Math.round(((meta.frames - 1) / meta.fps) * 1000) / 1000;
 console.log(
   `${path.basename(clip)}  ${meta.w}x${meta.h} @ ${meta.fps}  ${durationSeconds.toFixed(2)}s`,
 );
@@ -242,50 +254,67 @@ console.log(
   `        and it stays at 100% from ${endsAt}s to the end of the comp`,
 );
 
+/** The name the clip layer gets, and how this finds it again on a re-run. */
+const LAYER_NAME = "SEED day-to-night 20s";
+
 if (dry) {
   console.log("\n--dry: nothing cropped, nothing inserted, nothing changed.");
 } else {
-  await mkdir(work, { recursive: true });
-  console.log(`\ncropping -> ${path.basename(cropped)}`);
-  const crop = spawn(
-    ffmpeg,
-    [
-      "-v",
-      "error",
-      "-y",
-      "-i",
-      clip,
-      "-vf",
-      `crop=${keepW}:${keepH}:${keepX}:${keepY}`,
-      // ProRes, not H.264: this goes into a comp and gets scaled up 3-4x, and
-      // re-encoding a crop through a lossy codec throws away exactly the
-      // high-frequency detail that an upscale has least of to begin with.
-      "-c:v",
-      "prores_ks",
-      "-profile:v",
-      "3",
-      "-qscale:v",
-      "9",
-      "-an",
-      cropped,
-    ],
-    { windowsHide: true },
+  /*
+   * Re-runnable on purpose. Getting the ramp right took two attempts against
+   * real After Effects errors, and a script that imports a second copy of a
+   * 20-second clip every time it is run would have left four of them stacked in
+   * the comp. If the layer is already there, it is re-ramped rather than
+   * duplicated.
+   */
+  const existing = ((await host("compTree")).layers ?? []).find(
+    (l: { name: string }) => l.name === LAYER_NAME,
   );
-  const errors: string[] = [];
-  crop.stderr.on("data", (c) => errors.push(String(c)));
-  await new Promise<void>((done, fail) =>
-    crop.on("close", (code) =>
-      code === 0
-        ? done()
-        : fail(
-            new Error(errors.join("").slice(0, 400) || `ffmpeg exit ${code}`),
-          ),
-    ),
-  );
+  if (existing) {
+    console.log(
+      `\n"${LAYER_NAME}" is already layer ${existing.index} — re-ramping that`,
+    );
+  }
 
-  const adopted = await api("/v1/assets/adopt", { path: cropped });
-  const assetId = String(adopted.asset?.id ?? adopted.id ?? "");
-  console.log(`  adopted ${assetId}`);
+  if (!existing) {
+    await mkdir(work, { recursive: true });
+    console.log(`\ncropping -> ${path.basename(cropped)}`);
+    const crop = spawn(
+      ffmpeg,
+      [
+        "-v",
+        "error",
+        "-y",
+        "-i",
+        clip,
+        "-vf",
+        `crop=${keepW}:${keepH}:${keepX}:${keepY}`,
+        // ProRes, not H.264: this goes into a comp and gets scaled up 3-4x, and
+        // re-encoding a crop through a lossy codec throws away exactly the
+        // high-frequency detail that an upscale has least of to begin with.
+        "-c:v",
+        "prores_ks",
+        "-profile:v",
+        "3",
+        "-qscale:v",
+        "9",
+        "-an",
+        cropped,
+      ],
+      { windowsHide: true },
+    );
+    const errors: string[] = [];
+    crop.stderr.on("data", (c) => errors.push(String(c)));
+    await new Promise<void>((done, fail) =>
+      crop.on("close", (code) =>
+        code === 0
+          ? done()
+          : fail(
+              new Error(errors.join("").slice(0, 400) || `ffmpeg exit ${code}`),
+            ),
+      ),
+    );
+  }
 
   const tree = await host("compTree");
   const night = (tree.layers ?? []).find(
@@ -294,15 +323,23 @@ if (dry) {
   if (!night)
     throw new Error(`no layer called "${nightName}" in ${tree.comp?.name}`);
 
-  console.log(`\ninserting into ${tree.comp?.name} at ${startSeconds}s`);
-  const placed = await host("insertIntoComp", {
-    assetId,
-    startSeconds,
-    fit: "cover",
-    name: "SEED day-to-night 20s",
-  });
-  const clipIndex = Number(placed.layer?.index ?? placed.index ?? 1);
-  console.log(`  layer ${clipIndex}  ${placed.layer?.name ?? ""}`);
+  let clipIndex: number;
+  if (existing) {
+    clipIndex = Number(existing.index);
+  } else {
+    const adopted = await api("/v1/assets/adopt", { path: cropped });
+    const assetId = String(adopted.asset?.id ?? adopted.id ?? "");
+    console.log(`  adopted ${assetId}`);
+    console.log(`\ninserting into ${tree.comp?.name} at ${startSeconds}s`);
+    const placed = await host("insertIntoComp", {
+      assetId,
+      startSeconds,
+      fit: "cover",
+      name: LAYER_NAME,
+    });
+    clipIndex = Number(placed.layer?.index ?? placed.index ?? 1);
+    console.log(`  layer ${clipIndex}  ${placed.layer?.name ?? ""}`);
+  }
 
   console.log(`  time remapping ${remapKeys.length} keys`);
   const remapped = await host("setTimeRemap", {

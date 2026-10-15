@@ -4550,19 +4550,51 @@ function seedSetTimeRemap(layerIndex, keys) {
             remap = layer.property("ADBE Time Remapping");
             if (!remap) return seedFail(layer.name + " has no time remap property");
 
-            while (remap.numKeys > 0) remap.removeKey(1);
-
+            /*
+             * Set the wanted keys BEFORE clearing the seeded ones.
+             *
+             * This used to empty the property first, and that cannot work:
+             * in After Effects, removing the LAST time-remap keyframe turns
+             * timeRemapEnabled back off, which hides the property, and every
+             * setValueAtTime after that fails with "Can not set value at time
+             * with this property, because the property or a parent property
+             * is hidden". The old order was never caught because this command
+             * had no caller until the day-to-night transition needed it.
+             *
+             * So the count never reaches zero: add ours, then drop whatever
+             * was seeded that we did not ask for.
+             */
+            var wanted = [];
             for (var i = 0; i < keys.length; i++) {
                 var at = Number(keys[i][0]);
                 var value = Number(keys[i][1]);
                 if (!(at >= 0) || !(value >= 0)) continue;
                 remap.setValueAtTime(at, value);
+                wanted.push(at);
                 applied++;
             }
 
-            for (var k = 1; k <= remap.numKeys; k++) {
+            /*
+             * Backwards, so removing one does not renumber the keys still to
+             * be examined. Matched within half a frame rather than exactly,
+             * because a key set by script can land on the nearest frame
+             * boundary rather than the time it was asked for.
+             */
+            var tolerance = comp.frameDuration / 2;
+            for (var k = remap.numKeys; k >= 1; k--) {
+                var keep = false;
+                for (var w = 0; w < wanted.length; w++) {
+                    if (Math.abs(remap.keyTime(k) - wanted[w]) <= tolerance) {
+                        keep = true;
+                        break;
+                    }
+                }
+                if (!keep && remap.numKeys > 1) remap.removeKey(k);
+            }
+
+            for (var k2 = 1; k2 <= remap.numKeys; k2++) {
                 remap.setInterpolationTypeAtKey(
-                    k,
+                    k2,
                     KeyframeInterpolationType.LINEAR,
                     KeyframeInterpolationType.LINEAR);
             }
