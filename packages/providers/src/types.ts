@@ -100,6 +100,21 @@ export interface VideoGenerationRequest extends ProviderRequestBase {
   firstFrame?: MaterializedInput;
   lastFrame?: MaterializedInput;
   references?: MaterializedInput[];
+  /**
+   * Ask for a cheap 480p draft instead of the full render.
+   *
+   * Verified from the API rather than from the docs: every Seedance task
+   * response this project has stored echoes `"draft": false` alongside
+   * `service_tier`, `priority` and `seed`, which is the API telling us the
+   * field exists and that we have been defaulting it. ModelArk's own pages
+   * render their parameter tables with JavaScript and cannot be read by a
+   * fetch, so the echo is the stronger evidence.
+   *
+   * A draft returns a task id that a later conversion call can upgrade to the
+   * full-resolution render of the *same content*, which is the part that
+   * matters here: it replaces a re-roll lottery with an approval step.
+   */
+  draft?: boolean;
 }
 
 export interface ProviderOutput {

@@ -1,96 +1,103 @@
-# Is there a "preview mode" on BytePlus / Seedance?
+# Seedance draft mode: a preview that upgrades to the real thing
 
-**Asked 2026-10-15**, because a 15s 720p generation takes minutes and the GYG
-party-city transition needs several iterations of art direction.
+**Resolved 2026-10-15.** An earlier version of this note said no preview mode
+existed. **That was wrong**, and the correction is the useful part of the story:
+the evidence was in our own stored payloads the whole time.
 
-**Short answer: no preview parameter exists, and dropping resolution does not
-make it faster. The only real lever is a different model.**
+## It exists, and the API had been telling us so
 
-## What was checked
+Every Seedance task response this project has ever stored echoes, at the top
+level, beside `resolution` and `seed`:
 
-1. **BytePlus ModelArk documentation.** Searched for a preview, draft, fast,
-   low-quality or test parameter on the video generation API. Nothing of the
-   kind appears. The third-party parameter tables that do exist list `model`,
-   `prompt`, `resolution`, `duration`, `ratio`, `audio`, `seed` and
-   `negative_prompt` — no preview flag among them.
-   - [Create a video generation task](https://docs.byteplus.com/en/docs/ModelArk/1520757)
-   - [Video generation API](https://docs.byteplus.com/en/docs/ModelArk/Video_Generation_API)
-   - [Dreamina Seedance 2.5 tutorial](https://docs.byteplus.com/en/docs/ModelArk/2607688)
-   - [Dreamina Seedance 2.0 series tutorial](https://docs.byteplus.com/en/docs/modelark/2291680)
+```json
+"service_tier": "default",
+"generate_audio": false,
+"draft": false,
+"priority": 0,
+"output_format": "mov"
+```
 
-   **Caveat, stated rather than hidden:** the docs pages render their parameter
-   tables with JavaScript, so a fetch returns only navigation. The absence of a
-   preview flag is therefore from search results and third-party tables, **not**
-   from reading the official table directly. It is not proof.
+`draft` is a request field we were defaulting off. The first search for a
+"preview mode" looked at documentation and at the account's model list, found
+neither a flag nor a `seedance-2-5-fast`, and concluded there was nothing. The
+answer was in `rawResponse` on every generation. **Read the payloads before
+reading the docs.**
 
-2. **The account's own model list**, which *is* authoritative for what can
-   actually be called — `npx tsx --env-file=.env scripts/ark-models.ts`:
+## The contract, from the official page
 
-   | model id | name |
-   |---|---|
-   | `dreamina-seedance-2-5-260628` | Dreamina-Seedance-2.5 |
-   | `dreamina-seedance-2-0-260128` | Dreamina-Seedance-2.0 |
-   | `dreamina-seedance-2-0-fast-260128` | Dreamina-Seedance-2.0-**fast** |
-   | `dreamina-seedance-2-0-mini-260615` | Dreamina-Seedance-2.0-**mini** |
-   | `seedance-1-0-pro-fast-251015` | ByteDance-Seedance-1.0-pro-fast |
-   | `seedance-1-5-pro-251215` | ByteDance-Seedance-1.5-pro |
-   | `seedance-1-0-lite-i2v-250428` / `-t2v-250428` | Seedance 1.0 lite |
+Source: [Dreamina Seedance 2.5 tutorial](https://docs.byteplus.com/en/docs/ModelArk/2607688),
+§ Draft mode. The page renders its prose from a JSON blob in the HTML, so a
+normal fetch returns only navigation; `curl` plus extracting the `insert`
+strings gets the text. Quoted verbatim:
 
-   **There is no `seedance-2-5-fast` and no `seedance-2-5-mini`.** The fast and
-   mini variants stop at 2.0. So "preview mode" on this platform is a *model*,
-   and taking it means leaving 2.5.
+> Draft mode is a two-step video generation method that lets you quickly
+> validate the result before generating a high-quality final video. After you
+> enable this feature, you can quickly generate a low-resolution preview video
+> to validate key elements such as the scene structure, shot scheduling, subject
+> motion, and prompt intent. After confirming that the result meets
+> expectations, use the Draft video task ID to generate a high-quality final
+> video.
 
-## The measurement that matters
+**Step 1 — the draft.** `POST /contents/generations/tasks` with `draft=true`.
+- "Only 480p Draft videos can be generated. Setting another resolution causes an error."
+- "The token consumption and token rate for a 480p Draft video are the same as those for a normal 480p video."
 
-Four real jobs from one session, wall-clock from submit to succeeded:
+**Step 2 — the final.** "use the Draft video task ID returned in Step 1 to call
+`POST /contents/generations/tasks` again and generate the final video."
+- "Dreamina Seedance 2.5 currently supports only 1080p output. Setting another resolution causes an error."
+- "A Draft video task ID is valid for seven days from its `created_at` timestamp."
+- "Step 1 and Step 2 tasks are billed independently."
 
-| job | what | latency |
+## Measured, on this account
+
+One real draft: the 15s art-directed party-city transition, `draft: true`, 480p.
+
+| | draft | the same shot without draft |
 |---|---|---|
-| `a93ebc38` | 720p, 20s, first+last | **236s** |
-| `e3dc498d` | 720p, 15s, first+last | **345s** |
-| `d983edbc` | **480p**, 10s, first+last | **430s** |
-| `a9dd50e9` | 1080p, 20s, first+last | **616s** |
+| latency | **80s** | 345s at 720p, 430s at 480p |
+| billed | **150,886 tokens ≈ $0.92** | 326,486 ≈ $2.00 at 720p |
+| returned | `cgt-20261015121117-91ene`, seed 76322 | — |
 
-The 480p ten-second job was **slower than the 720p twenty-second job**, by a
-wide margin. Latency on this account is dominated by queueing, not by the
-amount of pixels asked for, so **asking for less does not get an answer
-sooner**. Only the 1080p job is clearly slow, and one sample is not a trend.
+**80 seconds against 345.** That is the finding. The earlier note observed that
+dropping resolution did not reduce latency (480p/10s came back slower than
+720p/20s) and concluded latency was queue-bound. Draft mode is a different
+queue, and it is four to five times faster.
 
-This is worth knowing because it inverts the obvious tactic. Dropping to 480p
-to iterate faster buys nothing on time; it only buys money
-(15s: $0.89 at 480p against $2.00 at 720p and $4.49 at 1080p), at the cost of
-not being able to see detail — and on a brief whose first beat is "a single
-festoon bulb", a bulb at 480p is one pixel.
+## What is still unverified
 
-## What the fast variants actually offer
+**The field name that carries the draft id in Step 2.** The official page says
+to call the same endpoint with the draft task ID but the code examples live in
+a separate tab zone that is not in the page HTML. A third-party reference calls
+it `source_task_id`, but that reference documents its own wrapper API — it names
+the resolution field `quality` and the aspect `aspect_ratio` where Ark uses
+`resolution` and `ratio` — so its field names cannot be trusted here.
 
-From the provider capabilities this service already reports:
+Probing cannot settle it either: **Ark silently ignores unknown top-level
+fields.** `source_task_id`, `draft_task_id` and `zzz_not_a_field` all produce
+the identical error when `content` is empty, so a wrong name is indistinguishable
+from a right one. Sub-paths were ruled out — `/tasks/{id}/convert` and
+`/tasks/{id}/upscale` both return `InvalidAction`.
 
-| provider | sizes | duration | start/end frames |
-|---|---|---|---|
-| `seedance-2-5` | 480p, 720p, 1080p | 4–30s | yes |
-| `seedance-2-0` | 480p, 720p, 1080p, **4K** | 4–30s | yes |
-| `seedance-2-0-fast` | 480p, 720p | 4–30s | yes |
-| `seedance-2-0-mini` | 480p, 720p | 4–30s | yes |
+**Why this costs nothing to resolve.** Sending both candidate names on the Step
+2 request is free: if one is honoured we get the draft's content at 1080p, and
+if neither is we get a fresh 1080p render — which is the render we were going to
+pay for anyway. The result is self-diagnosing, because a response whose `seed`
+matches the draft's (76322) came from the draft and one with a new seed did not.
 
-Both fast variants keep `startEndFrames`, which is the capability this project's
-transitions depend on. So they are usable for iteration. Two costs:
+## How to use it
 
-- **A different model is a different look.** Iterating choreography on 2.0-fast
-  and rendering finals on 2.5 means tuning against something that is not the
-  thing being bought. Useful for timing and blocking; not for judging the look.
-- **Speed is claimed, not measured.** Nothing here has run a 2.0-fast job. The
-  name is marketing until a job on this account proves it, and given that 480p
-  came back slower than 720p, latency on this account should be assumed
-  queue-bound until a measurement says otherwise.
+```
+# preview — 480p, ~80s, ~$0.06/s of clip
+npx tsx scripts/animate-night-to-party.ts ... --size 480p --draft
 
-## Recommendation
+# the real one, after approval — 1080p only
+npx tsx scripts/animate-night-to-party.ts ... --size 1080p
+```
 
-For iterating art direction, the cheapest *true* preview is still the
-deterministic composite (`scripts/light_spread_blend.py`), which renders a full
-10s pass in about a minute locally and costs nothing. Use the generative passes
-for the look, not for the timing.
+Draft mode is now wired through `VideoGenerationRequest.draft`, the
+`/v1/generations` schema and `seedanceProvider`, and is sent only when asked
+for, because the API defaults it off and echoes that.
 
-If a generative preview loop is wanted, the honest next step is **one measured
-480p job on `seedance-2-0-fast`** to find out whether it is actually faster on
-this account. One job, $0.59 or less, answers it; the docs will not.
+**Use it for every iteration from here.** A 480p draft at $0.92 and 80 seconds
+is the right unit for judging choreography; a 1080p render at $4.49 and six
+minutes is for the one that has been approved.

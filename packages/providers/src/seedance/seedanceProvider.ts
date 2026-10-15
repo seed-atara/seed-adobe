@@ -553,6 +553,16 @@ export class SeedanceProvider implements GenerationProvider {
       body.output_format = this.config.outputFormat ?? formats[0];
     }
     if (request.seed !== undefined) body.seed = request.seed;
+    /*
+     * Draft mode. A top-level field, not nested: the response echoes it at the
+     * top level beside `resolution` and `seed`, and a third-party reference
+     * reports a 400 for putting it inside a params object.
+     *
+     * Sent only when true. The API defaults it to false and echoes that, so
+     * sending `draft: false` explicitly would add nothing and would change
+     * every stored request payload for no reason.
+     */
+    if (request.draft) body.draft = true;
 
     /*
      * A reference video changes what `duration` may be.

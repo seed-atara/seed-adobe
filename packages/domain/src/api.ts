@@ -81,6 +81,14 @@ export const StartGenerationRequestSchema = z.object({
   durationSeconds: z.number().positive().optional(),
   /** Video soundtrack. Off unless asked for. */
   generateAudio: z.boolean().optional(),
+  /**
+   * Render a cheap 480p draft instead of the full clip.
+   *
+   * The draft's task id can later be converted to the full-resolution render
+   * of the same content, so this is an approval step rather than a separate
+   * attempt. Off unless asked for.
+   */
+  draft: z.boolean().optional(),
   aspectRatio: z.string().optional(),
   /**
    * Reference assets, in order. The first is the edit subject for image.edit.

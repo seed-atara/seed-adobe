@@ -68,6 +68,16 @@ const aspect = flag("aspect", "21:9");
  */
 const mode = flag("mode", "frames");
 const lightmapAsset = flag("lightmap");
+/**
+ * Ask Ark for a 480p draft rather than the full render.
+ *
+ * The draft's task id can be converted afterwards into the full-resolution
+ * render of the SAME content, which is the whole point: it turns a re-roll
+ * lottery into an approval step. Verified from the API's own echo -- every
+ * stored task response carries `"draft": false` -- rather than from the docs,
+ * whose parameter tables are rendered with JavaScript and cannot be fetched.
+ */
+const draft = process.argv.includes("--draft");
 
 const token = process.env.SEED_AE_SESSION_TOKEN;
 const base = `http://${process.env.SEED_AE_HOST ?? "127.0.0.1"}:${process.env.SEED_AE_PORT ?? "47831"}`;
@@ -255,6 +265,7 @@ if (dry) {
       size,
       durationSeconds: duration,
       aspectRatio: aspect,
+      ...(draft ? { draft: true } : {}),
       inputAssetIds: references
         ? [nightAsset, partyAsset, lightmapAsset].filter(Boolean)
         : [nightAsset, partyAsset],

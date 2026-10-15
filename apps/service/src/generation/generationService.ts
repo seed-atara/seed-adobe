@@ -747,6 +747,9 @@ export class GenerationService {
       ...(aspectRatio ? { aspectRatio } : {}),
       // Sound is opt-in, and stays off when nothing asked for it.
       ...(request.generateAudio ? { generateAudio: true } : {}),
+      // So is a draft, and for the same reason: the API defaults it off and
+      // echoes that, so only an explicit ask should change the request.
+      ...(request.draft ? { draft: true } : {}),
       ...(firstFrame ? { firstFrame } : {}),
       ...(lastFrame ? { lastFrame } : {}),
       references,
