@@ -96,6 +96,22 @@ const HOST_SPECIFIC: Record<string, { host: string; because: string }> = {
    * in the documented API at all — only through the undocumented QE DOM. The
    * panel offers the button in After Effects only.
    */
+  /*
+   * Premiere has no compositions, so there is nothing for createComp to make
+   * there; its sequences are created from media, not from a size.
+   */
+  seedCreateComp: {
+    host: "seed-host.jsx",
+    because: "a composition at an arbitrary size is an After Effects object",
+  },
+  /*
+   * Premiere projects are .prproj and its project object is a different shape;
+   * nothing here would survive the translation.
+   */
+  seedNewProject: {
+    host: "seed-host.jsx",
+    because: "app.newProject and CloseOptions are After Effects project objects",
+  },
   seedBuildLookRig: {
     host: "seed-host.jsx",
     because: "adjustment layers and scriptable effects are After Effects only",
@@ -155,6 +171,18 @@ const HOST_SPECIFIC: Record<string, { host: string; because: string }> = {
   },
   seedSetLayerEnabled: { host: "seed-host.jsx", because: "comp layers are an AE idea" },
   seedInsertIntoComp: { host: "seed-host.jsx", because: "comp layers are an AE idea" },
+  /*
+   * Premiere has no composition to import a PSD into; its importer makes a bin
+   * of clips, not a layered timeline with per-layer transforms.
+   */
+  seedImportLayered: {
+    host: "seed-host.jsx",
+    because: "ImportAsType.COMP_CROPPED_LAYERS builds an AE composition",
+  },
+  seedSetCompSettings: {
+    host: "seed-host.jsx",
+    because: "duration and frameRate are CompItem properties; Premiere has no comps",
+  },
   seedRepeatToFill: { host: "seed-host.jsx", because: "comp layers are an AE idea" },
   seedReplaceFootage: {
     host: "seed-host.jsx",

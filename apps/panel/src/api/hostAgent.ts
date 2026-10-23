@@ -101,6 +101,17 @@ export function dispatch(
       return bridge.setRegionContain(String(args.name), Boolean(args.contained));
     case "setProjectDepth":
       return bridge.setProjectDepth(depthOf(args.bits));
+    case "createComp":
+      return bridge.createComp(
+        String(args.name ?? "SEED comp"),
+        Number(args.width),
+        Number(args.height),
+        args.fps === undefined ? 24 : Number(args.fps),
+        args.durationSeconds === undefined ? 30 : Number(args.durationSeconds),
+        args.pixelAspect === undefined || args.pixelAspect === null
+          ? undefined
+          : Number(args.pixelAspect),
+      );
     case "precompose":
       return bridge.precompose(
         indexList(args.layerIndexes),
@@ -130,6 +141,8 @@ export function dispatch(
       });
     case "setActiveComp":
       return bridge.setActiveComp(String(args.compId));
+    case "importFile":
+      return bridge.importFile(String(args.path ?? ""));
     case "createFolders":
       return bridge.createFolders(folderPaths(args.paths));
     case "moveItems":
@@ -176,6 +189,26 @@ export function dispatch(
         args.enabled !== false,
         optionalCompId(args.compId),
       );
+    case "setCompSettings":
+      return bridge.setCompSettings(
+        String(args.compId ?? ""),
+        args.durationSeconds === undefined || args.durationSeconds === null
+          ? undefined
+          : Number(args.durationSeconds),
+        args.fps === undefined || args.fps === null ? undefined : Number(args.fps),
+      );
+    case "importLayered":
+      return bridge.importLayered(
+        String(args.path ?? ""),
+        args.cropped === false ? false : true,
+        args.name === undefined || args.name === null ? undefined : String(args.name),
+      );
+    case "insertItem":
+      return bridge.insertItem(String(args.projectItemId ?? ""), {
+        startSeconds: Number(args.startSeconds ?? 0),
+        fit: fitOf(args.fit ?? "none"),
+        ...(args.name === undefined ? {} : { name: String(args.name) }),
+      });
     case "insertIntoComp":
       return bridge.insertIntoComp(String(args.assetId), {
         startSeconds: Number(args.startSeconds ?? 0),
@@ -217,6 +250,13 @@ export function dispatch(
           : String(args.expectName),
         optionalCompId(args.compId),
       );
+    case "newProject":
+      return bridge.newProject(
+        String(args.savePath ?? ""),
+        args.onDirty === "discard" ? "discard" : "save",
+      );
+    case "saveProject":
+      return bridge.saveProject();
     case "saveVersion":
       return bridge.saveVersion(
         args.label === undefined || args.label === null ? undefined : String(args.label),

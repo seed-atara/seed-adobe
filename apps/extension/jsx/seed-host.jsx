@@ -894,6 +894,177 @@ function seedImport(path) {
     }
 }
 
+/**
+ * Sets an existing composition's duration and frame rate.
+ *
+ * `createComp` takes both, but a comp After Effects made for us does not: a PSD
+ * imported as a composition arrives at the Still Footage duration from the
+ * preferences -- often two seconds, sometimes one frame -- and there was no way
+ * to change it from here. A thirty-second show built on two-second comps is a
+ * silent, tedious failure.
+ *
+ * Shortening is allowed and warned about. After Effects does not delete layers
+ * that fall outside a shorter duration, it just stops showing them, so the
+ * layers that went past the new end are counted and reported rather than
+ * quietly dropped.
+ */
+function seedSetCompSettings(compId, durationSeconds, fps) {
+    try {
+        if (!app.project) return seedFail("no project is open");
+
+        var comp = seedFindItemById(compId);
+        if (!comp) return seedFail("project item " + String(compId) + " not found");
+        if (!(comp instanceof CompItem)) {
+            return seedFail(comp.name + " is not a composition");
+        }
+
+        var before = { durationSeconds: comp.duration, fps: comp.frameRate };
+
+        app.beginUndoGroup("SEED: comp settings");
+        try {
+            if (durationSeconds !== undefined && durationSeconds !== null) {
+                var dur = Number(durationSeconds);
+                if (!(dur > 0 && dur <= 10800)) {
+                    app.endUndoGroup();
+                    return seedFail("a duration is 0 to 10800 seconds; asked for " + String(durationSeconds));
+                }
+                comp.duration = dur;
+            }
+            if (fps !== undefined && fps !== null) {
+                var rate = Number(fps);
+                if (!(rate > 0 && rate <= 240)) {
+                    app.endUndoGroup();
+                    return seedFail("a frame rate is 0 to 240; asked for " + String(fps));
+                }
+                comp.frameRate = rate;
+            }
+            // The work area does not follow the duration, and a stale one is
+            // what makes a render come out the old length.
+            comp.workAreaStart = 0;
+            comp.workAreaDuration = comp.duration;
+        } finally {
+            app.endUndoGroup();
+        }
+
+        var pastEnd = 0;
+        for (var i = 1; i <= comp.numLayers; i++) {
+            if (comp.layer(i).inPoint >= comp.duration) pastEnd++;
+        }
+
+        return seedOk({
+            comp: { id: String(comp.id), name: comp.name },
+            before: before,
+            after: { durationSeconds: comp.duration, fps: comp.frameRate },
+            layerCount: comp.numLayers,
+            layersStartingPastTheEnd: pastEnd
+        });
+    } catch (error) {
+        try { app.endUndoGroup(); } catch (ignored) {}
+        return seedFail(error);
+    }
+}
+
+/**
+ * Imports a layered file as a composition, so its layers stay layers.
+ *
+ * `import` brings a PSD in flattened -- one footage item, the composite, which
+ * is the right answer for a finished plate and useless for animating. This is
+ * the other import method: After Effects builds a comp whose layers are the
+ * document's layers, each with its own transform, and a folder of the layer
+ * footage beside it.
+ *
+ * ## Which method, and why it is asked rather than assumed
+ *
+ * `COMP_CROPPED_LAYERS` is "Composition - Retain Layer Sizes": each layer keeps
+ * its own bounds and gets a Position that places it, which is what makes a
+ * layer animatable on its own -- scale and rotation turn around the element's
+ * own centre rather than the centre of a document-sized frame. `COMP` is the
+ * other one: every layer becomes full-document-size with its anchor in the
+ * middle of the canvas, which is why rotating a lamp spins the whole wall.
+ *
+ * `cropped` chooses between them, defaulting to retained sizes. Either way the
+ * choice is checked with `canImportAs` first and reported back, because a file
+ * After Effects will not import that way comes back as flattened footage with
+ * no error at all -- a silent wrong answer that looks exactly like success.
+ *
+ * ## The layer count is the receipt
+ *
+ * A PSD that arrives as a comp with one layer did not arrive as a comp: it is
+ * the flattened composite wearing a comp's name. The count comes back so the
+ * caller can tell the difference without opening the project.
+ */
+function seedImportLayered(path, cropped, name) {
+    try {
+        if (!app.project) return seedFail("no project is open");
+
+        var file = new File(seedNormalizePath(path));
+        if (!file.exists) return seedFail("file not found: " + path);
+
+        var options = new ImportOptions(file);
+        var wanted = cropped === false ? ImportAsType.COMP : ImportAsType.COMP_CROPPED_LAYERS;
+        var wantedName = cropped === false ? "COMP" : "COMP_CROPPED_LAYERS";
+
+        if (!options.canImportAs(wanted)) {
+            return seedFail(
+                decodeURI(file.name) + " cannot be imported as " + wantedName +
+                " -- After Effects sees no layers in it. Import it with `importFile` instead.");
+        }
+        options.importAs = wanted;
+
+        app.beginUndoGroup("SEED: import layered");
+        var item;
+        try {
+            item = app.project.importFile(options);
+        } finally {
+            app.endUndoGroup();
+        }
+        if (!item) return seedFail("After Effects returned nothing for " + decodeURI(file.name));
+
+        if (name) {
+            try { item.name = String(name); } catch (ignored) {}
+        }
+
+        var isComp = item instanceof CompItem;
+        var layerCount = isComp ? item.numLayers : 0;
+
+        /*
+         * The layer folder is a sibling named after the file, and it is the
+         * other half of the import -- without its id the caller cannot put it
+         * on the shelf, and it would sit at the project root forever.
+         */
+        var folderId = null;
+        var folderName = null;
+        if (isComp) {
+            for (var i = 1; i <= app.project.numItems; i++) {
+                var candidate = app.project.item(i);
+                if (!(candidate instanceof FolderItem)) continue;
+                // After Effects names it "<file> Layers", localised; match on the stem.
+                var stem = String(decodeURI(file.name)).replace(/\.[^.]+$/, "");
+                if (candidate.name.indexOf(stem) === 0 && candidate.numItems > 0) {
+                    folderId = String(candidate.id);
+                    folderName = candidate.name;
+                    break;
+                }
+            }
+        }
+
+        return seedOk({
+            projectItemId: String(item.id),
+            name: item.name,
+            isComp: isComp,
+            importedAs: wantedName,
+            layerCount: layerCount,
+            width: isComp ? item.width : null,
+            height: isComp ? item.height : null,
+            durationSeconds: isComp ? item.duration : null,
+            layersFolder: folderId === null ? null : { id: folderId, name: folderName }
+        });
+    } catch (error) {
+        try { app.endUndoGroup(); } catch (ignored) {}
+        return seedFail(error);
+    }
+}
+
 function seedFindItemById(id) {
     for (var i = 1; i <= app.project.numItems; i++) {
         var item = app.project.item(i);
@@ -3557,8 +3728,15 @@ function seedRenameItems(renames) {
             item.name = to;
             renamed.push({
                 itemId: id,
-                kind: item instanceof FolderItem ? "folder"
-                    : item instanceof CompItem ? "comp" : "footage",
+                /*
+                 * `seedItemKind`, not an inline instanceof chain. The inline one
+                 * that used to be here reported "comp" for a folder that
+                 * `projectItems` -- using this function, on the same item, in the
+                 * same project -- correctly called a folder. One place to be
+                 * right about what an item is, and a receipt that disagrees with
+                 * the inventory is worse than no receipt.
+                 */
+                kind: seedItemKind(item),
                 from: was,
                 to: String(item.name),
                 folder: seedFolderPath(item)
@@ -3923,6 +4101,66 @@ function seedUniqueCompName(base) {
  * So the default follows the count rather than being a fixed value, because
  * either fixed value is wrong half the time.
  */
+/**
+ * A new composition -- the one thing `precompose` cannot give you.
+ *
+ * `precompose` inherits the parent comp's size, so a surface the project has
+ * never held has no comp to be made from: a ceiling or a floor can only be
+ * built by grouping layers inside something that is already the wrong shape.
+ * This makes one outright, at the size asked for.
+ *
+ * The name is uniqued rather than overwritten, and the result says so, because
+ * two comps with one name is how the wrong one ends up in a render queue.
+ */
+function seedCreateComp(name, width, height, fps, durationSeconds, pixelAspect) {
+    try {
+        if (!app.project) return seedFail("no project is open");
+
+        var w = Math.round(Number(width));
+        var h = Math.round(Number(height));
+        if (!(w >= 4 && w <= 30000) || !(h >= 4 && h <= 30000)) {
+            return seedFail(
+                "a composition is 4 to 30000px on a side; asked for " +
+                String(width) + "x" + String(height));
+        }
+
+        var rate = Number(fps);
+        if (!(rate > 0 && rate <= 240)) rate = 24;
+        var dur = Number(durationSeconds);
+        if (!(dur > 0 && dur <= 10800)) dur = 30;
+        var par = Number(pixelAspect);
+        if (!(par > 0 && par <= 100)) par = 1;
+
+        var asked = String(name || "SEED comp");
+        var wanted = seedUniqueCompName(asked);
+
+        app.beginUndoGroup("SEED: new comp");
+        var created;
+        try {
+            created = app.project.items.addComp(wanted, w, h, par, dur, rate);
+        } finally {
+            app.endUndoGroup();
+        }
+        if (!created) return seedFail("After Effects returned no composition");
+
+        return seedOk({
+            comp: {
+                id: String(created.id),
+                name: created.name,
+                width: created.width,
+                height: created.height,
+                fps: created.frameRate,
+                durationSeconds: created.duration,
+                pixelAspect: created.pixelAspect
+            },
+            renamed: created.name !== asked
+        });
+    } catch (error) {
+        try { app.endUndoGroup(); } catch (ignored) {}
+        return seedFail(error);
+    }
+}
+
 function seedPrecompose(layerIndexes, name, moveAllAttributes) {
     try {
         var comp = seedActiveComp();
@@ -4837,6 +5075,152 @@ function seedReplaceFootage(projectItemId, newPath) {
 }
 
 /**
+ * Closes whatever is open and starts an empty project, saved to `savePath`.
+ *
+ * A clean project is the start of a job, and until now the only way to get one
+ * was File > New Project by hand -- which meant every scripted build had to be
+ * poured into whichever project happened to be open.
+ *
+ * ## Why the close is explicit
+ *
+ * `app.newProject()` on a project with unsaved changes puts up a modal save
+ * dialog. Nothing is listening for it: the panel call has already gone out, so
+ * After Effects blocks on a dialog the caller cannot answer and the host looks
+ * hung. `project.close()` takes the answer as an argument instead, so the
+ * decision is made here, in code, before any dialog can exist.
+ *
+ * That makes `onDirty` the whole safety story, and it defaults to keeping the
+ * work: "save" writes the open project back to its own file first. "discard"
+ * is the only way to lose anything, and a dirty project that has never been
+ * saved anywhere is refused outright rather than guessed at -- there is no file
+ * to save it to and no way to get it back.
+ *
+ * Refuses to write over an existing `.aep`. Starting a new project is not an
+ * operation anybody wants aimed at a project they have already made.
+ */
+function seedNewProject(savePath, onDirty) {
+    try {
+        var wanted = String(savePath || "");
+        if (!wanted) return seedFail("no path was given to save the new project to");
+        if (!/\.aep$/i.test(wanted)) {
+            return seedFail("a project path ends in .aep; asked for " + wanted);
+        }
+
+        var target = new File(wanted);
+        if (target.exists) {
+            return seedFail(
+                "there is already a project at " + target.fsName +
+                " -- name the new one something else, or delete that by hand first");
+        }
+        var parent = target.parent;
+        if (!parent || !parent.exists) {
+            return seedFail(
+                "the folder for " + wanted + " does not exist, so nothing can be saved into it");
+        }
+
+        var mode = String(onDirty || "save").toLowerCase();
+        if (mode !== "save" && mode !== "discard") {
+            return seedFail('onDirty is "save" or "discard"; asked for ' + String(onDirty));
+        }
+
+        var closed = null;
+        if (app.project) {
+            var dirty = false;
+            try { dirty = app.project.dirty === true; } catch (ignored) {}
+            var openFile = null;
+            try { openFile = app.project.file; } catch (ignored) {}
+
+            if (dirty && mode === "save") {
+                if (!openFile) {
+                    return seedFail(
+                        "the open project has unsaved changes and has never been saved, so " +
+                        'there is nowhere to put them. Save it by hand first, or pass ' +
+                        'onDirty "discard" to throw them away.');
+                }
+                app.project.save();
+            }
+
+            closed = {
+                name: openFile ? decodeURI(openFile.name) : null,
+                path: openFile ? openFile.fsName : null,
+                wasDirty: dirty,
+                saved: dirty && mode === "save"
+            };
+
+            // Answered here rather than by a dialog nobody is watching.
+            app.project.close(CloseOptions.DO_NOT_SAVE_CHANGES);
+        }
+
+        var made = app.newProject();
+        if (!made || !app.project) return seedFail("After Effects returned no new project");
+
+        app.project.save(target);
+
+        // Asked again, of a new File: ExtendScript's File caches what it knew at
+        // construction and will deny a file written a moment ago.
+        var written = new File(target.fsName);
+        if (!written.exists) {
+            return seedFail("After Effects reported no error but wrote no project file");
+        }
+
+        return seedOk({
+            savedAs: written.fsName,
+            name: decodeURI(written.name),
+            byteSize: written.length,
+            numItems: app.project.numItems,
+            closed: closed
+        });
+    } catch (error) {
+        return seedFail(error);
+    }
+}
+
+/**
+ * Saves the project back to its own file.
+ *
+ * `saveVersion` was the only way to write the project out, and it always makes
+ * a new file. A script that imports forty items and wants them on disk had to
+ * either burn a version number or leave the project dirty -- so a build ending
+ * in v004 came from a project whose v001, v002 and v003 were the same build
+ * halfway through. This is the plain save: same file, no new number.
+ *
+ * Refuses a project with no file rather than opening a Save As dialog nobody
+ * is watching for.
+ */
+function seedSaveProject() {
+    try {
+        if (!app.project) return seedFail("no project is open");
+
+        var file = null;
+        try { file = app.project.file; } catch (ignored) {}
+        if (!file) {
+            return seedFail(
+                "this project has never been saved, so there is no file to save it to. " +
+                "Use newProject with a path, or save it once by hand.");
+        }
+
+        var wasDirty = false;
+        try { wasDirty = app.project.dirty === true; } catch (ignored) {}
+
+        app.project.save();
+
+        var written = new File(file.fsName);
+        if (!written.exists) {
+            return seedFail("After Effects reported no error but wrote no project file");
+        }
+
+        return seedOk({
+            savedAs: written.fsName,
+            name: decodeURI(written.name),
+            byteSize: written.length,
+            wasDirty: wasDirty
+        });
+    } catch (error) {
+        return seedFail(error);
+    }
+}
+
+/**
  * Saves the project under the next free version number.
  *
  * `ANUAL_SUMMIT.aep` becomes `ANUAL_SUMMIT_v002.aep`, and a project already
@@ -4928,6 +5312,8 @@ var seedAeft_captureRange = seedCaptureRange;
 var seedAeft_rangeInfo = seedRangeInfo;
 var seedAeft_pickFile = seedPickFile;
 var seedAeft_import = seedImport;
+var seedAeft_importLayered = seedImportLayered;
+var seedAeft_setCompSettings = seedSetCompSettings;
 var seedAeft_insertAtPlayhead = seedInsertAtPlayhead;
 var seedAeft_createRegion = seedCreateRegion;
 var seedAeft_setRegionAspect = seedSetRegionAspect;
@@ -4951,6 +5337,7 @@ var seedAeft_moveLayer = seedMoveLayer;
 var seedAeft_deleteFolders = seedDeleteFolders;
 var seedAeft_renameLayers = seedRenameLayers;
 var seedAeft_layerBounds = seedLayerBounds;
+var seedAeft_createComp = seedCreateComp;
 var seedAeft_precompose = seedPrecompose;
 var seedAeft_regionFromLayer = seedRegionFromLayer;
 var seedAeft_setLayerSolo = seedSetLayerSolo;
@@ -4961,6 +5348,8 @@ var seedAeft_setLayerEnabled = seedSetLayerEnabled;
 var seedAeft_insertIntoComp = seedInsertIntoComp;
 var seedAeft_repeatToFill = seedRepeatToFill;
 var seedAeft_replaceFootage = seedReplaceFootage;
+var seedAeft_newProject = seedNewProject;
+var seedAeft_saveProject = seedSaveProject;
 var seedAeft_saveVersion = seedSaveVersion;
 var seedAeft_setEffectParams = seedSetEffectParams;
 var seedAeft_deleteLayer = seedDeleteLayer;

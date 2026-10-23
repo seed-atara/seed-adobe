@@ -2177,6 +2177,48 @@ function seedRangeInfo() {
     }
 }
 
+/**
+ * Saves the project back to its own file.
+ *
+ * Premiere's Project carries `path` as a plain string rather than a File, and
+ * has no `dirty` flag to read, so this reports what it saved and leaves the
+ * question of whether anything had changed alone. Saving a clean project is
+ * harmless in either host.
+ *
+ * Refuses a project with no path rather than opening a Save As dialog nobody
+ * is watching for.
+ */
+function seedSaveProject() {
+    try {
+        if (!app.project) return seedFail("no project is open");
+
+        var where = "";
+        try { where = String(app.project.path || ""); } catch (ignored) {}
+        if (!where) {
+            return seedFail(
+                "this project has never been saved, so there is no file to save it to. " +
+                "Save it once by hand.");
+        }
+
+        app.project.save();
+
+        // A fresh File per check: ExtendScript caches what it knew at construction.
+        var written = new File(seedNormalizePath(where));
+        if (!written.exists) {
+            return seedFail("Premiere reported no error but wrote no project file");
+        }
+
+        return seedOk({
+            savedAs: written.fsName,
+            name: decodeURI(written.name),
+            byteSize: written.length,
+            wasDirty: null
+        });
+    } catch (error) {
+        return seedFail(error);
+    }
+}
+
 /*
  * Host-specific aliases.
  *
@@ -2191,6 +2233,7 @@ function seedRangeInfo() {
  */
 
 var seedPpro_ping = seedPing;
+var seedPpro_saveProject = seedSaveProject;
 var seedPpro_getContext = seedGetContext;
 var seedPpro_setProjectDepth = seedSetProjectDepth;
 var seedPpro_captureFrame = seedCaptureFrame;

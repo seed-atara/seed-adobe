@@ -776,6 +776,30 @@ export class CepAeBridge {
   }
 
   /** Groups layers into a composition of their own. */
+  /**
+   * A composition at a size the project has never held.
+   *
+   * `precompose` can only ever hand back the parent comp's dimensions, so a new
+   * surface -- a ceiling, a floor -- has nothing to be made from. This asks for
+   * the size directly.
+   */
+  async createComp(
+    name: string,
+    width: number,
+    height: number,
+    fps: number,
+    durationSeconds: number,
+    pixelAspect?: number,
+  ): Promise<Record<string, unknown>> {
+    await this.ensureHost();
+    return evalHost(
+      `${hostPrefix()}createComp(${quote(name)}, ${Number(width)}, ${Number(height)}, ` +
+        `${Number(fps)}, ${Number(durationSeconds)}, ${
+          pixelAspect === undefined ? "null" : Number(pixelAspect)
+        })`,
+    );
+  }
+
   async precompose(
     layerIndexes: number[],
     name: string,
@@ -867,6 +891,31 @@ export class CepAeBridge {
    * already waits for a file to be readable, which matters for anything that
    * just came off a download.
    */
+  /**
+   * Puts a project item that is ALREADY in the project into the active comp.
+   *
+   * `insertIntoComp` goes through the library: asset id -> path -> import ->
+   * insert, which is right for a generated clip arriving for the first time and
+   * wrong for artwork the project already holds. Called once per comp it would
+   * re-import the same plate every time, leaving one duplicate footage item per
+   * insertion. This skips the import and addresses the item directly.
+   */
+  async insertItem(
+    projectItemId: string,
+    options: {
+      startSeconds?: number;
+      fit?: "cover" | "contain" | "stretch" | "none";
+      name?: string;
+    } = {},
+  ): Promise<Record<string, unknown>> {
+    await this.ensureHost();
+    return evalHost(
+      `${hostPrefix()}insertIntoComp(${quote(projectItemId)}, ${Number(
+        options.startSeconds ?? 0,
+      )}, ${quote(options.fit ?? "none")}, ${options.name ? quote(options.name) : "null"})`,
+    );
+  }
+
   async insertIntoComp(
     assetId: string,
     options: {
@@ -903,6 +952,29 @@ export class CepAeBridge {
     return evalHost(
       `${hostPrefix()}replaceFootage(${quote(projectItemId)}, ${quote(path)})`,
     );
+  }
+
+  /**
+   * Closes what is open and starts an empty project saved to `savePath`.
+   *
+   * `onDirty` is passed through rather than defaulted here: the host makes the
+   * keep-or-discard decision in one place, because it is the only place that
+   * can see whether the open project has a file to be saved back to.
+   */
+  async newProject(
+    savePath: string,
+    onDirty?: "save" | "discard",
+  ): Promise<Record<string, unknown>> {
+    await this.ensureHost();
+    return evalHost(
+      `${hostPrefix()}newProject(${quote(savePath)}, ${onDirty ? quote(onDirty) : "null"})`,
+    );
+  }
+
+  /** Saves the project back to its own file, without making a new version. */
+  async saveProject(): Promise<Record<string, unknown>> {
+    await this.ensureHost();
+    return evalHost(`${hostPrefix()}saveProject()`);
   }
 
   /** Saves under the next free version number beside the current file. */
@@ -1237,6 +1309,54 @@ export class CepAeBridge {
             handle.compId ?? 0
           }, ${handle.restoreItemId ?? 0}, ${handle.restoreWidth ?? 0})`;
     await evalHost(call);
+  }
+
+  /**
+   * Imports a file straight into the project, by path.
+   *
+   * Distinct from `importAsset`, and deliberately so: adopting into the library
+   * copies the bytes, because the library owns immutable media. Artwork a client
+   * is still revising is the opposite case -- the project wants to point at the
+   * master so a re-rendered plate arrives on its own. This links; `importAsset`
+   * copies. Both are right, for different media.
+   */
+  async importFile(path: string): Promise<Record<string, unknown>> {
+    await this.ensureHost();
+    return evalHost(`${hostPrefix()}import(${quote(path)})`);
+  }
+
+  /** Sets an existing comp's duration and frame rate. */
+  async setCompSettings(
+    compId: string,
+    durationSeconds?: number,
+    fps?: number,
+  ): Promise<Record<string, unknown>> {
+    await this.ensureHost();
+    return evalHost(
+      `${hostPrefix()}setCompSettings(${quote(compId)}, ${
+        durationSeconds === undefined ? "null" : Number(durationSeconds)
+      }, ${fps === undefined ? "null" : Number(fps)})`,
+    );
+  }
+
+  /**
+   * Imports a layered file as a composition rather than a flattened still.
+   *
+   * `importFile` gives the composite; this gives the document's layers, each
+   * with its own transform. Separate methods because they are separate
+   * answers, and a plate wants the first one.
+   */
+  async importLayered(
+    path: string,
+    cropped?: boolean,
+    name?: string,
+  ): Promise<Record<string, unknown>> {
+    await this.ensureHost();
+    return evalHost(
+      `${hostPrefix()}importLayered(${quote(path)}, ${cropped === false ? "false" : "true"}, ${
+        name ? quote(name) : "null"
+      })`,
+    );
   }
 
   async importAsset(
